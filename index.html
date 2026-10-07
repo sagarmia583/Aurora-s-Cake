@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (function() {
+        try {
+          var _origFetch = window.fetch ? window.fetch.bind(window) : null;
+          var _currFetch = _origFetch;
+          Object.defineProperty(window, 'fetch', {
+            get: function() {
+              return _currFetch;
+            },
+            set: function(val) {
+              _currFetch = val;
+            },
+            configurable: true,
+            enumerable: true
+          });
+        } catch (e) {}
+
+        window.addEventListener('error', function(ev) {
+          if (
+            (ev.filename && ev.filename.indexOf('chrome-extension://') !== -1) ||
+            (ev.message && ev.message.indexOf('Cannot set property fetch') !== -1)
+          ) {
+            ev.preventDefault();
+            ev.stopImmediatePropagation();
+            return true;
+          }
+        }, true);
+      })();
+    </script>
+    <title>SweetDelight Cake Shop &amp; Operations Portal</title>
+    <meta name="description" content="Production-ready Cake Shop e-commerce platform and staff operations suite featuring responsive storefront, live kitchen display, delivery rider portal, permission-based admin panel, and high-performance caching." />
+    <meta property="og:title" content="SweetDelight Cake Shop &amp; Operations Portal" />
+    <meta property="og:description" content="Production-ready Cake Shop e-commerce platform and staff operations suite featuring responsive storefront, live kitchen display, delivery rider portal, permission-based admin panel, and high-performance caching." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
