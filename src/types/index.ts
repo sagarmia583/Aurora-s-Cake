@@ -36,6 +36,25 @@ export interface ShopSettings {
   delivery_enabled: boolean;
   website_title: string;
   website_description: string;
+  // Dynamic Web Texts (Zero Hardcoding - All from Database)
+  top_announcement_text?: string;
+  hero_tagline?: string;
+  hero_title?: string;
+  hero_subtitle?: string;
+  hero_cta_text?: string;
+  trust_badge_1_title?: string;
+  trust_badge_1_desc?: string;
+  trust_badge_2_title?: string;
+  trust_badge_2_desc?: string;
+  trust_badge_3_title?: string;
+  trust_badge_3_desc?: string;
+  trust_badge_4_title?: string;
+  trust_badge_4_desc?: string;
+  custom_cake_promo_tag?: string;
+  custom_cake_promo_title?: string;
+  custom_cake_promo_desc?: string;
+  custom_cake_promo_btn?: string;
+  footer_about_text?: string;
   facebook_url?: string;
   instagram_url?: string;
 }

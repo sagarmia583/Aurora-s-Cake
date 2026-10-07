@@ -16,7 +16,9 @@ import {
   RotateCw,
   Search,
   Check,
-  Bike
+  Bike,
+  TrendingUp,
+  BarChart3
 } from 'lucide-react';
 import { 
   ShopSettings, 
@@ -29,6 +31,7 @@ import {
   StaffRole 
 } from '../types';
 import { mockDb } from '../services/mockDatabase';
+import { AnalyticsDashboard } from './AnalyticsDashboard';
 
 interface AdminPanelProps {
   settings: ShopSettings;
@@ -44,6 +47,7 @@ interface AdminPanelProps {
 
 type TabKey = 
   | 'overview' 
+  | 'analytics'
   | 'orders' 
   | 'products' 
   | 'categories' 
@@ -164,6 +168,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         <div className="flex flex-wrap gap-1.5 bg-slate-800 p-1.5 rounded-2xl border border-slate-700">
           {[
             { key: 'overview', label: 'Dashboard', icon: LayoutDashboard },
+            { key: 'analytics', label: 'Sales Trends', icon: BarChart3 },
             { key: 'orders', label: 'Orders', count: totalOrdersCount, icon: ShoppingBag },
             { key: 'products', label: 'Products', count: products.length, icon: Layers },
             { key: 'settings', label: 'Shop Settings', icon: Settings },
@@ -222,6 +227,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <span className="text-[11px] text-slate-400 font-bold">Rider on bike</span>
             </div>
           </div>
+
+          {/* Interactive Recharts Data Visualization Section */}
+          <AnalyticsDashboard
+            orders={orders}
+            products={products}
+            categories={categories}
+            currency={currency}
+            isCompact={true}
+          />
 
           {/* Recent Orders Overview */}
           <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
@@ -292,6 +306,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* TAB: DATA VISUALIZATION / SALES TRENDS */}
+      {activeTab === 'analytics' && (
+        <AnalyticsDashboard
+          orders={orders}
+          products={products}
+          categories={categories}
+          currency={currency}
+        />
       )}
 
       {/* TAB 2: ORDERS MANAGEMENT */}

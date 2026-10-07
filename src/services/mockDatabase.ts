@@ -17,7 +17,7 @@ import {
 } from '../types';
 import { cacheEngine } from './cacheEngine';
 
-// Initial dynamic shop settings
+// Initial dynamic shop settings (100% database driven - zero hardcoded text)
 const INITIAL_SHOP_SETTINGS: ShopSettings = {
   id: 'setting-1',
   shop_name: 'SweetDelight Artisan Cake Boutique',
@@ -33,6 +33,25 @@ const INITIAL_SHOP_SETTINGS: ShopSettings = {
   delivery_enabled: true,
   website_title: 'SweetDelight - Handcrafted Fresh Celebration Cakes',
   website_description: 'Tangail’s #1 boutique for bespoke celebration cakes, designer wedding cakes, and sweet delicacies with express temperature-controlled delivery.',
+  // Dynamic Web Texts
+  top_announcement_text: '🚀 3-Hour Express Temperature-Safe Delivery in Tangail',
+  hero_tagline: 'Tangail’s Bespoke Luxury Patisserie',
+  hero_title: 'Handcrafted Celebration Cakes Made with Passion',
+  hero_subtitle: 'Order fresh 100% halal celebratory cakes made from pure dairy cream and imported Belgian cocoa with guaranteed express delivery.',
+  hero_cta_text: 'Explore Fresh Cakes',
+  trust_badge_1_title: '100% Fresh Daily',
+  trust_badge_1_desc: 'Baked from scratch upon order',
+  trust_badge_2_title: '3-Hour Express Dispatch',
+  trust_badge_2_desc: 'Temperature-safe van & bike delivery',
+  trust_badge_3_title: 'Free Cake Dedication',
+  trust_badge_3_desc: 'Piped name & wishes included',
+  trust_badge_4_title: 'Hygienic Halal Standards',
+  trust_badge_4_desc: 'Pure dairy cream & imported cocoa',
+  custom_cake_promo_tag: 'Custom Cake Studio',
+  custom_cake_promo_title: 'Have a Dream Cake Design in Mind?',
+  custom_cake_promo_desc: 'Upload your reference photo, pick custom tiers, flavors, colors, and dedicated text. Our pastry chef team will provide an instant custom quote!',
+  custom_cake_promo_btn: 'Submit Custom Cake Request',
+  footer_about_text: 'Tangail\'s premier boutique for fresh birthday cakes, wedding tiers, cheesecakes, and custom pastries. Baked fresh with love and 100% natural ingredients.',
   facebook_url: 'https://facebook.com',
   instagram_url: 'https://instagram.com',
 };

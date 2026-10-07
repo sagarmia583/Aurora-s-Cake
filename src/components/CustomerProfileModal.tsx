@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   User, 
   RotateCcw, 
   Clock, 
+  Calendar,
   MapPin, 
   Phone, 
   Mail, 
@@ -14,10 +15,13 @@ import {
   Key, 
   Star, 
   ChevronRight, 
-  ExternalLink,
-  Edit2,
-  Save,
-  Tag
+  ExternalLink, 
+  Edit2, 
+  Save, 
+  Receipt,
+  ArrowRight,
+  PackageCheck,
+  RefreshCw
 } from 'lucide-react';
 import { Order, OrderStatus, Product, CartItem } from '../types';
 import { mockDb } from '../services/mockDatabase';
@@ -43,8 +47,27 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  // Active Tab
+  // Active Tab: default to Recent Orders
   const [activeTab, setActiveTab] = useState<'orders' | 'profile'>('orders');
+
+  // Asynchronous fetching state for user's past orders
+  const [userOrders, setUserOrders] = useState<Order[]>(orders || []);
+  const [isFetchingOrders, setIsFetchingOrders] = useState<boolean>(false);
+
+  // Fetch past orders from database / cache upon modal open
+  useEffect(() => {
+    if (isOpen) {
+      setIsFetchingOrders(true);
+      try {
+        const fetched = mockDb.getOrders();
+        setUserOrders(fetched && fetched.length > 0 ? fetched : orders);
+      } catch {
+        setUserOrders(orders);
+      } finally {
+        setIsFetchingOrders(false);
+      }
+    }
+  }, [isOpen, orders]);
 
   // Customer Profile State
   const [customerName, setCustomerName] = useState('Tanvir Rahman');
@@ -54,7 +77,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [profileSuccessMsg, setProfileSuccessMsg] = useState<string | null>(null);
 
-  // Filter orders
+  // Filter orders: all, active, delivered
   const [orderFilter, setOrderFilter] = useState<'all' | 'active' | 'delivered'>('all');
 
   // Review Form Modal inside Profile
@@ -63,10 +86,11 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
   const [reviewComment, setReviewComment] = useState('');
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
 
-  // Success feedback for reorder
-  const [reorderFeedbackOrderId, setReorderFeedbackOrderId] = useState<string | null>(null);
+  // Reorder notification toast
+  const [reorderedOrderId, setReorderedOrderId] = useState<string | null>(null);
+  const [reorderNotification, setReorderNotification] = useState<string | null>(null);
 
-  const filteredOrders = orders.filter((o) => {
+  const filteredOrders = userOrders.filter((o) => {
     if (orderFilter === 'active') {
       return o.status !== 'delivered' && o.status !== 'cancelled';
     }
@@ -76,6 +100,10 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
     return true;
   });
 
+  // Calculate summary metrics
+  const totalSpent = userOrders.reduce((sum, o) => sum + (o.status !== 'cancelled' ? o.total_amount : 0), 0);
+  const activeOrdersCount = userOrders.filter((o) => o.status !== 'delivered' && o.status !== 'cancelled').length;
+
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
     setIsEditingProfile(false);
@@ -84,10 +112,16 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
   };
 
   const handleReorderClick = (order: Order) => {
-    setReorderFeedbackOrderId(order.id);
+    setReorderedOrderId(order.id);
+    const itemCount = order.items.reduce((sum, it) => sum + it.quantity, 0);
+    setReorderNotification(`Reordered: ${itemCount} ${itemCount === 1 ? 'item' : 'items'} added to your cart!`);
+
+    // Automatically adds the items to cart via onReorder
     onReorder(order);
+
     setTimeout(() => {
-      setReorderFeedbackOrderId(null);
+      setReorderedOrderId(null);
+      setReorderNotification(null);
       onClose();
     }, 600);
   };
@@ -118,21 +152,66 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
   const getStatusBadge = (status: OrderStatus) => {
     switch (status) {
       case 'delivered':
-        return { bg: 'bg-emerald-100 text-emerald-800 border-emerald-200', label: 'Delivered' };
+        return { 
+          bg: 'bg-emerald-100 text-emerald-800 border-emerald-200', 
+          dot: 'bg-emerald-500', 
+          label: 'Delivered' 
+        };
       case 'out_for_delivery':
-        return { bg: 'bg-sky-100 text-sky-800 border-sky-200 animate-pulse', label: 'Out for Delivery' };
+        return { 
+          bg: 'bg-sky-100 text-sky-800 border-sky-200 animate-pulse', 
+          dot: 'bg-sky-500', 
+          label: 'Out for Delivery' 
+        };
       case 'preparing':
-        return { bg: 'bg-rose-100 text-rose-800 border-rose-200', label: 'In the Oven' };
+        return { 
+          bg: 'bg-rose-100 text-rose-800 border-rose-200', 
+          dot: 'bg-rose-500', 
+          label: 'In the Oven (Baking)' 
+        };
       case 'ready':
-        return { bg: 'bg-teal-100 text-teal-800 border-teal-200', label: 'Boxed & Ready' };
+        return { 
+          bg: 'bg-teal-100 text-teal-800 border-teal-200', 
+          dot: 'bg-teal-500', 
+          label: 'Boxed & Ready' 
+        };
       case 'assigned':
-        return { bg: 'bg-indigo-100 text-indigo-800 border-indigo-200', label: 'Rider Assigned' };
+        return { 
+          bg: 'bg-indigo-100 text-indigo-800 border-indigo-200', 
+          dot: 'bg-indigo-500', 
+          label: 'Rider Assigned' 
+        };
       case 'confirmed':
-        return { bg: 'bg-amber-100 text-amber-800 border-amber-200', label: 'Confirmed' };
+        return { 
+          bg: 'bg-amber-100 text-amber-800 border-amber-200', 
+          dot: 'bg-amber-500', 
+          label: 'Confirmed' 
+        };
       case 'cancelled':
-        return { bg: 'bg-red-100 text-red-800 border-red-200', label: 'Cancelled' };
+        return { 
+          bg: 'bg-red-100 text-red-800 border-red-200', 
+          dot: 'bg-red-500', 
+          label: 'Cancelled' 
+        };
       default:
-        return { bg: 'bg-slate-100 text-slate-800 border-slate-200', label: 'Pending' };
+        return { 
+          bg: 'bg-slate-100 text-slate-800 border-slate-200', 
+          dot: 'bg-slate-400', 
+          label: 'Pending' 
+        };
+    }
+  };
+
+  const formatOrderDate = (dateString: string) => {
+    try {
+      const d = new Date(dateString);
+      return d.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      }) + ' at ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return dateString;
     }
   };
 
@@ -163,18 +242,33 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 self-end sm:self-center">
-            <button
-              onClick={onClose}
-              className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer self-end sm:self-center"
+            title="Close"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Quick Metrics Bar */}
+        <div className="grid grid-cols-3 gap-2 px-6 py-3 bg-slate-50 border-b border-slate-200/80 text-xs">
+          <div className="space-y-0.5">
+            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Total Orders</span>
+            <span className="text-base font-black text-slate-800">{userOrders.length}</span>
+          </div>
+          <div className="space-y-0.5 border-l border-slate-200 pl-3">
+            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Total Spent</span>
+            <span className="text-base font-black text-rose-600">{currency}{totalSpent.toLocaleString()}</span>
+          </div>
+          <div className="space-y-0.5 border-l border-slate-200 pl-3">
+            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Active Deliveries</span>
+            <span className="text-base font-black text-sky-600">{activeOrdersCount} in progress</span>
           </div>
         </div>
 
         {/* Navigation Tabs */}
-        <div className="px-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
+        <div className="px-6 border-b border-slate-100 flex items-center justify-between bg-white">
           <div className="flex gap-2">
             <button
               onClick={() => setActiveTab('orders')}
@@ -185,7 +279,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
               }`}
             >
               <ShoppingBag className="w-4 h-4" />
-              <span>Recent Orders History ({orders.length})</span>
+              <span>Recent Orders ({userOrders.length})</span>
             </button>
             <button
               onClick={() => setActiveTab('profile')}
@@ -196,13 +290,13 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
               }`}
             >
               <User className="w-4 h-4" />
-              <span>Profile & Delivery Address</span>
+              <span>Customer Details & Address</span>
             </button>
           </div>
 
           {activeTab === 'orders' && (
             <div className="hidden sm:flex items-center gap-1.5 text-xs">
-              <span className="text-slate-400 text-[11px]">Filter:</span>
+              <span className="text-slate-400 text-[11px] font-medium">Filter:</span>
               {(['all', 'active', 'delivered'] as const).map((f) => (
                 <button
                   key={f}
@@ -210,7 +304,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                   className={`px-2.5 py-1 rounded-lg text-[11px] font-bold capitalize transition-colors cursor-pointer ${
                     orderFilter === f
                       ? 'bg-rose-100 text-rose-800'
-                      : 'text-slate-500 hover:bg-slate-200/60'
+                      : 'text-slate-500 hover:bg-slate-100'
                   }`}
                 >
                   {f}
@@ -222,19 +316,39 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
 
         {/* Content Area */}
         <div className="overflow-y-auto p-6 space-y-6 flex-1">
-          {/* TAB 1: RECENT ORDERS HISTORY */}
+          {/* Reorder Toast Banner */}
+          {reorderNotification && (
+            <div className="bg-emerald-600 text-white p-3.5 rounded-2xl shadow-lg flex items-center justify-between text-xs font-bold animate-fade-in">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-200 shrink-0" />
+                <span>{reorderNotification}</span>
+              </div>
+              <span className="text-[11px] underline">Opening bag...</span>
+            </div>
+          )}
+
+          {/* TAB 1: RECENT ORDERS SECTION */}
           {activeTab === 'orders' && (
-            <div className="space-y-4">
+            <section aria-label="Recent Orders" className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h4 className="font-bold text-slate-900 text-base">Your Past Purchases & Cake Journey</h4>
-                  <p className="text-xs text-slate-500">
-                    Easily review ordered cake weights, custom dedications, and reorder with 1-click.
+                  <h4 className="font-bold text-slate-900 text-lg flex items-center gap-2">
+                    <span>Recent Orders</span>
+                    <span className="text-xs bg-rose-100 text-rose-800 px-2.5 py-0.5 rounded-full font-bold">
+                      {filteredOrders.length}
+                    </span>
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    View your past order summaries, current status, total price, and order dates with 1-click reorder.
                   </p>
                 </div>
-                <div className="text-xs font-semibold text-slate-500">
-                  Showing {filteredOrders.length} {filteredOrders.length === 1 ? 'order' : 'orders'}
-                </div>
+
+                {isFetchingOrders && (
+                  <div className="flex items-center gap-1.5 text-xs text-rose-600 font-semibold animate-pulse">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Fetching orders...</span>
+                  </div>
+                )}
               </div>
 
               {filteredOrders.length === 0 ? (
@@ -242,9 +356,9 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                   <div className="w-16 h-16 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto text-2xl shadow-xs">
                     🎂
                   </div>
-                  <h4 className="font-bold text-slate-800 text-base">No orders in this filter</h4>
+                  <h4 className="font-bold text-slate-800 text-base">No orders found</h4>
                   <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                    You haven't placed an order matching this category yet. Order a freshly baked celebration cake today!
+                    You haven't placed an order matching this filter yet. Explore our handcrafted celebration cakes!
                   </p>
                   <button
                     onClick={() => {
@@ -262,86 +376,101 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                   {filteredOrders.map((order) => {
                     const statusInfo = getStatusBadge(order.status);
                     const isDelivered = order.status === 'delivered';
-                    const isReordered = reorderFeedbackOrderId === order.id;
+                    const isReordered = reorderedOrderId === order.id;
+                    const itemCount = order.items.reduce((sum, it) => sum + it.quantity, 0);
 
                     return (
                       <div
                         key={order.id}
                         className="bg-white rounded-3xl border border-slate-200 hover:border-rose-300 shadow-xs hover:shadow-md transition-all p-5 space-y-4 relative overflow-hidden"
                       >
-                        {/* Order Header */}
-                        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 border-b border-slate-100 pb-3">
+                        {/* Header: Order Number, Date, Status Badge, Total Price */}
+                        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 border-b border-slate-100 pb-3.5">
                           <div className="space-y-1">
-                            <div className="flex items-center gap-2.5">
-                              <span className="font-mono text-xs font-black text-slate-900 bg-slate-100 px-2 py-0.5 rounded-md">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-mono text-xs font-black text-slate-900 bg-slate-100 px-2.5 py-0.5 rounded-md">
                                 #{order.order_number}
                               </span>
+                              
+                              {/* Order Status */}
                               <span
-                                className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${statusInfo.bg}`}
+                                className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border flex items-center gap-1.5 ${statusInfo.bg}`}
+                                title={`Status: ${statusInfo.label}`}
                               >
-                                {statusInfo.label}
+                                <span className={`w-1.5 h-1.5 rounded-full ${statusInfo.dot}`} />
+                                <span>Status: {statusInfo.label}</span>
                               </span>
                             </div>
-                            <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
-                              <Clock className="w-3 h-3" />
-                              <span>{new Date(order.created_at).toLocaleDateString()} at {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+
+                            {/* Order Date */}
+                            <div className="text-[11px] text-slate-600 flex items-center gap-2 pt-0.5">
+                              <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span>Order Date: <strong className="text-slate-800">{formatOrderDate(order.created_at)}</strong></span>
                               <span>•</span>
-                              <span>Slot: {order.delivery_slot.split(' ')[0]}</span>
+                              <span className="text-slate-400">Slot: {order.delivery_slot.split(' ')[0]}</span>
                             </div>
                           </div>
 
-                          <div className="text-right">
-                            <span className="text-base font-black text-rose-600 block">
-                              {currency}{order.total_amount}
+                          {/* Total Price */}
+                          <div className="text-left sm:text-right">
+                            <span className="text-[10px] text-slate-400 uppercase font-semibold block">Total Price</span>
+                            <span className="text-xl font-black text-rose-600 block leading-tight">
+                              {currency}{order.total_amount.toLocaleString()}
                             </span>
-                            <span className="text-[10px] text-slate-400 uppercase font-semibold">
+                            <span className="text-[10px] text-slate-400 uppercase font-medium">
                               {order.payment_method} ({order.payment_status})
                             </span>
                           </div>
                         </div>
 
                         {/* Order Items Breakdown */}
-                        <div className="space-y-2.5">
-                          {order.items.map((item) => (
-                            <div
-                              key={item.id}
-                              className="bg-slate-50/80 p-3 rounded-2xl border border-slate-100 text-xs space-y-1.5"
-                            >
-                              <div className="flex justify-between items-start">
-                                <div>
-                                  <h5 className="font-bold text-slate-900 leading-tight">
-                                    {item.quantity}x {item.product_name}
-                                  </h5>
-                                  <div className="text-[11px] text-rose-600 font-semibold mt-0.5">
-                                    Size: {item.variant_name}
-                                    {item.flavor_name && (
-                                      <span className="text-slate-600 font-normal"> • Flavor: {item.flavor_name}</span>
-                                    )}
+                        <div className="space-y-2">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
+                            Order Summary ({itemCount} {itemCount === 1 ? 'item' : 'items'})
+                          </span>
+
+                          <div className="space-y-2">
+                            {order.items.map((item) => (
+                              <div
+                                key={item.id}
+                                className="bg-slate-50/80 p-3 rounded-2xl border border-slate-100 text-xs space-y-1.5"
+                              >
+                                <div className="flex justify-between items-start">
+                                  <div>
+                                    <h5 className="font-bold text-slate-900 leading-tight">
+                                      {item.quantity}x {item.product_name}
+                                    </h5>
+                                    <div className="text-[11px] text-rose-600 font-semibold mt-0.5">
+                                      Size: {item.variant_name}
+                                      {item.flavor_name && (
+                                        <span className="text-slate-600 font-normal"> • Flavor: {item.flavor_name}</span>
+                                      )}
+                                    </div>
                                   </div>
+                                  <span className="font-bold text-slate-800">
+                                    {currency}{item.subtotal}
+                                  </span>
                                 </div>
-                                <span className="font-bold text-slate-800">
-                                  {currency}{item.subtotal}
-                                </span>
+
+                                {/* Cake Dedication Message */}
+                                {item.writing_message && (
+                                  <div className="text-[11px] bg-amber-50 text-amber-900 px-2.5 py-1 rounded-lg border border-amber-200 font-medium">
+                                    ✍️ Piped Dedication: "{item.writing_message}"
+                                  </div>
+                                )}
+
+                                {/* Addons */}
+                                {item.addons && item.addons.length > 0 && (
+                                  <div className="text-[10px] text-slate-500 pl-2 border-l-2 border-rose-200">
+                                    Add-ons: {item.addons.map((a) => `${a.addon_name} (+${currency}${a.unit_price})`).join(', ')}
+                                  </div>
+                                )}
                               </div>
-
-                              {/* Custom Cake Message */}
-                              {item.writing_message && (
-                                <div className="text-[11px] bg-amber-50 text-amber-900 px-2.5 py-1 rounded-lg border border-amber-200 font-medium">
-                                  ✍️ Piped Dedication: "{item.writing_message}"
-                                </div>
-                              )}
-
-                              {/* Add-ons */}
-                              {item.addons && item.addons.length > 0 && (
-                                <div className="text-[10px] text-slate-500 pl-2 border-l-2 border-rose-200">
-                                  Add-ons: {item.addons.map((a) => `${a.addon_name} (+${currency}${a.unit_price})`).join(', ')}
-                                </div>
-                              )}
-                            </div>
-                          ))}
+                            ))}
+                          </div>
                         </div>
 
-                        {/* Delivery Info & OTP */}
+                        {/* Delivery Location & Secret OTP */}
                         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-rose-50/40 p-3 rounded-2xl border border-rose-100 text-xs">
                           <div className="flex items-start gap-2 text-slate-600">
                             <MapPin className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
@@ -362,10 +491,10 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                           </div>
                         </div>
 
-                        {/* Action Buttons: Reorder & Track */}
+                        {/* Action Buttons: Reorder, Live Tracker, Review */}
                         <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100">
                           <div className="flex items-center gap-2">
-                            {/* Track Order Button */}
+                            {/* Live Tracker Button */}
                             <button
                               onClick={() => {
                                 onClose();
@@ -393,14 +522,16 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                           <button
                             onClick={() => handleReorderClick(order)}
                             disabled={isReordered}
-                            className={`inline-flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-bold shadow-md transition-all cursor-pointer active:scale-95 ${
+                            aria-label="Reorder"
+                            title="Reorder this past order"
+                            className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold shadow-md transition-all cursor-pointer active:scale-95 ${
                               isReordered
                                 ? 'bg-emerald-600 text-white shadow-emerald-200 animate-pulse'
                                 : 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-200'
                             }`}
                           >
                             <RotateCcw className={`w-3.5 h-3.5 ${isReordered ? 'animate-spin' : ''}`} />
-                            <span>{isReordered ? 'Added to Cart!' : 'Reorder This Cake'}</span>
+                            <span>{isReordered ? 'Added to Cart!' : 'Reorder'}</span>
                           </button>
                         </div>
                       </div>
@@ -408,7 +539,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                   })}
                 </div>
               )}
-            </div>
+            </section>
           )}
 
           {/* TAB 2: PROFILE & SAVED ADDRESS */}
@@ -505,7 +636,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
               </form>
 
               {/* VIP Club Perks */}
-              <div className="bg-linear-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-3xl p-5 space-y-2">
+              <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-3xl p-5 space-y-2">
                 <div className="flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-amber-600" />
                   <h5 className="font-bold text-amber-950 text-sm">SweetDelight VIP Perks</h5>

@@ -4,8 +4,9 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Navbar } from './components/Navbar';
+import { Navbar, ViewMode } from './components/Navbar';
 import { CustomerStorefront } from './components/CustomerStorefront';
+import { MobileAppExperience } from './components/MobileAppExperience';
 import { ProductDetailModal } from './components/ProductDetailModal';
 import { CartDrawer } from './components/CartDrawer';
 import { CheckoutModal } from './components/CheckoutModal';
@@ -15,9 +16,11 @@ import { DeliveryRiderPortal } from './components/DeliveryRiderPortal';
 import { AdminPanel } from './components/AdminPanel';
 import { CachePerformanceHub } from './components/CachePerformanceHub';
 import { DatabaseSchemaViewer } from './components/DatabaseSchemaViewer';
+import { SupabaseSyncModal } from './components/SupabaseSyncModal';
 import { CustomCakeModal } from './components/CustomCakeModal';
 import { CustomerProfileModal } from './components/CustomerProfileModal';
 import { mockDb } from './services/mockDatabase';
+import { supabaseDataService } from './services/supabaseDataService';
 import { 
   ShopSettings, 
   Product, 
@@ -38,10 +41,16 @@ import {
 import { Home, ShoppingBag, Clock, Sparkles, Cake, User } from 'lucide-react';
 
 export default function App() {
-  // Active Role / Persona
+  // Dual Experience: Responsive Website vs Mobile App
+  const [viewMode, setViewMode] = useState<ViewMode>('web');
+
+  // Active Role / Persona (Web View)
   const [activeRole, setActiveRole] = useState<StaffRole | 'customer'>('customer');
 
-  // Core Data
+  // Supabase Connection Status
+  const [isSupabaseConnected, setIsSupabaseConnected] = useState<boolean>(false);
+
+  // Core Data (100% Database-Driven)
   const [settings, setSettings] = useState<ShopSettings>({
     id: 'setting-1',
     shop_name: 'SweetDelight Artisan Cake Boutique',
@@ -57,6 +66,24 @@ export default function App() {
     delivery_enabled: true,
     website_title: 'SweetDelight - Handcrafted Fresh Celebration Cakes',
     website_description: 'Tangail’s #1 boutique for bespoke celebration cakes, designer wedding cakes, and sweet delicacies with express temperature-controlled delivery.',
+    top_announcement_text: '🚀 3-Hour Express Temperature-Safe Delivery in Tangail',
+    hero_tagline: 'Tangail’s Bespoke Luxury Patisserie',
+    hero_title: 'Handcrafted Celebration Cakes Made with Passion',
+    hero_subtitle: 'Order fresh 100% halal celebratory cakes made from pure dairy cream and imported Belgian cocoa with guaranteed express delivery.',
+    hero_cta_text: 'Explore Fresh Cakes',
+    trust_badge_1_title: '100% Fresh Daily',
+    trust_badge_1_desc: 'Baked from scratch upon order',
+    trust_badge_2_title: '3-Hour Express Dispatch',
+    trust_badge_2_desc: 'Temperature-safe van & bike delivery',
+    trust_badge_3_title: 'Free Cake Dedication',
+    trust_badge_3_desc: 'Piped name & wishes included',
+    trust_badge_4_title: 'Hygienic Halal Standards',
+    trust_badge_4_desc: 'Pure dairy cream & imported cocoa',
+    custom_cake_promo_tag: 'Custom Cake Studio',
+    custom_cake_promo_title: 'Have a Dream Cake Design in Mind?',
+    custom_cake_promo_desc: 'Upload your reference photo, pick custom tiers, flavors, colors, and dedicated text. Our pastry chef team will provide an instant custom quote!',
+    custom_cake_promo_btn: 'Submit Custom Cake Request',
+    footer_about_text: 'Tangail premier boutique for fresh birthday cakes, wedding tiers, cheesecakes, and custom pastries. Baked fresh with love and 100% natural ingredients.',
   });
 
   const [products, setProducts] = useState<Product[]>([]);
@@ -91,6 +118,7 @@ export default function App() {
   const [isCustomCakeOpen, setIsCustomCakeOpen] = useState(false);
   const [isCacheHubOpen, setIsCacheHubOpen] = useState(false);
   const [isDbViewerOpen, setIsDbViewerOpen] = useState(false);
+  const [isSupabaseSyncOpen, setIsSupabaseSyncOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [latestOrderId, setLatestOrderId] = useState<string | undefined>(undefined);
 
@@ -103,8 +131,29 @@ export default function App() {
     }
   }, [cartItems]);
 
-  // Load and subscribe to reactive database
+  // Load and synchronize data from Supabase / Reactive Database
   const refreshData = async () => {
+    if (supabaseDataService.getStatus().isConnected) {
+      const supabaseData = await supabaseDataService.loadAllDataFromSupabase();
+      if (supabaseData && supabaseData.settings) {
+        setSettings(supabaseData.settings);
+        if (supabaseData.products) setProducts(supabaseData.products);
+        if (supabaseData.categories) setCategories(supabaseData.categories);
+        if (supabaseData.flavors) setFlavors(supabaseData.flavors);
+        if (supabaseData.addons) setAddons(supabaseData.addons);
+        if (supabaseData.banners) setBanners(supabaseData.banners);
+        if (supabaseData.zones) setZones(supabaseData.zones);
+        if (supabaseData.slots) setSlots(supabaseData.slots);
+        if (supabaseData.orders) setOrders(supabaseData.orders);
+        if (supabaseData.coupons) setCoupons(supabaseData.coupons);
+        if (supabaseData.reviews) setReviews(supabaseData.reviews);
+        if (supabaseData.customCakes) setCustomCakes(supabaseData.customCakes);
+        setAuditLogs(mockDb.getAuditLogs());
+        return;
+      }
+    }
+
+    // Reactive local database fallback
     const [fetchedSettings, fetchedProducts, fetchedCategories] = await Promise.all([
       mockDb.getShopSettings(),
       mockDb.getProducts(),
@@ -128,11 +177,23 @@ export default function App() {
 
   useEffect(() => {
     refreshData();
-    const unsubscribe = mockDb.subscribe(() => {
+
+    // Listen to local mockDb changes
+    const unsubDb = mockDb.subscribe(() => {
       refreshData();
     });
+
+    // Listen to Supabase connection & live events
+    const unsubSupabase = supabaseDataService.subscribe((status) => {
+      setIsSupabaseConnected(status.isConnected);
+      if (status.isConnected) {
+        refreshData();
+      }
+    });
+
     return () => {
-      unsubscribe();
+      unsubDb();
+      unsubSupabase();
     };
   }, []);
 
@@ -236,65 +297,98 @@ export default function App() {
         settings={settings}
         activeRole={activeRole}
         onRoleChange={setActiveRole}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
         cartCount={cartTotalCount}
         onOpenCart={() => setIsCartOpen(true)}
         onOpenProfile={() => setIsProfileOpen(true)}
         onOpenCacheHub={() => setIsCacheHubOpen(true)}
         onOpenDbViewer={() => setIsDbViewerOpen(true)}
+        onOpenSupabaseSync={() => setIsSupabaseSyncOpen(true)}
+        isSupabaseConnected={isSupabaseConnected}
         onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
         onOpenCustomCake={() => setIsCustomCakeOpen(true)}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
       />
 
-      {/* Main Content Area Based on Active Role */}
+      {/* Main Content Area: Responsive Website vs Mobile App */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6">
-        {activeRole === 'customer' && (
-          <CustomerStorefront
+        {viewMode === 'mobile_app' ? (
+          /* DEDICATED MOBILE APP VIEW */
+          <MobileAppExperience
             settings={settings}
             products={products}
             categories={categories}
             flavors={flavors}
+            addons={addons}
             banners={banners}
-            reviews={reviews}
-            currency={settings.currency}
-            onSelectProduct={(p) => setSelectedProductForDetail(p)}
-            onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
-            onOpenCustomCake={() => setIsCustomCakeOpen(true)}
-            onOpenProfile={() => setIsProfileOpen(true)}
-            searchQuery={searchQuery}
-          />
-        )}
-
-        {activeRole === 'kitchen_manager' && (
-          <KitchenDisplay orders={orders} currency={settings.currency} />
-        )}
-
-        {activeRole === 'delivery_man' && (
-          <DeliveryRiderPortal orders={orders} currency={settings.currency} />
-        )}
-
-        {(activeRole === 'super_admin' ||
-          activeRole === 'admin' ||
-          activeRole === 'order_manager' ||
-          activeRole === 'delivery_manager' ||
-          activeRole === 'accountant') && (
-          <AdminPanel
-            settings={settings}
-            products={products}
-            categories={categories}
+            zones={zones}
+            slots={slots}
             orders={orders}
-            coupons={coupons}
-            customCakes={customCakes}
-            auditLogs={auditLogs}
             currency={settings.currency}
-            role={activeRole}
+            cartItems={cartItems}
+            onAddToCart={handleAddToCart}
+            onUpdateCartQuantity={handleUpdateCartQuantity}
+            onRemoveCartItem={handleRemoveCartItem}
+            onOpenCheckout={() => setIsCheckoutOpen(true)}
+            onSelectProductForDetail={(p) => setSelectedProductForDetail(p)}
+            onOpenCustomCake={() => setIsCustomCakeOpen(true)}
+            onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
+            onOpenSupabaseSync={() => setIsSupabaseSyncOpen(true)}
+            isSupabaseConnected={isSupabaseConnected}
           />
+        ) : (
+          /* RESPONSIVE WEBSITE VIEW */
+          <>
+            {activeRole === 'customer' && (
+              <CustomerStorefront
+                settings={settings}
+                products={products}
+                categories={categories}
+                flavors={flavors}
+                banners={banners}
+                reviews={reviews}
+                currency={settings.currency}
+                onSelectProduct={(p) => setSelectedProductForDetail(p)}
+                onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
+                onOpenCustomCake={() => setIsCustomCakeOpen(true)}
+                onOpenProfile={() => setIsProfileOpen(true)}
+                searchQuery={searchQuery}
+              />
+            )}
+
+            {activeRole === 'kitchen_manager' && (
+              <KitchenDisplay orders={orders} currency={settings.currency} />
+            )}
+
+            {activeRole === 'delivery_man' && (
+              <DeliveryRiderPortal orders={orders} currency={settings.currency} />
+            )}
+
+            {(activeRole === 'super_admin' ||
+              activeRole === 'admin' ||
+              activeRole === 'order_manager' ||
+              activeRole === 'delivery_manager' ||
+              activeRole === 'accountant') && (
+              <AdminPanel
+                settings={settings}
+                products={products}
+                categories={categories}
+                orders={orders}
+                coupons={coupons}
+                customCakes={customCakes}
+                auditLogs={auditLogs}
+                currency={settings.currency}
+                role={activeRole}
+              />
+            )}
+          </>
         )}
       </main>
 
-      {/* Customer Mobile Sticky Bottom Navigation */}
-      {activeRole === 'customer' && (
+      {/* Customer Mobile Sticky Bottom Navigation (in Web Mode on small screens) */}
+      {viewMode === 'web' && activeRole === 'customer' && (
         <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-rose-100 px-4 py-2 flex items-center justify-around shadow-lg">
           <button
             onClick={() => {
@@ -403,6 +497,22 @@ export default function App() {
         isOpen={isCustomCakeOpen}
         onClose={() => setIsCustomCakeOpen(false)}
         currency={settings.currency}
+      />
+
+      <SupabaseSyncModal
+        isOpen={isSupabaseSyncOpen}
+        onClose={() => setIsSupabaseSyncOpen(false)}
+        settings={settings}
+        categories={categories}
+        products={products}
+        flavors={flavors}
+        addons={addons}
+        banners={banners}
+        zones={zones}
+        slots={slots}
+        coupons={coupons}
+        reviews={reviews}
+        onDataRefreshed={refreshData}
       />
 
       <CachePerformanceHub

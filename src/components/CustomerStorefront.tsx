@@ -98,20 +98,20 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
           <div className="space-y-5 text-center md:text-left md:max-w-xl">
             <div className="inline-flex items-center gap-2 bg-rose-500/30 text-rose-200 border border-rose-400/30 px-3.5 py-1.5 rounded-full text-xs font-semibold backdrop-blur-md">
               <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-              <span>Tangail's Bespoke Luxury Patisserie</span>
+              <span>{settings.hero_tagline || "Tangail's Bespoke Luxury Patisserie"}</span>
             </div>
             <h1 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tight leading-tight">
-              {activeBanner?.title || 'Handcrafted Celebration Cakes Made with Passion'}
+              {settings.hero_title || activeBanner?.title || 'Handcrafted Celebration Cakes Made with Passion'}
             </h1>
             <p className="text-slate-300 text-sm md:text-base leading-relaxed">
-              {activeBanner?.subtitle || settings.website_description}
+              {settings.hero_subtitle || activeBanner?.subtitle || settings.website_description}
             </p>
             <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 pt-2">
               <a
                 href="#catalog"
                 className="bg-linear-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-bold px-6 py-3.5 rounded-2xl text-sm shadow-lg shadow-rose-900/50 flex items-center gap-2 transition-all cursor-pointer active:scale-98"
               >
-                <span>{activeBanner?.button_text || 'Order Fresh Cakes'}</span>
+                <span>{settings.hero_cta_text || activeBanner?.button_text || 'Order Fresh Cakes'}</span>
                 <ArrowRight className="w-4 h-4" />
               </a>
               <button
@@ -145,10 +145,10 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
       {/* Trust Badges */}
       <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { icon: '🎂', title: '100% Fresh Daily', desc: 'Baked from scratch upon order' },
-          { icon: '🚀', title: '3-Hour Express Dispatch', desc: 'Temperature-safe van & bike delivery' },
-          { icon: '✍️', title: 'Free Cake Dedication', desc: 'Piped name & wishes included' },
-          { icon: '🛡️', title: 'Hygienic Halal Standards', desc: 'Pure dairy cream & imported cocoa' },
+          { icon: '🎂', title: settings.trust_badge_1_title || '100% Fresh Daily', desc: settings.trust_badge_1_desc || 'Baked from scratch upon order' },
+          { icon: '🚀', title: settings.trust_badge_2_title || '3-Hour Express Dispatch', desc: settings.trust_badge_2_desc || 'Temperature-safe van & bike delivery' },
+          { icon: '✍️', title: settings.trust_badge_3_title || 'Free Cake Dedication', desc: settings.trust_badge_3_desc || 'Piped name & wishes included' },
+          { icon: '🛡️', title: settings.trust_badge_4_title || 'Hygienic Halal Standards', desc: settings.trust_badge_4_desc || 'Pure dairy cream & imported cocoa' },
         ].map((item, idx) => (
           <div
             key={idx}
@@ -339,20 +339,20 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
       <section className="bg-gradient-to-r from-amber-500 via-rose-500 to-pink-600 rounded-3xl p-8 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
         <div className="space-y-2 text-center md:text-left">
           <span className="bg-white/20 text-white px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
-            Custom Cake Studio
+            {settings.custom_cake_promo_tag || 'Custom Cake Studio'}
           </span>
           <h3 className="text-2xl md:text-3xl font-black">
-            Have a Dream Cake Design in Mind?
+            {settings.custom_cake_promo_title || 'Have a Dream Cake Design in Mind?'}
           </h3>
           <p className="text-white/90 text-xs md:text-sm max-w-xl">
-            Upload your reference photo, pick custom tiers, flavors, colors, and dedicated text. Our pastry chef team will provide an instant custom quote!
+            {settings.custom_cake_promo_desc || 'Upload your reference photo, pick custom tiers, flavors, colors, and dedicated text. Our pastry chef team will provide an instant custom quote!'}
           </p>
         </div>
         <button
           onClick={onOpenCustomCake}
           className="bg-white text-slate-900 hover:bg-slate-100 font-bold px-6 py-3.5 rounded-2xl text-xs uppercase tracking-wider shadow-lg transition-transform hover:scale-105 active:scale-95 cursor-pointer whitespace-nowrap"
         >
-          Submit Custom Cake Request
+          {settings.custom_cake_promo_btn || 'Submit Custom Cake Request'}
         </button>
       </section>
 
@@ -403,7 +403,7 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
               <span>🍰</span> {settings.shop_name}
             </h4>
             <p className="text-slate-500 leading-relaxed">
-              Tangail's premier boutique for fresh birthday cakes, wedding tiers, cheesecakes, and custom pastries. Baked fresh with love and 100% natural ingredients.
+              {settings.footer_about_text || "Tangail's premier boutique for fresh birthday cakes, wedding tiers, cheesecakes, and custom pastries. Baked fresh with love and 100% natural ingredients."}
             </p>
           </div>
           <div className="space-y-2">
