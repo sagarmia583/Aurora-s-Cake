@@ -96,7 +96,7 @@ function auroraOperationsOrders_(actor, table) {
 }
 function auroraOperationsPost_(input) {
   var actor = auroraStaffAuthenticate_(input);
-  if (input.action === 'staff_session') return {ok:true,role:actor.role,name:actor.name,email:actor.email};
+  if (input.action === 'staff_session') return {ok:true,role:actor.role,name:actor.name,email:actor.email,riders:Object.keys(actor.people).filter(function(email){return actor.people[email].role==='delivery_man';}).map(function(email){return {email:email,name:String(actor.people[email].name||email)};})};
   var book = auroraSpreadsheet_(), table = auroraPrivateTable_(book,'orders');
   if (input.action === 'staff_orders') return {ok:true,orders:auroraOperationsOrders_(actor,table),role:actor.role};
   if (input.action !== 'staff_mutate') auroraReject_('invalid_action','Unknown staff action.');
@@ -135,7 +135,7 @@ function auroraOperationsPost_(input) {
       var nowMillis = Date.now();
       if (Number(order.otp_locked_until || 0) > nowMillis) auroraReject_('otp_locked','Too many incorrect OTP entries. Try again later.');
       var code = String(input.delivery_otp || '');
-      if (!/^\\d{4}$/.test(code) || code !== String(order.delivery_otp)) {
+      if (!/^\d{4}$/.test(code) || code !== String(order.delivery_otp)) {
         order.otp_failed_attempts = Number(order.otp_failed_attempts || 0)+1;
         if (order.otp_failed_attempts >= 5) {
           order.otp_locked_until = nowMillis+15*60*1000;
@@ -169,10 +169,10 @@ function auroraOperationsPost_(input) {
 function auroraCustomerOrderStatus_(input) {
   var orderId = auroraOrderText_(input.order_id,'Order reference',10,150);
   if (!/^ord_[0-9a-f]{8}-[0-9a-f-]{27,}$/.test(orderId)) auroraReject_('not_found','Order reference is invalid.');
-  var digits = auroraOrderText_(input.customer_phone,'Phone',7,30).replace(/\\D/g,'');
+  var digits = auroraOrderText_(input.customer_phone,'Phone',7,30).replace(/\D/g,'');
   var table = auroraPrivateTable_(auroraSpreadsheet_(),'orders');
   var record = table.rows.filter(function(row){return String(row.id)===orderId;})[0];
-  if (!record || String(record.customer_phone||'').replace(/\\D/g,'')!==digits) auroraReject_('not_found','Order reference and phone do not match.');
+  if (!record || String(record.customer_phone||'').replace(/\D/g,'')!==digits) auroraReject_('not_found','Order reference and phone do not match.');
   var order = JSON.parse(String(record.receipt_json));
   return {ok:true,order_id:order.id,status:order.status,updated_at:order.updated_at,
     history:Array.isArray(order.history) ? order.history.slice(-20) : [],rider_name:order.rider_name||'',
