@@ -53,6 +53,7 @@ export default function App() {
   const [isSheetContentOpen, setIsSheetContentOpen] = useState(false);
   const [isStaffPortalOpen, setIsStaffPortalOpen] = useState(false);
   const [isCustomerAccountOpen, setIsCustomerAccountOpen] = useState(false);
+  const [customerGoogleToken, setCustomerGoogleToken] = useState('');
   // Dual Experience: Responsive Website vs Mobile App
   const [viewMode, setViewMode] = useState<ViewMode>('web');
 
@@ -214,12 +215,13 @@ export default function App() {
       const selected = saved.find(order => order.id === latestOrderId) || (!latestOrderId ? saved[0] : undefined);
       if (!selected) return;
       try {
-        const next = await fetchCustomerOrderStatus(sheetContent.endpoint, selected);
+        const next = await fetchCustomerOrderStatus(sheetContent.endpoint, selected, customerGoogleToken || undefined);
         if (stopped) return;
         const updated: Order = {
           ...selected, status: next.status, history: next.history,
           updated_at: next.updated_at, rider_name: next.rider_name,
           payment_status: next.payment_status, cod_collected: next.cod_collected,
+          ...(next.delivery_otp ? {delivery_otp:next.delivery_otp} : {}),
         };
         if (rememberConfirmedSheetOrder(updated)) {
           setOrders(previous => [updated, ...previous.filter(order => order.id !== updated.id)]);
@@ -232,7 +234,7 @@ export default function App() {
     void updateTrackedReceipt();
     const timer = window.setInterval(() => { void updateTrackedReceipt(); }, 30000);
     return () => { stopped = true; window.clearInterval(timer); };
-  }, [isTrackOrderOpen, latestOrderId, sheetContent.endpoint, publicData.order_submission_enabled]);
+  }, [isTrackOrderOpen, latestOrderId, sheetContent.endpoint, publicData.order_submission_enabled, customerGoogleToken]);
 
   // Reorders use the current Sheet catalogue; removed sizes/cakes are not recreated.
   const handleReorder = (order: Order) => {
@@ -411,7 +413,7 @@ export default function App() {
       {activeRole !== 'customer' && <div className="mx-auto my-3 w-full max-w-6xl px-5 text-xs text-slate-500">Website content is managed in Google Sheets. These Studio tools are local demonstrations. Manage real orders in the private orders and order_items Sheet tabs. Content edits here are replaced on the next Sheet refresh.</div>}
 
       <Suspense fallback={null}><StaffPortal isOpen={isStaffPortalOpen} onClose={() => setIsStaffPortalOpen(false)} endpoint={sheetContent.endpoint} /></Suspense>
-      <Suspense fallback={null}><CustomerAccountPortal open={isCustomerAccountOpen} onClose={() => setIsCustomerAccountOpen(false)} endpoint={sheetContent.endpoint} localReceipts={orders.filter(o => o.persistence === 'google_sheets')} onRecover={recovered => { recovered.forEach(rememberConfirmedSheetOrder); setOrders(previous => { const byId = new Map(previous.map(o => [o.id,o])); recovered.forEach(o => byId.set(o.id,o)); return Array.from(byId.values()); }); }} /></Suspense>
+      <Suspense fallback={null}><CustomerAccountPortal open={isCustomerAccountOpen} onClose={() => setIsCustomerAccountOpen(false)} endpoint={sheetContent.endpoint} localReceipts={orders.filter(o => o.persistence === 'google_sheets')} onIdentityToken={setCustomerGoogleToken} onRecover={recovered => { recovered.forEach(rememberConfirmedSheetOrder); setOrders(previous => { const byId = new Map(previous.map(o => [o.id,o])); recovered.forEach(o => byId.set(o.id,o)); return Array.from(byId.values()); }); }} /></Suspense>
       <SheetContentPanel isOpen={isSheetContentOpen} onClose={() => setIsSheetContentOpen(false)} endpoint={sheetContent.endpoint} status={sheetContent.status} orderSubmissionEnabled={publicData.order_submission_enabled} onRefresh={sheetContent.refresh} onSaveEndpoint={sheetContent.updateEndpoint}/>
       {/* Modals & Slide-outs */}
       <ProductDetailModal
