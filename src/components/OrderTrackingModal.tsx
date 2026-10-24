@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useCakeDialog } from './useCakeDialog';
 import { 
   X, 
   CheckCircle2, 
@@ -33,7 +34,10 @@ const STAGES: { status: OrderStatus; label: string; icon: string; desc: string }
   { status: 'delivered', label: 'Delivered & Celebrated', icon: '🎉', desc: 'Verified via OTP. Enjoy your cake!' },
 ];
 
-export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
+export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = (props) =>
+  props.isOpen ? <OrderTrackingModalDialog {...props} /> : null;
+
+const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
   isOpen,
   onClose,
   orders,
@@ -41,27 +45,25 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
   currency,
   onReorder,
 }) => {
-  if (!isOpen) return null;
-
-  const [selectedOrder, setSelectedOrder] = useState<Order>(() => {
-    if (currentOrderId) {
-      const match = orders.find((o) => o.id === currentOrderId);
-      if (match) return match;
-    }
-    return orders[0];
-  });
+  const [selectedOrderId, setSelectedOrderId] = useState(currentOrderId || orders[0]?.id);
+  useEffect(() => {
+    if (currentOrderId) setSelectedOrderId(currentOrderId);
+  }, [currentOrderId]);
+  const selectedOrder = orders.find((order) => order.id === selectedOrderId) || orders[0];
+  const dialogRef = useCakeDialog(onClose, selectedOrder?.id);
 
   if (!selectedOrder) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-        <div className="bg-white rounded-3xl p-8 max-w-md w-full text-center space-y-4">
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="tracking-empty-title" data-cake-dialog tabIndex={-1} className="bg-white rounded-3xl p-8 max-w-md w-full text-center space-y-4">
           <div className="text-4xl">🎂</div>
-          <h3 className="text-lg font-bold text-slate-800">No Orders Found Yet</h3>
+          <h3 id="tracking-empty-title" className="text-lg font-bold text-slate-800">Your cake journey starts here</h3>
           <p className="text-xs text-slate-500">
-            Browse our artisanal cakes, customize flavors, and place an order to track live baking and rider progress!
+            Choose a cake and open checkout. Order receipts from this device appear here.
           </p>
           <button
             onClick={onClose}
+            aria-label="Close order tracking"
             className="w-full py-2.5 bg-rose-600 text-white font-bold rounded-xl text-sm"
           >
             Back to Cakes
@@ -87,25 +89,26 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
-      <div 
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="tracking-title" data-cake-dialog tabIndex={-1}
         className="bg-white rounded-3xl max-w-3xl w-full shadow-2xl border border-rose-100 overflow-hidden my-6 flex flex-col max-h-[92vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="p-6 bg-gradient-to-r from-rose-50 via-pink-50 to-amber-50 border-b border-rose-100 flex items-center justify-between">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-bold uppercase tracking-wider text-rose-600 bg-rose-100 px-2.5 py-0.5 rounded-full">
-                Real-Time Order Tracking
+                {selectedOrder.persistence === 'google_sheets' ? 'Order saved' : 'Demo order tracking'}
               </span>
-              <span className="text-xs text-slate-400 font-medium">
+              <span className="text-xs text-slate-400 font-medium break-all">
                 #{selectedOrder.order_number}
               </span>
             </div>
-            <h3 className="text-xl font-bold text-slate-900 mt-1">Live Cake Journey</h3>
+            <h3 id="tracking-title" className="text-xl font-bold text-slate-900 mt-1">{selectedOrder.persistence === 'google_sheets' ? 'Your order receipt' : 'Your cake journey'}</h3>
           </div>
           <button
             onClick={onClose}
+            aria-label="Close order tracking"
             className="p-2 rounded-full hover:bg-white text-slate-500 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -114,13 +117,15 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
 
         {/* Content */}
         <div className="overflow-y-auto p-6 space-y-6 flex-1">
+          <p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">{selectedOrder.persistence === 'google_sheets' ? 'Your order was saved to Aurora’s Cake’s Google Sheet. This device keeps a copy of the receipt. Contact the bakery for the latest confirmation and delivery status. No online payment was collected.' : 'These are demo orders saved on this device. Status changes do not represent a real bakery delivery or payment.'}</p>
+          {selectedOrder.status === 'cancelled' && <p role="status" className="text-sm font-semibold text-red-700">This order was cancelled.</p>}
           {/* Order Selector Tab if multiple */}
           {orders.length > 1 && (
             <div className="flex gap-2 overflow-x-auto pb-2 border-b border-slate-100">
               {orders.map((o) => (
                 <button
                   key={o.id}
-                  onClick={() => setSelectedOrder(o)}
+                  onClick={() => setSelectedOrderId(o.id)} aria-pressed={selectedOrder.id === o.id}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer ${
                     selectedOrder.id === o.id
                       ? 'bg-rose-600 text-white'
@@ -133,6 +138,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
             </div>
           )}
 
+          {selectedOrder.persistence !== 'google_sheets' && <>
           {/* Delivery OTP Security Card */}
           <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -210,6 +216,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
             </div>
           </div>
 
+          </>}
           {/* Delivery & Rider Info */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2 text-xs">
@@ -230,7 +237,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
                 <Bike className="w-3.5 h-3.5 text-rose-600" /> Rider & Payment
               </h5>
               <p className="text-slate-600">
-                Rider: <strong>{selectedOrder.rider_name || 'Assigning nearest available courier...'}</strong>
+                Rider: <strong>{selectedOrder.rider_name || 'No rider assigned'}</strong>
               </p>
               <div className="text-[11px] text-slate-500">
                 Payment: <strong className="uppercase">{selectedOrder.payment_method}</strong> ({selectedOrder.payment_status})
@@ -276,7 +283,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
         {/* Footer */}
         <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs">
           <div className="text-slate-500">
-            Total Paid/Payable: <strong className="text-slate-800 text-sm">{currency}{selectedOrder.total_amount}</strong>
+            Demo order total: <strong className="text-slate-800 text-sm">{currency}{selectedOrder.total_amount}</strong>
           </div>
           <button
             onClick={onClose}

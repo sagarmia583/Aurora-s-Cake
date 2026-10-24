@@ -3,17 +3,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { Navbar, ViewMode } from './components/Navbar';
 import { CustomerStorefront } from './components/CustomerStorefront';
-import { MobileAppExperience } from './components/MobileAppExperience';
+const MobileAppExperience = lazy(() => import('./components/MobileAppExperience').then(m => ({default: m.MobileAppExperience})));
 import { ProductDetailModal } from './components/ProductDetailModal';
 import { CartDrawer } from './components/CartDrawer';
 import { CheckoutModal } from './components/CheckoutModal';
 import { OrderTrackingModal } from './components/OrderTrackingModal';
 import { KitchenDisplay } from './components/KitchenDisplay';
 import { DeliveryRiderPortal } from './components/DeliveryRiderPortal';
-import { AdminPanel } from './components/AdminPanel';
+const AdminPanel = lazy(() => import('./components/AdminPanel').then(m => ({default: m.AdminPanel})));
 import { CachePerformanceHub } from './components/CachePerformanceHub';
 import { DatabaseSchemaViewer } from './components/DatabaseSchemaViewer';
 import { SupabaseSyncModal } from './components/SupabaseSyncModal';
@@ -21,6 +21,10 @@ import { CustomCakeModal } from './components/CustomCakeModal';
 import { CustomerProfileModal } from './components/CustomerProfileModal';
 import { mockDb } from './services/mockDatabase';
 import { supabaseDataService } from './services/supabaseDataService';
+import { useGoogleSheetContent } from './hooks/useGoogleSheetContent';
+import { SheetContentPanel } from './components/SheetContentPanel';
+import { loadConfirmedSheetOrders, rememberConfirmedSheetOrder } from './services/googleSheetOrders';
+import { reconcilePublicCart, reorderFromPublicOrder } from './services/reconcilePublicCart';
 import { 
   ShopSettings, 
   Product, 
@@ -41,6 +45,9 @@ import {
 import { Home, ShoppingBag, Clock, Sparkles, Cake, User } from 'lucide-react';
 
 export default function App() {
+  const sheetContent = useGoogleSheetContent();
+  const publicData = sheetContent.data;
+  const [isSheetContentOpen, setIsSheetContentOpen] = useState(false);
   // Dual Experience: Responsive Website vs Mobile App
   const [viewMode, setViewMode] = useState<ViewMode>('web');
 
@@ -50,52 +57,19 @@ export default function App() {
   // Supabase Connection Status
   const [isSupabaseConnected, setIsSupabaseConnected] = useState<boolean>(false);
 
-  // Core Data (100% Database-Driven)
-  const [settings, setSettings] = useState<ShopSettings>({
-    id: 'setting-1',
-    shop_name: 'SweetDelight Artisan Cake Boutique',
-    logo_url: 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=500&auto=format&fit=crop&q=80',
-    phone: '+880 1712-345678',
-    whatsapp: '+880 1712-345678',
-    email: 'orders@sweetdelightcakes.com',
-    address: 'Victoria Road, Tangail Town, Dhaka Division, Bangladesh',
-    opening_time: '09:00 AM',
-    closing_time: '10:00 PM',
-    currency: '৳',
-    accepting_orders: true,
-    delivery_enabled: true,
-    website_title: 'SweetDelight - Handcrafted Fresh Celebration Cakes',
-    website_description: 'Tangail’s #1 boutique for bespoke celebration cakes, designer wedding cakes, and sweet delicacies with express temperature-controlled delivery.',
-    top_announcement_text: '🚀 3-Hour Express Temperature-Safe Delivery in Tangail',
-    hero_tagline: 'Tangail’s Bespoke Luxury Patisserie',
-    hero_title: 'Handcrafted Celebration Cakes Made with Passion',
-    hero_subtitle: 'Order fresh 100% halal celebratory cakes made from pure dairy cream and imported Belgian cocoa with guaranteed express delivery.',
-    hero_cta_text: 'Explore Fresh Cakes',
-    trust_badge_1_title: '100% Fresh Daily',
-    trust_badge_1_desc: 'Baked from scratch upon order',
-    trust_badge_2_title: '3-Hour Express Dispatch',
-    trust_badge_2_desc: 'Temperature-safe van & bike delivery',
-    trust_badge_3_title: 'Free Cake Dedication',
-    trust_badge_3_desc: 'Piped name & wishes included',
-    trust_badge_4_title: 'Hygienic Halal Standards',
-    trust_badge_4_desc: 'Pure dairy cream & imported cocoa',
-    custom_cake_promo_tag: 'Custom Cake Studio',
-    custom_cake_promo_title: 'Have a Dream Cake Design in Mind?',
-    custom_cake_promo_desc: 'Upload your reference photo, pick custom tiers, flavors, colors, and dedicated text. Our pastry chef team will provide an instant custom quote!',
-    custom_cake_promo_btn: 'Submit Custom Cake Request',
-    footer_about_text: 'Tangail premier boutique for fresh birthday cakes, wedding tiers, cheesecakes, and custom pastries. Baked fresh with love and 100% natural ingredients.',
-  });
+  // Public website content comes from the validated Sheet snapshot.
+  const [settings, setSettings] = useState<ShopSettings>(publicData.settings);
 
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [flavors, setFlavors] = useState<Flavor[]>([]);
-  const [addons, setAddons] = useState<ProductAddon[]>([]);
-  const [banners, setBanners] = useState<Banner[]>([]);
-  const [zones, setZones] = useState<DeliveryZone[]>([]);
-  const [slots, setSlots] = useState<DeliverySlot[]>([]);
+  const [products, setProducts] = useState<Product[]>(publicData.products);
+  const [categories, setCategories] = useState<Category[]>(publicData.categories);
+  const [flavors, setFlavors] = useState<Flavor[]>(publicData.flavors);
+  const [addons, setAddons] = useState<ProductAddon[]>(publicData.addons);
+  const [banners, setBanners] = useState<Banner[]>(publicData.banners);
+  const [zones, setZones] = useState<DeliveryZone[]>(publicData.zones);
+  const [slots, setSlots] = useState<DeliverySlot[]>(publicData.slots);
   const [orders, setOrders] = useState<Order[]>([]);
-  const [coupons, setCoupons] = useState<Coupon[]>([]);
-  const [reviews, setReviews] = useState<Review[]>([]);
+  const [coupons, setCoupons] = useState<Coupon[]>(publicData.coupons);
+  const [reviews, setReviews] = useState<Review[]>(publicData.reviews);
   const [customCakes, setCustomCakes] = useState<CustomCakeRequest[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
@@ -108,6 +82,10 @@ export default function App() {
       return [];
     }
   });
+
+  const cartRef = useRef(cartItems);
+  const [cartNotice, setCartNotice] = useState('');
+  useEffect(() => { cartRef.current = cartItems; }, [cartItems]);
 
   // Modals & Navigation
   const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
@@ -131,49 +109,39 @@ export default function App() {
     }
   }, [cartItems]);
 
-  // Load and synchronize data from Supabase / Reactive Database
+  // Public reads never include orders. Confirmed private Sheet receipts are cached on this device.
   const refreshData = async () => {
-    if (supabaseDataService.getStatus().isConnected) {
-      const supabaseData = await supabaseDataService.loadAllDataFromSupabase();
-      if (supabaseData && supabaseData.settings) {
-        setSettings(supabaseData.settings);
-        if (supabaseData.products) setProducts(supabaseData.products);
-        if (supabaseData.categories) setCategories(supabaseData.categories);
-        if (supabaseData.flavors) setFlavors(supabaseData.flavors);
-        if (supabaseData.addons) setAddons(supabaseData.addons);
-        if (supabaseData.banners) setBanners(supabaseData.banners);
-        if (supabaseData.zones) setZones(supabaseData.zones);
-        if (supabaseData.slots) setSlots(supabaseData.slots);
-        if (supabaseData.orders) setOrders(supabaseData.orders);
-        if (supabaseData.coupons) setCoupons(supabaseData.coupons);
-        if (supabaseData.reviews) setReviews(supabaseData.reviews);
-        if (supabaseData.customCakes) setCustomCakes(supabaseData.customCakes);
-        setAuditLogs(mockDb.getAuditLogs());
-        return;
-      }
-    }
-
-    // Reactive local database fallback
-    const [fetchedSettings, fetchedProducts, fetchedCategories] = await Promise.all([
-      mockDb.getShopSettings(),
-      mockDb.getProducts(),
-      mockDb.getCategories(),
-    ]);
-
-    setSettings(fetchedSettings);
-    setProducts(fetchedProducts);
-    setCategories(fetchedCategories);
-    setFlavors(mockDb.getFlavors());
-    setAddons(mockDb.getAddons());
-    setBanners(mockDb.getBanners());
-    setZones(mockDb.getDeliveryZones());
-    setSlots(mockDb.getDeliverySlots());
-    setOrders(mockDb.getOrders());
-    setCoupons(mockDb.getCoupons());
-    setReviews(mockDb.getReviews());
+    setOrders([...loadConfirmedSheetOrders(), ...mockDb.getOrders().filter(order => order.persistence !== 'google_sheets')]);
     setCustomCakes(mockDb.getCustomCakes());
     setAuditLogs(mockDb.getAuditLogs());
   };
+
+  useEffect(() => {
+    mockDb.applyPublicSnapshot(publicData);
+    const reconciled = reconcilePublicCart(cartRef.current, publicData);
+    cartRef.current = reconciled.items;
+    setCartItems(reconciled.items);
+    if (reconciled.changed) setCartNotice('Your cake bag was updated to match the latest prices and available options. Please review it before checkout.');
+    setSelectedProductForDetail(previous => previous ? publicData.products.find(product => product.id === previous.id && product.is_active) ?? null : null);
+    setSettings(publicData.settings);
+    setProducts(publicData.products);
+    setCategories(publicData.categories);
+    setFlavors(publicData.flavors);
+    setAddons(publicData.addons);
+    setBanners(publicData.banners);
+    setZones(publicData.zones);
+    setSlots(publicData.slots);
+    setCoupons(publicData.coupons);
+    setReviews(publicData.reviews);
+    document.title = publicData.settings.website_title || publicData.settings.shop_name;
+    const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (icon) icon.href = publicData.settings.logo_url || '/favicon.svg';
+    for (const [selector, value] of [
+      ['meta[name="description"]', publicData.settings.website_description],
+      ['meta[property="og:title"]', publicData.settings.website_title || publicData.settings.shop_name],
+      ['meta[property="og:description"]', publicData.settings.website_description],
+    ]) document.querySelector(selector)?.setAttribute('content', value);
+  }, [publicData]);
 
   useEffect(() => {
     refreshData();
@@ -221,80 +189,36 @@ export default function App() {
   };
 
   const handleOrderSuccess = (newOrder: Order) => {
+    if (newOrder.persistence === 'google_sheets') rememberConfirmedSheetOrder(newOrder);
+    setOrders(previous => [newOrder, ...previous.filter(order => order.id !== newOrder.id)]);
+    setCartNotice('');
+    setIsCartOpen(false);
+    setIsCheckoutOpen(false);
     setCartItems([]);
     setLatestOrderId(newOrder.id);
     setIsTrackOrderOpen(true);
   };
 
-  // Reorder past order
+  // Reorders use the current Sheet catalogue; removed sizes/cakes are not recreated.
   const handleReorder = (order: Order) => {
-    const reorderedCartItems: CartItem[] = order.items.map((it) => {
-      const matchedProduct = products.find((p) => p.id === it.product_id) || {
-        id: it.product_id || `prod-${Date.now()}`,
-        category_id: 'cat-1',
-        category_name: 'Celebration Cakes',
-        name: it.product_name,
-        slug: it.product_name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-        description: 'Handcrafted fresh artisan celebration cake',
-        base_price: it.unit_price,
-        image_url: 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=800&auto=format&fit=crop&q=80',
-        gallery_images: [],
-        is_featured: false,
-        is_active: true,
-        rating: 5,
-        review_count: 10,
-        variants: [],
-        allowed_flavor_ids: [],
-        allowed_addon_ids: [],
-      };
-
-      const matchedVariant = matchedProduct.variants.find((v) => v.name === it.variant_name) || {
-        id: `var-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        product_id: matchedProduct.id,
-        name: it.variant_name,
-        weight_grams: 1000,
-        price: it.unit_price,
-        is_active: true,
-      };
-
-      const matchedFlavor = flavors.find((f) => f.name === it.flavor_name);
-
-      const matchedAddons = (it.addons || []).map((a) => {
-        const existing = addons.find((ea) => ea.id === a.addon_id || ea.name === a.addon_name);
-        return (
-          existing || {
-            id: a.addon_id,
-            name: a.addon_name,
-            price: a.unit_price,
-            is_active: true,
-          }
-        );
-      });
-
-      return {
-        cart_item_id: `cart-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
-        product: matchedProduct,
-        selected_variant: matchedVariant,
-        selected_flavor: matchedFlavor,
-        selected_addons: matchedAddons,
-        writing_message: it.writing_message || '',
-        quantity: it.quantity,
-        unit_price: it.unit_price,
-        total_price: it.subtotal,
-      };
-    });
-
-    setCartItems((prev) => [...reorderedCartItems, ...prev]);
+    const result = reorderFromPublicOrder(order, publicData);
+    if (result.changed) setCartNotice('Your reorder uses the latest cake prices and available options. Unavailable selections were left out. Please review your bag.');
+    setCartItems(previous => [...result.items, ...previous]);
     setIsCartOpen(true);
   };
 
+  const demoOrders = orders.filter(order => order.persistence !== 'google_sheets');
   const cartTotalCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans selection:bg-rose-500 selection:text-white">
+    <div id="top" className="ac-app flex flex-col">
+      <a className="ac-skip-link" href="#main-content">Skip to content</a>
       {/* Top Navbar */}
       <Navbar
         settings={settings}
+        publicData={publicData}
+        isSheetConnected={sheetContent.status.state === 'connected'}
+        onOpenSheetSettings={() => setIsSheetContentOpen(true)}
         activeRole={activeRole}
         onRoleChange={setActiveRole}
         viewMode={viewMode}
@@ -312,12 +236,15 @@ export default function App() {
         onSearchChange={setSearchQuery}
       />
 
+      {cartNotice && <div role="status" className="mx-4 my-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 text-xs flex justify-between items-start gap-4"><span>{cartNotice}</span><button onClick={() => setCartNotice('')} className="font-semibold underline">Dismiss</button></div>}
       {/* Main Content Area: Responsive Website vs Mobile App */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6">
+      <main id="main-content" className={viewMode === 'web' && activeRole === 'customer' ? 'ac-main' : 'ac-main ac-main--portal'}>
+        <Suspense fallback={<div className="py-20 text-center text-rose-700" role="status">Opening the studio…</div>}>
         {viewMode === 'mobile_app' ? (
           /* DEDICATED MOBILE APP VIEW */
           <MobileAppExperience
             settings={settings}
+            publicData={publicData}
             products={products}
             categories={categories}
             flavors={flavors}
@@ -325,7 +252,7 @@ export default function App() {
             banners={banners}
             zones={zones}
             slots={slots}
-            orders={orders}
+            orders={demoOrders}
             currency={settings.currency}
             cartItems={cartItems}
             onAddToCart={handleAddToCart}
@@ -344,6 +271,7 @@ export default function App() {
             {activeRole === 'customer' && (
               <CustomerStorefront
                 settings={settings}
+                publicData={publicData}
                 products={products}
                 categories={categories}
                 flavors={flavors}
@@ -359,11 +287,11 @@ export default function App() {
             )}
 
             {activeRole === 'kitchen_manager' && (
-              <KitchenDisplay orders={orders} currency={settings.currency} />
+              <KitchenDisplay orders={demoOrders} currency={settings.currency} />
             )}
 
             {activeRole === 'delivery_man' && (
-              <DeliveryRiderPortal orders={orders} currency={settings.currency} />
+              <DeliveryRiderPortal orders={demoOrders} currency={settings.currency} />
             )}
 
             {(activeRole === 'super_admin' ||
@@ -375,7 +303,7 @@ export default function App() {
                 settings={settings}
                 products={products}
                 categories={categories}
-                orders={orders}
+                orders={demoOrders}
                 coupons={coupons}
                 customCakes={customCakes}
                 auditLogs={auditLogs}
@@ -385,6 +313,7 @@ export default function App() {
             )}
           </>
         )}
+      </Suspense>
       </main>
 
       {/* Customer Mobile Sticky Bottom Navigation (in Web Mode on small screens) */}
@@ -442,8 +371,12 @@ export default function App() {
         </nav>
       )}
 
+      {activeRole !== 'customer' && <div className="mx-auto my-3 w-full max-w-6xl px-5 text-xs text-slate-500">Website content is managed in Google Sheets. These Studio tools are local demonstrations. Manage real orders in the private orders and order_items Sheet tabs. Content edits here are replaced on the next Sheet refresh.</div>}
+
+      <SheetContentPanel isOpen={isSheetContentOpen} onClose={() => setIsSheetContentOpen(false)} endpoint={sheetContent.endpoint} status={sheetContent.status} orderSubmissionEnabled={publicData.order_submission_enabled} onRefresh={sheetContent.refresh} onSaveEndpoint={sheetContent.updateEndpoint}/>
       {/* Modals & Slide-outs */}
       <ProductDetailModal
+        acceptingOrders={settings.accepting_orders}
         product={selectedProductForDetail}
         allFlavors={flavors}
         allAddons={addons}
@@ -472,7 +405,7 @@ export default function App() {
         currency={settings.currency}
         onUpdateQuantity={handleUpdateCartQuantity}
         onRemoveItem={handleRemoveCartItem}
-        onProceedToCheckout={() => setIsCheckoutOpen(true)}
+        onProceedToCheckout={() => { setIsCartOpen(false); setIsCheckoutOpen(true); }}
       />
 
       <CheckoutModal
@@ -482,6 +415,7 @@ export default function App() {
         currency={settings.currency}
         zones={zones}
         slots={slots}
+        sheetOrderEndpoint={publicData.order_submission_enabled ? sheetContent.endpoint : undefined}
         onOrderSuccess={handleOrderSuccess}
       />
 

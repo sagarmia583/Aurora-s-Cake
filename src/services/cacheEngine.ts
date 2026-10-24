@@ -150,7 +150,7 @@ class CacheEngine {
    */
   clearAll() {
     this.memoryStore.clear();
-    localStorage.removeItem('cake_cache_store_v1');
+    try { localStorage.removeItem('cake_cache_store_v1'); } catch { /* Memory cache still clears when storage is unavailable. */ }
     this.metrics.hits = 0;
     this.metrics.misses = 0;
     this.metrics.totalRequests = 0;

@@ -1,3 +1,4 @@
+import type { PublicSiteData } from '../types/siteContent';
 import {
   ShopSettings,
   Category,
@@ -20,21 +21,21 @@ import { cacheEngine } from './cacheEngine';
 // Initial dynamic shop settings (100% database driven - zero hardcoded text)
 const INITIAL_SHOP_SETTINGS: ShopSettings = {
   id: 'setting-1',
-  shop_name: 'SweetDelight Artisan Cake Boutique',
-  logo_url: 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=500&auto=format&fit=crop&q=80',
-  phone: '+880 1712-345678',
-  whatsapp: '+880 1712-345678',
-  email: 'orders@sweetdelightcakes.com',
-  address: 'Victoria Road, Tangail Town, Dhaka Division, Bangladesh',
+  shop_name: 'Aurora’s Cake',
+  logo_url: '/images/chocolate-fudge.webp',
+  phone: '',
+  whatsapp: '',
+  email: '',
+  address: 'Tangail, Bangladesh',
   opening_time: '09:00 AM',
   closing_time: '10:00 PM',
   currency: '৳',
   accepting_orders: true,
   delivery_enabled: true,
-  website_title: 'SweetDelight - Handcrafted Fresh Celebration Cakes',
-  website_description: 'Tangail’s #1 boutique for bespoke celebration cakes, designer wedding cakes, and sweet delicacies with express temperature-controlled delivery.',
+  website_title: 'Aurora’s Cake — A Little Slice of Happiness',
+  website_description: 'Discover celebration cakes, thoughtful details, and a little everyday happiness at Aurora’s Cake.',
   // Dynamic Web Texts
-  top_announcement_text: '🚀 3-Hour Express Temperature-Safe Delivery in Tangail',
+  top_announcement_text: 'Made for moments worth celebrating',
   hero_tagline: 'Tangail’s Bespoke Luxury Patisserie',
   hero_title: 'Handcrafted Celebration Cakes Made with Passion',
   hero_subtitle: 'Order fresh 100% halal celebratory cakes made from pure dairy cream and imported Belgian cocoa with guaranteed express delivery.',
@@ -52,8 +53,8 @@ const INITIAL_SHOP_SETTINGS: ShopSettings = {
   custom_cake_promo_desc: 'Upload your reference photo, pick custom tiers, flavors, colors, and dedicated text. Our pastry chef team will provide an instant custom quote!',
   custom_cake_promo_btn: 'Submit Custom Cake Request',
   footer_about_text: 'Tangail\'s premier boutique for fresh birthday cakes, wedding tiers, cheesecakes, and custom pastries. Baked fresh with love and 100% natural ingredients.',
-  facebook_url: 'https://facebook.com',
-  instagram_url: 'https://instagram.com',
+  facebook_url: 'https://www.facebook.com/aurorascake26',
+  instagram_url: '',
 };
 
 const INITIAL_CATEGORIES: Category[] = [
@@ -62,7 +63,7 @@ const INITIAL_CATEGORIES: Category[] = [
     name: 'Birthday Specials',
     slug: 'birthday-cakes',
     description: 'Festive handcrafted celebration cakes made with rich Bavarian cream',
-    image_url: 'https://images.unsplash.com/photo-1535141192574-5d4897c13136?w=600&auto=format&fit=crop&q=80',
+    image_url: '/images/floral-signature.webp',
     sort_order: 1,
     is_active: true,
   },
@@ -80,7 +81,7 @@ const INITIAL_CATEGORIES: Category[] = [
     name: 'Wedding & Anniversary',
     slug: 'wedding-anniversary',
     description: 'Multi-tiered romantic masterpieces with sugar florals and gold leaf accents',
-    image_url: 'https://images.unsplash.com/photo-1519869325930-281384150729?w=600&auto=format&fit=crop&q=80',
+    image_url: '/images/floral-signature.webp',
     sort_order: 3,
     is_active: true,
   },
@@ -89,7 +90,7 @@ const INITIAL_CATEGORIES: Category[] = [
     name: 'Cheesecakes & Berries',
     slug: 'cheesecakes',
     description: 'Slow-baked New York style and fresh strawberry mousse cheesecakes',
-    image_url: 'https://images.unsplash.com/photo-1533134242443-d4fd215305ad?w=600&auto=format&fit=crop&q=80',
+    image_url: '/images/cheesecake.webp',
     sort_order: 4,
     is_active: true,
   },
@@ -98,7 +99,7 @@ const INITIAL_CATEGORIES: Category[] = [
     name: 'Cupcakes & Pastries',
     slug: 'cupcakes-pastries',
     description: 'Bite-sized happiness boxes perfect for gifts and tea parties',
-    image_url: 'https://images.unsplash.com/photo-1576618148400-f54bed99fcfd?w=600&auto=format&fit=crop&q=80',
+    image_url: '/images/cupcakes.webp',
     sort_order: 5,
     is_active: true,
   },
@@ -131,10 +132,10 @@ const INITIAL_PRODUCTS: Product[] = [
     description: 'Layers of moist chocolate sponge smothered with velvety 70% dark Belgian ganache, chocolate crisps, and golden dusted cocoa nibs.',
     base_price: 1250,
     sale_price: 1150,
-    image_url: 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=800&auto=format&fit=crop&q=80',
+    image_url: '/images/chocolate-fudge.webp',
     gallery_images: [
-      'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=800&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1606890737304-57a1ca8a5b62?w=800&auto=format&fit=crop&q=80',
+      '/images/chocolate-fudge.webp',
+      '/images/black-forest.webp',
     ],
     is_featured: true,
     is_active: true,
@@ -157,9 +158,9 @@ const INITIAL_PRODUCTS: Product[] = [
     slug: 'royale-red-velvet-cream-cheese',
     description: 'Classic crimson cocoa crumb layered with authentic Philadelphia cream cheese frosting and white chocolate curls.',
     base_price: 1350,
-    image_url: 'https://images.unsplash.com/photo-1586788680434-30d324b2d46f?w=800&auto=format&fit=crop&q=80',
+    image_url: '/images/red-velvet.webp',
     gallery_images: [
-      'https://images.unsplash.com/photo-1586788680434-30d324b2d46f?w=800&auto=format&fit=crop&q=80',
+      '/images/red-velvet.webp',
     ],
     is_featured: true,
     is_active: true,
@@ -182,9 +183,9 @@ const INITIAL_PRODUCTS: Product[] = [
     slug: 'black-forest-royale-amarena',
     description: 'Traditional German Black Forest loaded with Italian dark cherries, fresh whipped cream, and shaved chocolate shards.',
     base_price: 1100,
-    image_url: 'https://images.unsplash.com/photo-1606890737304-57a1ca8a5b62?w=800&auto=format&fit=crop&q=80',
+    image_url: '/images/black-forest.webp',
     gallery_images: [
-      'https://images.unsplash.com/photo-1606890737304-57a1ca8a5b62?w=800&auto=format&fit=crop&q=80',
+      '/images/black-forest.webp',
     ],
     is_featured: false,
     is_active: true,
@@ -207,9 +208,9 @@ const INITIAL_PRODUCTS: Product[] = [
     description: 'Crushed Biscoff cookie crust, silky baked cheesecake filling infused with cookie butter swirl, topped with caramelized drizzle.',
     base_price: 1450,
     sale_price: 1350,
-    image_url: 'https://images.unsplash.com/photo-1533134242443-d4fd215305ad?w=800&auto=format&fit=crop&q=80',
+    image_url: '/images/cheesecake.webp',
     gallery_images: [
-      'https://images.unsplash.com/photo-1533134242443-d4fd215305ad?w=800&auto=format&fit=crop&q=80',
+      '/images/cheesecake.webp',
     ],
     is_featured: true,
     is_active: true,
@@ -231,9 +232,9 @@ const INITIAL_PRODUCTS: Product[] = [
     slug: 'elysian-floral-pastels',
     description: 'Two-tier ivory butter sponge with natural raspberry compote, handcrafted edible wafer florals, and 24K edible gold leaves.',
     base_price: 2600,
-    image_url: 'https://images.unsplash.com/photo-1519869325930-281384150729?w=800&auto=format&fit=crop&q=80',
+    image_url: '/images/floral-signature.webp',
     gallery_images: [
-      'https://images.unsplash.com/photo-1519869325930-281384150729?w=800&auto=format&fit=crop&q=80',
+      '/images/floral-signature.webp',
     ],
     is_featured: true,
     is_active: true,
@@ -254,9 +255,9 @@ const INITIAL_PRODUCTS: Product[] = [
     slug: 'artisan-cupcake-box-6pcs',
     description: 'Six signature swirls: Red Velvet, Dark Cocoa, Pistachio Rose, Salted Caramel, Blueberry Cream, and Vanilla Gold.',
     base_price: 650,
-    image_url: 'https://images.unsplash.com/photo-1576618148400-f54bed99fcfd?w=800&auto=format&fit=crop&q=80',
+    image_url: '/images/cupcakes.webp',
     gallery_images: [
-      'https://images.unsplash.com/photo-1576618148400-f54bed99fcfd?w=800&auto=format&fit=crop&q=80',
+      '/images/cupcakes.webp',
     ],
     is_featured: false,
     is_active: true,
@@ -276,7 +277,7 @@ const INITIAL_BANNERS: Banner[] = [
     id: 'ban-1',
     title: 'Celebrate Joy with Tangail’s Finest Artisan Bakery',
     subtitle: 'Order fresh 100% halal celebratory cakes with guaranteed 3-hour temperature-safe delivery.',
-    image_url: 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=1200&auto=format&fit=crop&q=80',
+    image_url: '/images/chocolate-fudge.webp',
     button_text: 'Explore Fresh Cakes',
     button_link: '#shop',
     is_active: true,
@@ -430,7 +431,7 @@ const INITIAL_CUSTOM_CAKES: CustomCakeRequest[] = [
     flavor: 'Vanilla & Belgian Chocolate Duo',
     color_theme: 'Pastel Pink & Baby Blue',
     writing_text: 'Princess Ayra is Turning 3!',
-    reference_image_url: 'https://images.unsplash.com/photo-1535141192574-5d4897c13136?w=600&auto=format&fit=crop&q=80',
+    reference_image_url: '/images/floral-signature.webp',
     instructions: 'Please use natural butter frosting instead of heavy fondant.',
     estimated_price: 3200,
     status: 'quoted',
@@ -475,11 +476,28 @@ class MockDatabase {
     this.banners = this.load('cake_db_banners', INITIAL_BANNERS);
     this.deliveryZones = this.load('cake_db_zones', INITIAL_DELIVERY_ZONES);
     this.deliverySlots = this.load('cake_db_slots', INITIAL_DELIVERY_SLOTS);
-    this.orders = this.load('cake_db_orders', INITIAL_ORDERS);
+    this.orders = this.load('cake_db_orders', [] as Order[]);
     this.coupons = this.load('cake_db_coupons', INITIAL_COUPONS);
-    this.reviews = this.load('cake_db_reviews', INITIAL_REVIEWS);
-    this.customCakes = this.load('cake_db_custom_cakes', INITIAL_CUSTOM_CAKES);
-    this.auditLogs = this.load('cake_db_audit_logs', INITIAL_AUDIT_LOGS);
+    this.reviews = this.load('cake_db_reviews', [] as Review[]);
+    this.customCakes = this.load('cake_db_custom_cakes', [] as CustomCakeRequest[]);
+    this.auditLogs = this.load('cake_db_audit_logs', [] as AuditLog[]);
+  }
+
+  /** Apply only validated public catalogue/content data. Private local records are preserved. */
+  public applyPublicSnapshot(snapshot: PublicSiteData) {
+    const data = JSON.parse(JSON.stringify(snapshot)) as PublicSiteData;
+    this.settings = data.settings;
+    this.categories = data.categories;
+    this.products = data.products;
+    this.flavors = data.flavors;
+    this.addons = data.addons;
+    this.banners = data.banners;
+    this.deliveryZones = data.zones;
+    this.deliverySlots = data.slots;
+    this.coupons = data.coupons;
+    this.reviews = data.reviews;
+    cacheEngine.clearAll();
+    this.notify();
   }
 
   private load<T>(key: string, fallback: T): T {
@@ -733,13 +751,13 @@ class MockDatabase {
       for (const addonReq of cartItem.selected_addons) {
         const dbAddon = this.addons.find((a) => a.id === addonReq.id && a.is_active);
         if (dbAddon) {
-          itemTotal += dbAddon.price;
+          itemTotal += dbAddon.price * cartItem.quantity;
           itemAddons.push({
             addon_id: dbAddon.id,
             addon_name: dbAddon.name,
             unit_price: dbAddon.price,
-            quantity: 1,
-            subtotal: dbAddon.price,
+            quantity: cartItem.quantity,
+            subtotal: dbAddon.price * cartItem.quantity,
           });
         }
       }
@@ -804,7 +822,7 @@ class MockDatabase {
       coupon_code,
       order_note,
       payment_method,
-      payment_status: payment_method === 'cod' ? 'pending' : 'paid',
+      payment_status: 'pending',
       delivery_otp,
       cod_amount: payment_method === 'cod' ? finalTotal : 0,
       cod_collected: false,
@@ -815,7 +833,7 @@ class MockDatabase {
         {
           id: `h-${Date.now()}`,
           status: 'pending',
-          notes: 'Order securely placed via Customer Web storefront',
+          notes: 'Demo order saved on this device',
           created_at: new Date().toISOString(),
         },
       ],
