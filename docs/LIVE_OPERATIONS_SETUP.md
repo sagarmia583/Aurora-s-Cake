@@ -8,9 +8,10 @@ not exposed through the role selector in production.
 ## Before going live
 
 1. **Back up the spreadsheet.** Never publish or share the private orders tab.
-2. Copy all three current Apps Script files into the SAME script project:
+2. Copy all six current Apps Script files into the SAME script project:
    `apps-script/Code.gs`, `apps-script/SeedData.gs`,
-   `apps-script/StaffOperations.gs`. Keep only one `doPost` and `doGet`
+   `apps-script/StaffOperations.gs`, `apps-script/CustomerAccounts.gs`,
+   `apps-script/LiveCatalog.gs`, and `apps-script/CustomCakeRequests.gs`. Keep only one `doPost` and `doGet`
    implementation. Existing private order headers are preserved.
 3. In Google Cloud Console, configure the Google OAuth consent screen and create an
    **OAuth Client ID, Application type: Web application**. Add the exact website
@@ -76,11 +77,12 @@ not exposed through the role selector in production.
 - The Google Sheet is the system of record for live COD orders. Legacy
   `SupabaseSyncModal`, `mockDatabase`, and developer Studio panels are NOT
   live operations; the real Staff Portal is separate.
+- The private `custom_cake_requests` Sheet tab stores quotation requests. Staff managers can view, quote or decline them; a quote is NOT a payment or confirmed booking.
+- The live shop editor allows approved admins to change product visibility, cake prices and shop/delivery switches in the original Google Sheet. Creating entirely new product/variant records and uploading private photos still uses the Sheet / public image URLs.
 - No online bKash/Nagad/card payment verification has been added. Only COD
   payments become paid after a rider explicitly confirms cash and OTP.
-- This is a **Google account staff login**, not a customer mobile OTP login.
-  Customers currently hold order receipts on the ordering device and have no
-  cross-device account recovery. Do not use a shared device for private receipts.
+- **Customer Google sign-in and recovery are now supported** without paid SMS. A guest can place COD orders without logging in, then explicitly link an original saved receipt to one verified Google account using the original order reference and checkout phone. The owner can restore linked receipts on another device after signing in. Never link someone else's receipt on a shared device.
+- This is NOT phone-number OTP login. Without a verified free phone-delivery channel we cannot promise automatic phone-only identity verification.
 - Apps Script reads the private order table and caps it at 50,000 rows; only
   the latest 100 authorized orders are displayed. This is suitable for a
   small bakery, not high-volume multi-warehouse dispatch.
