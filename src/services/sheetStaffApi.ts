@@ -18,6 +18,7 @@ export interface StatusSnapshot {
   rider_name: string;
   payment_status: Order['payment_status'];
   cod_collected: boolean;
+  delivery_otp?: string;
 }
 
 function objectValue(value: unknown): value is Record<string, unknown> {
@@ -57,13 +58,14 @@ export async function getStaffOrders(endpoint: string, idToken: string): Promise
 export async function mutateStaffOrder(endpoint: string, idToken: string, operation: StaffOperation, orderId: string, extra: Record<string, unknown> = {}): Promise<void> {
   await privatePost(endpoint, { action: 'staff_mutate', id_token: idToken, operation, order_id: orderId, ...extra });
 }
-export async function fetchCustomerOrderStatus(endpoint: string, order: Order): Promise<StatusSnapshot> {
+export async function fetchCustomerOrderStatus(endpoint: string, order: Order, idToken?: string): Promise<StatusSnapshot> {
   if (order.persistence !== 'google_sheets') throw new Error('Only confirmed Sheet receipts support status updates.');
-  const data = await privatePost(endpoint, { action: 'get_order_status', order_id: order.id, customer_phone: order.customer_phone });
+  const data = await privatePost(endpoint, { action: 'get_order_status', order_id: order.id, customer_phone: order.customer_phone, ...(idToken ? {id_token:idToken} : {}) });
   const validStatuses: OrderStatus[] = ['pending', 'confirmed', 'preparing', 'ready', 'assigned', 'picked_up', 'out_for_delivery', 'delivered', 'cancelled'];
   if (data.order_id !== order.id || !validStatuses.includes(data.status as OrderStatus) ||
       typeof data.updated_at !== 'string' || !Array.isArray(data.history) ||
-      !['pending','paid','failed'].includes(String(data.payment_status)) || typeof data.cod_collected !== 'boolean') {
+      !['pending','paid','failed'].includes(String(data.payment_status)) || typeof data.cod_collected !== 'boolean' ||
+      (data.delivery_otp !== undefined && !/^\d{4}$/.test(String(data.delivery_otp)))) {
     throw new Error('Invalid order status response.');
   }
   return data as unknown as StatusSnapshot;
