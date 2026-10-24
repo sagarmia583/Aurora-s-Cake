@@ -29,7 +29,7 @@ npm run build
 - Developer-only mock Studio and optional legacy Supabase tools (not production order management)
 
 ## Google Sheets content
-The public website can load its business identity, contact information, links, images, text, catalogue, sizes, add-ons, delivery options and FAQs through the configured Apps Script endpoint. Open **Studio → Google Sheets content** for connection status, manual refresh and setup code.
+The public website can load its business identity, contact information, links, images, text, catalogue, sizes, add-ons, delivery options and FAQs through the configured Apps Script endpoint. For production, configure the endpoint with `VITE_GOOGLE_SHEETS_URL`; developer Studio provides connection status and manual refresh only during development.
 
 Follow apps-script/README.md to authorize your account, create the public content and private order tables, then deploy the current endpoint. A sign-in page is never treated as a successful API response. The website uses its last validated snapshot or built-in preview content until the endpoint succeeds; Studio clearly identifies the source and connection state.
 
@@ -45,7 +45,7 @@ Use **Staff login** for live operations and **My Google orders** for optional cu
 
 ## Preview data
 
-When the configured endpoint supports live COD checkout, custom cake requests are submitted to the private Sheet and quoted by authorized staff. Without a live endpoint they remain explicitly marked local previews. Studio developer tools use the local mock database. Studio role switches are developer-only demonstration controls and exclude real Sheet receipts. The authenticated Staff Portal reads/writes real private Sheet orders; its updates can refresh the customer's original device-held receipt during tracking. No verified customer phone-login or cross-device receipt recovery is provided yet. No online payment is collected. Configure authenticated staff workflows and a payment integration before offering those features.
+When the configured endpoint supports live COD checkout, custom cake requests are submitted to the private Sheet and quoted by authorized staff. Without a live endpoint they remain explicitly marked local previews. Studio developer tools use the local mock database. Studio role switches are developer-only demonstration controls and exclude real Sheet receipts. The authenticated Staff Portal reads/writes real private Sheet orders; its updates can refresh the customer's original device-held receipt during tracking. Cross-device recovery uses free, verified Google accounts for explicitly linked receipts; a phone number alone is not a verified login. Online payment is not supported: cash-on-delivery only, with optional custom-cake quotation requests. No paid SMS or payment gateway is required.
 
 The former SweetDelight branding and placeholder contact links have been removed from the rebuilt storefront. Stored data from a previous version in the same browser may still use its old catalogue or settings. Fresh browsers start with the Aurora catalogue and an empty order history.
 
