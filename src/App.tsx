@@ -202,6 +202,36 @@ export default function App() {
     setIsTrackOrderOpen(true);
   };
 
+  // A receipt is a capability held only on the ordering device. Poll only that
+  // exact receipt while tracking is open; never expose the private order list.
+  useEffect(() => {
+    if (!isTrackOrderOpen || !publicData.order_submission_enabled) return;
+    let stopped = false;
+    const updateTrackedReceipt = async () => {
+      const saved = loadConfirmedSheetOrders();
+      const selected = saved.find(order => order.id === latestOrderId) || (!latestOrderId ? saved[0] : undefined);
+      if (!selected) return;
+      try {
+        const next = await fetchCustomerOrderStatus(sheetContent.endpoint, selected);
+        if (stopped) return;
+        const updated: Order = {
+          ...selected, status: next.status, history: next.history,
+          updated_at: next.updated_at, rider_name: next.rider_name,
+          payment_status: next.payment_status, cod_collected: next.cod_collected,
+        };
+        if (rememberConfirmedSheetOrder(updated)) {
+          setOrders(previous => [updated, ...previous.filter(order => order.id !== updated.id)]);
+        }
+      } catch {
+        // Old deployments do not have private status lookup. Retain the last
+        // confirmed receipt rather than guessing an order transition.
+      }
+    };
+    void updateTrackedReceipt();
+    const timer = window.setInterval(() => { void updateTrackedReceipt(); }, 30000);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [isTrackOrderOpen, latestOrderId, sheetContent.endpoint, publicData.order_submission_enabled]);
+
   // Reorders use the current Sheet catalogue; removed sizes/cakes are not recreated.
   const handleReorder = (order: Order) => {
     const result = reorderFromPublicOrder(order, publicData);
