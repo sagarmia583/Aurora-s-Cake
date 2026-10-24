@@ -29,6 +29,26 @@ export const LiveShopEditor:React.FC<Props>=({endpoint,token,onUpdated})=>{
     }catch(e){setError(e instanceof Error?e.message:'Unable to save your changes.');}
     finally{setBusy(false);}
   };
+  const savePrices=async(variant:LiveCatalog['variants'][number])=>{
+    if(busy)return;
+    const regular=drafts[variant.id+':price']??String(variant.price);
+    const sale=drafts[variant.id+':sale_price']??String(variant.sale_price);
+    if(regular.trim()===''||!Number.isFinite(Number(regular))||Number(regular)<0 ||
+       (sale!==''&&(!Number.isFinite(Number(sale))||Number(sale)<0))){
+      setError('Enter valid non-negative cake prices.');return;
+    }
+    const regularChanged=Number(regular)!==variant.price;
+    const saleChanged=(sale===''?'':Number(sale))!==variant.sale_price;
+    if(!regularChanged&&!saleChanged){setNotice('No price changes to save.');return;}
+    setBusy(true);setError('');setNotice('');
+    try{
+      if(regularChanged)await updateLiveCatalog(endpoint,token,'product_variants',variant.id,'price',Number(regular));
+      if(saleChanged)await updateLiveCatalog(endpoint,token,'product_variants',variant.id,'sale_price',sale===''?'':Number(sale));
+      setCatalog(await fetchLiveCatalog(endpoint,token));setDrafts({});
+      setNotice('Updated cake prices in Google Sheets.');onUpdated();
+    }catch(e){setError(e instanceof Error?e.message:'Unable to save prices. Refresh and inspect saved values.');}
+    finally{setBusy(false);}
+  };
   return <section className="rounded-2xl border border-emerald-200 bg-white p-5 space-y-4">
     <header className="flex items-center justify-between gap-2">
       <div><h3 className="text-lg font-black flex items-center gap-2"><Settings2 size={19}/> Live shop management</h3>
@@ -71,14 +91,7 @@ export const LiveShopEditor:React.FC<Props>=({endpoint,token,onUpdated})=>{
                 <input type="number" min="0" step=".01" placeholder="none" aria-label={variant.name+' sale price'} value={drafts[variant.id+':sale_price']??String(variant.sale_price)}
                   onChange={e=>setDrafts(prev=>({...prev,[variant.id+':sale_price']:e.target.value}))}
                   className="w-full border rounded-md p-1.5 text-sm bg-white"/></label>
-              <button type="button" disabled={busy} onClick={()=>{
-                const regular=drafts[variant.id+':price']??String(variant.price);
-                const sale=drafts[variant.id+':sale_price']??String(variant.sale_price);
-                if(regular===''){setError('Enter a valid regular price.');return;}
-                if(regular!==String(variant.price)) void save('product_variants',variant.id,'price',Number(regular));
-                else if(sale!==String(variant.sale_price)) void save('product_variants',variant.id,'sale_price',sale===''?'':Number(sale));
-                else setNotice('No price changes to save.');
-              }} className="flex gap-1 items-center justify-center px-3 py-2 text-white bg-slate-900 rounded-lg text-xs disabled:opacity-40"><Save size={13}/> Save price</button>
+              <button type="button" disabled={busy} onClick={()=>void savePrices(variant)} className="flex gap-1 items-center justify-center px-3 py-2 text-white bg-slate-900 rounded-lg text-xs disabled:opacity-40"><Save size={13}/> Save price</button>
               <button type="button" disabled={busy} onClick={()=>void save('product_variants',variant.id,'is_active',!variant.is_active)}
                 className={'rounded-lg border px-2 py-2 text-xs '+(variant.is_active?'bg-green-50':'bg-red-50')}>
                 {variant.is_active?'Active':'Hidden'}
