@@ -70,3 +70,22 @@ export async function fetchCustomerOrderStatus(endpoint: string, order: Order, i
   }
   return data as unknown as StatusSnapshot;
 }
+
+export interface LiveCatalog {
+  products: {id:string;name:string;is_active:boolean}[];
+  variants: {id:string;product_id:string;name:string;price:number;sale_price:number|'';is_active:boolean}[];
+  settings: {shop_name:string;accepting_orders:boolean;delivery_enabled:boolean};
+}
+export async function fetchLiveCatalog(endpoint:string,idToken:string):Promise<LiveCatalog>{
+  const response=await privatePost(endpoint,{action:'staff_catalog',id_token:idToken});
+  if(!Array.isArray(response.products)||!Array.isArray(response.variants)||!objectValue(response.settings))
+    throw new Error('The live catalogue response is invalid.');
+  return {products:response.products as LiveCatalog['products'],
+    variants:response.variants as LiveCatalog['variants'],
+    settings:response.settings as LiveCatalog['settings']};
+}
+export async function updateLiveCatalog(endpoint:string,idToken:string,table:'products'|'product_variants'|'settings',
+  recordId:string,field:string,value:string|number|boolean):Promise<void>{
+  await privatePost(endpoint,{action:'staff_catalog_update',id_token:idToken,
+    table,record_id:recordId,field,value});
+}
