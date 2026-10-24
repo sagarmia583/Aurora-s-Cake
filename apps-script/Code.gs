@@ -89,6 +89,7 @@ function doPost(e) {
     // Private operations authenticate every POST; never expose these reads via GET.
     if (input && input.action === 'get_order_status') return auroraResponse_(auroraCustomerOrderStatus_(input));
     if (input && /^staff_/.test(String(input.action || ''))) return auroraResponse_(auroraOperationsPost_(input));
+    if (input && /^customer_(session|orders|claim_order)$/.test(String(input.action || ''))) return auroraResponse_(auroraCustomerAccountsPost_(input));
     var request = auroraOrderRequest_(input);
     var hash = auroraRequestHash_(request);
     lock = LockService.getScriptLock();
