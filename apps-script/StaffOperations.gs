@@ -177,7 +177,15 @@ function auroraCustomerOrderStatus_(input) {
   var record = table.rows.filter(function(row){return String(row.id)===orderId;})[0];
   if (!record || String(record.customer_phone||'').replace(/\D/g,'')!==digits) auroraReject_('not_found','Order reference and phone do not match.');
   var order = JSON.parse(String(record.receipt_json));
-  return {ok:true,order_id:order.id,status:order.status,updated_at:order.updated_at,
+  var result={ok:true,order_id:order.id,status:order.status,updated_at:order.updated_at,
     history:Array.isArray(order.history) ? order.history.slice(-20) : [],rider_name:order.rider_name||'',
     payment_status:order.payment_status,cod_collected:order.cod_collected};
+  // A recovered customer gets their OTP only while the assigned rider is
+  // out for delivery and only when the verified Google subject matches.
+  if (input.id_token && order.customer_google_sub && order.status==='out_for_delivery') {
+    var account=auroraCustomerIdentity_(input);
+    if (account.sub !== order.customer_google_sub) auroraReject_('forbidden','This order belongs to a different account.');
+    result.delivery_otp=order.delivery_otp;
+  }
+  return result;
 }
