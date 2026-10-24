@@ -138,7 +138,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
             </div>
           )}
 
-          {selectedOrder.persistence !== 'google_sheets' && <>
+          {(selectedOrder.persistence !== 'google_sheets' || selectedOrder.status === 'out_for_delivery') && (
           {/* Delivery OTP Security Card */}
           <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -159,6 +159,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
             </div>
           </div>
 
+          )}
           {/* 8-Stage Visual Progress Timeline */}
           <div className="space-y-3">
             <h4 className="text-sm font-bold text-slate-900">Cake Production & Delivery Pipeline</h4>
@@ -216,7 +217,6 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
             </div>
           </div>
 
-          </>}
           {/* Delivery & Rider Info */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2 text-xs">
@@ -244,7 +244,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
               </div>
               {selectedOrder.payment_method === 'cod' && (
                 <div className="text-[11px] text-amber-700 font-bold">
-                  Cash to Collect: {currency}{selectedOrder.total_amount}
+                  {selectedOrder.cod_collected ? 'Cash collected' : 'Cash to collect'}: {currency}{selectedOrder.total_amount}
                 </div>
               )}
             </div>
@@ -283,7 +283,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
         {/* Footer */}
         <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs">
           <div className="text-slate-500">
-            Demo order total: <strong className="text-slate-800 text-sm">{currency}{selectedOrder.total_amount}</strong>
+            {selectedOrder.persistence === 'google_sheets' ? 'Order total' : 'Demo order total'}: <strong className="text-slate-800 text-sm">{currency}{selectedOrder.total_amount}</strong>
           </div>
           <button
             onClick={onClose}
