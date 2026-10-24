@@ -15,6 +15,7 @@ import { KitchenDisplay } from './components/KitchenDisplay';
 import { DeliveryRiderPortal } from './components/DeliveryRiderPortal';
 const AdminPanel = lazy(() => import('./components/AdminPanel').then(m => ({default: m.AdminPanel})));
 const StaffPortal = lazy(() => import('./components/StaffPortal').then(m => ({default: m.StaffPortal})));
+const CustomerAccountPortal = lazy(() => import('./components/CustomerAccountPortal').then(m => ({default: m.CustomerAccountPortal})));
 import { CachePerformanceHub } from './components/CachePerformanceHub';
 import { DatabaseSchemaViewer } from './components/DatabaseSchemaViewer';
 import { SupabaseSyncModal } from './components/SupabaseSyncModal';
@@ -51,6 +52,7 @@ export default function App() {
   const publicData = sheetContent.data;
   const [isSheetContentOpen, setIsSheetContentOpen] = useState(false);
   const [isStaffPortalOpen, setIsStaffPortalOpen] = useState(false);
+  const [isCustomerAccountOpen, setIsCustomerAccountOpen] = useState(false);
   // Dual Experience: Responsive Website vs Mobile App
   const [viewMode, setViewMode] = useState<ViewMode>('web');
 
@@ -249,6 +251,7 @@ export default function App() {
       {/* Top Navbar */}
       <Navbar
         onOpenStaffPortal={() => setIsStaffPortalOpen(true)}
+        onOpenCustomerAccount={() => setIsCustomerAccountOpen(true)}
         settings={settings}
         publicData={publicData}
         isSheetConnected={sheetContent.status.state === 'connected'}
@@ -408,6 +411,7 @@ export default function App() {
       {activeRole !== 'customer' && <div className="mx-auto my-3 w-full max-w-6xl px-5 text-xs text-slate-500">Website content is managed in Google Sheets. These Studio tools are local demonstrations. Manage real orders in the private orders and order_items Sheet tabs. Content edits here are replaced on the next Sheet refresh.</div>}
 
       <Suspense fallback={null}><StaffPortal isOpen={isStaffPortalOpen} onClose={() => setIsStaffPortalOpen(false)} endpoint={sheetContent.endpoint} /></Suspense>
+      <Suspense fallback={null}><CustomerAccountPortal open={isCustomerAccountOpen} onClose={() => setIsCustomerAccountOpen(false)} endpoint={sheetContent.endpoint} localReceipts={orders.filter(o => o.persistence === 'google_sheets')} onRecover={recovered => { recovered.forEach(rememberConfirmedSheetOrder); setOrders(previous => { const byId = new Map(previous.map(o => [o.id,o])); recovered.forEach(o => byId.set(o.id,o)); return Array.from(byId.values()); }); }} /></Suspense>
       <SheetContentPanel isOpen={isSheetContentOpen} onClose={() => setIsSheetContentOpen(false)} endpoint={sheetContent.endpoint} status={sheetContent.status} orderSubmissionEnabled={publicData.order_submission_enabled} onRefresh={sheetContent.refresh} onSaveEndpoint={sheetContent.updateEndpoint}/>
       {/* Modals & Slide-outs */}
       <ProductDetailModal
