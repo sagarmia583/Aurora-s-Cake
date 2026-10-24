@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, RefreshCw, ShieldCheck, LockKeyhole, Truck, PackageCheck } from 'lucide-react';
 import { checkStaffSession, getStaffOrders, mutateStaffOrder } from '../services/sheetStaffApi';
 import type { StaffOperation, StaffOrder, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
+import { LiveShopEditor } from './LiveShopEditor';
 
 type GoogleSdk = {
   initialize: (options: { client_id: string; callback: (response: { credential: string }) => void }) => void;
@@ -36,8 +37,9 @@ interface StaffPortalProps {
   isOpen: boolean;
   onClose: () => void;
   endpoint: string;
+  onCatalogUpdated?: () => void;
 }
-export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpoint }) => {
+export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpoint, onCatalogUpdated }) => {
   const oauthClientId = (import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID as string | undefined)?.trim();
   const signinRef = useRef<HTMLDivElement>(null);
   const [identity, setIdentity] = useState<(StaffSession & { token: string }) | null>(null);
@@ -198,6 +200,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                   </article>;
                 })}
               </div>
+              {(identity.role === 'super_admin' || identity.role === 'admin') && <LiveShopEditor endpoint={endpoint} token={identity.token} onUpdated={() => onCatalogUpdated?.()} />}
             </>
           )}
           {error && <p role="alert" className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-800 text-sm">{error}</p>}
