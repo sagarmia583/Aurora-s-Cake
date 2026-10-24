@@ -294,3 +294,18 @@ test('free Google recovery shows delivery OTP only after the linked order is out
   assert.equal(orders[0].delivery_otp,created.delivery_otp);
   assert.equal(orders[0].status,'out_for_delivery');
 });
+
+test('linked customer gets delivery OTP only after dispatch with their own valid Google token',()=>{
+  const h=harness();const order=h.post(request()).order;
+  const status=(token?:string)=>h.post({action:'get_order_status',order_id:order.id,customer_phone:order.customer_phone,...(token?{id_token:token}:{})});
+  assert.equal(h.post({action:'customer_claim_order',id_token:ADMIN_TOKEN,order_id:order.id,customer_phone:order.customer_phone}).ok,true);
+  assert.equal(status(ADMIN_TOKEN).delivery_otp,undefined);
+  const update=(operation:string,id_token:string,extra:Record<string,unknown>={})=>h.post({action:'staff_mutate',id_token,operation,order_id:order.id,...extra});
+  for(const op of ['confirm','start_baking','mark_ready']) assert.equal(update(op,ADMIN_TOKEN).ok,true);
+  assert.equal(update('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
+  assert.equal(update('pick_up',RIDER_TOKEN).ok,true);
+  assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
+  assert.equal(status().delivery_otp,undefined);
+  assert.equal(status(INTRUDER_TOKEN).code,'forbidden');
+  assert.equal(status(ADMIN_TOKEN).delivery_otp,order.delivery_otp);
+});
