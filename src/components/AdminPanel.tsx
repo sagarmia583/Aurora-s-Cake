@@ -428,7 +428,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           Confirm Order
                         </button>
                       )}
-                      {(o.status === 'ready' || o.status === 'confirmed') && !o.rider_name && (
+                      {o.status === 'ready' && !o.rider_name && (
                         <button
                           onClick={() => mockDb.assignRider(o.id, 'Rahim Mia (Rider #1)', 'Delivery Manager')}
                           className="px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl flex items-center gap-1 cursor-pointer"
