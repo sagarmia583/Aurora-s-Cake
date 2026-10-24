@@ -71,6 +71,7 @@ function harness(options:{withoutPrivate?:boolean}={}) {
   vm.runInContext(fs.readFileSync(new URL('../apps-script/Code.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/StaffOperations.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/CustomerAccounts.gs',import.meta.url),'utf8'),context);
+  vm.runInContext(fs.readFileSync(new URL('../apps-script/LiveCatalog.gs',import.meta.url),'utf8'),context);
   const post=(payload:unknown)=>JSON.parse(context.doPost({postData:{type:'text/plain',contents:JSON.stringify(payload)}}).content);
   const get=(action:string)=>JSON.parse(context.doGet({parameter:{action}}).content);
   const records=(name:string)=>tables[name].slice(1).map(row=>Object.fromEntries(tables[name][0].map((key,index)=>[String(key),row[index]])));
@@ -308,4 +309,34 @@ test('linked customer gets delivery OTP only after dispatch with their own valid
   assert.equal(status().delivery_otp,undefined);
   assert.equal(status(INTRUDER_TOKEN).code,'forbidden');
   assert.equal(status(ADMIN_TOKEN).delivery_otp,order.delivery_otp);
+});
+
+test('only verified admins can edit live catalogue; arbitrary fields and other roles are rejected',()=>{
+  const h=harness();
+  const read=()=>h.post({action:'staff_catalog',id_token:ADMIN_TOKEN});
+  const save=(table:string,record_id:string,field:string,value:unknown,id_token=ADMIN_TOKEN)=>
+    h.post({action:'staff_catalog_update',id_token,table,record_id,field,value});
+  assert.equal(read().products[0].name,'Sheet Cake');
+  assert.equal(h.post({action:'staff_catalog',id_token:RIDER_TOKEN}).code,'forbidden');
+  assert.equal(save('products','p1','is_active',false,RIDER_TOKEN).code,'forbidden');
+  assert.equal(save('orders','p1','customer_phone','999').code,'forbidden');
+  assert.equal(save('products','p1','image_url','javascript:alert(1)').code,'invalid_value');
+  assert.equal(save('product_variants','v1','price',-2).code,'invalid_price');
+  assert.equal(save('products','p1','is_active',false).updated,true);
+  assert.equal(read().products[0].is_active,false);
+  assert.equal(h.post(request()).code,'unavailable_selection');
+});
+test('free admin price updates change authoritative checkout amounts, not browser prices',()=>{
+  const h=harness();
+  const save=(table:string,record_id:string,field:string,value:unknown)=>
+    h.post({action:'staff_catalog_update',id_token:ADMIN_TOKEN,table,record_id,field,value});
+  assert.equal(save('product_variants','v1','sale_price','').updated,true);
+  assert.equal(save('product_variants','v1','price',950.5).updated,true);
+  const fresh=h.post(request());
+  assert.equal(fresh.persisted,true);
+  // Two 950.50 cakes and two 50 add-ons, capped at 120 off, plus 100 delivery.
+  assert.equal(fresh.order.total_amount,1981);
+  assert.equal(save('settings','accepting_orders','accepting_orders',false).updated,true);
+  const blocked=h.post(request({request_id:'cccccccc-1111-4111-8111-222222222222'}));
+  assert.equal(blocked.code,'shop_closed');
 });
