@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { useCakeDialog } from './useCakeDialog';
 import { X, Sparkles, Image, CheckCircle, AlertCircle, Send } from 'lucide-react';
 import { mockDb } from '../services/mockDatabase';
-import { prepareCustomCakeAttempt, submitCustomCake } from '../services/sheetCustomCake';
+import { prepareCustomCakeAttempt, submitCustomCake, getCustomCakeRequestStatus } from '../services/sheetCustomCake';
 import type { CustomCakeAttempt } from '../services/sheetCustomCake';
 
 interface CustomCakeModalProps {
@@ -35,6 +35,9 @@ const CustomCakeModalDialog: React.FC<CustomCakeModalProps> = ({
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [savedReference, setSavedReference] = useState('');
+  const [previousReference, setPreviousReference] = useState<{id:string;phone:string}|null>(()=>{try{const v=JSON.parse(localStorage.getItem('aurora_custom_request_v1')||'null');return v&&typeof v.id==='string'&&typeof v.phone==='string'?v:null;}catch{return null;}});
+  const [quoteStatus,setQuoteStatus] = useState('');
+  const [checkingStatus,setCheckingStatus] = useState(false);
   const attemptRef = useRef<CustomCakeAttempt | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -47,6 +50,14 @@ const CustomCakeModalDialog: React.FC<CustomCakeModalProps> = ({
     ? 2900
     : 3800;
 
+  const checkQuoteStatus = async () => {
+    if (!sheetOrderEndpoint || !previousReference) return;
+    setCheckingStatus(true);setErrorMessage('');
+    try{const response=await getCustomCakeRequestStatus(sheetOrderEndpoint,previousReference.id,previousReference.phone);
+      setQuoteStatus(response.status==='quoted'?`Quoted ৳${response.quoted_price} — contact the bakery to confirm`:response.status==='declined'?'This quote request was declined.':'Pending bakery review');
+    }catch(e){setErrorMessage(e instanceof Error?e.message:'Unable to check the quotation.');}
+    finally{setCheckingStatus(false);}
+  };
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitted || isSubmitting) return;
@@ -71,6 +82,8 @@ const CustomCakeModalDialog: React.FC<CustomCakeModalProps> = ({
         attemptRef.current=attempt;
         const reference=await submitCustomCake(sheetOrderEndpoint,draft,attempt);
         setSavedReference(reference);
+        setPreviousReference({id:reference,phone:customerPhone.trim()});
+        try{localStorage.setItem('aurora_custom_request_v1',JSON.stringify({id:reference,phone:customerPhone.trim()}));}catch{/* Optional on-device quote lookup */}
         setIsSubmitted(true);
       } catch(error) { setErrorMessage(error instanceof Error?error.message:'The bakery could not confirm your request. Retry the original form.'); }
       finally { setIsSubmitting(false); }
@@ -128,12 +141,20 @@ const CustomCakeModalDialog: React.FC<CustomCakeModalProps> = ({
               {savedReference ? 'Your request was saved privately to Aurora’s Cake. The bakery will need to review it and confirm a quote; no payment was taken.' : 'This demo request is saved only on this device; it was not sent to the bakery.'}
               {savedReference && <span className="block mt-2 font-mono break-all">Reference: {savedReference}</span>}
             </p>
+            {savedReference&&sheetOrderEndpoint&&<button type="button" onClick={()=>void checkQuoteStatus()} disabled={checkingStatus} className="px-6 py-3 rounded-xl border text-sm font-semibold">{checkingStatus?'Checking…':'Check quote status'}</button>}
+            {quoteStatus&&<p role="status" className="text-sm text-emerald-800">{quoteStatus}</p>}
+            {errorMessage&&<p role="alert" className="text-sm text-red-700">{errorMessage}</p>}
             <button type="button" onClick={onClose} className="px-6 py-3 rounded-xl bg-rose-600 text-white text-sm font-semibold">Back to the cakes</button>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="overflow-y-auto p-6 space-y-4 flex-1 text-xs">
             <p className="bg-rose-50 text-slate-600 p-3 rounded-xl">{sheetOrderEndpoint ? 'Request a real custom cake quotation. The bakery will confirm the design and final price; this is not an order or online payment.' : 'Preview mode: requests stay only on this device.'}</p>
             {errorMessage && <p role="alert" className="text-red-700 bg-red-50 p-3 rounded-xl">{errorMessage}</p>}
+            {sheetOrderEndpoint&&previousReference&&<div className="bg-emerald-50 p-3 rounded-xl text-xs space-y-2">
+              <p>Previous request: <span className="font-mono break-all">{previousReference.id}</span></p>
+              <button type="button" disabled={checkingStatus} onClick={()=>void checkQuoteStatus()} className="font-semibold underline">{checkingStatus?'Checking…':'Check previous quote status'}</button>
+              {quoteStatus&&<p role="status">{quoteStatus}</p>}
+            </div>}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="font-bold text-slate-700 block mb-1">Your Full Name</label>
