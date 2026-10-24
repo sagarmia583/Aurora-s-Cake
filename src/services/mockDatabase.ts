@@ -855,7 +855,8 @@ class MockDatabase {
   // --- ORDER LIFECYCLE ACTIONS ---
   updateOrderStatus(orderId: string, newStatus: OrderStatus, notes?: string, actor = 'Staff') {
     const order = this.orders.find((o) => o.id === orderId);
-    if (!order) return;
+    const allowed: Record<OrderStatus, OrderStatus[]> = { pending: ['confirmed','cancelled'], confirmed: ['preparing','cancelled'], preparing: ['ready','cancelled'], ready: ['assigned','cancelled'], assigned: ['picked_up','cancelled'], picked_up: ['out_for_delivery','cancelled'], out_for_delivery: [], delivered: [], cancelled: [] };
+    if (!order || !allowed[order.status]?.includes(newStatus)) return;
 
     order.status = newStatus;
     order.updated_at = new Date().toISOString();
@@ -874,7 +875,7 @@ class MockDatabase {
 
   assignRider(orderId: string, riderName = 'Rahim Mia (Rider #1)', actor = 'Delivery Manager') {
     const order = this.orders.find((o) => o.id === orderId);
-    if (!order) return;
+    if (!order || order.rider_id || order.status !== 'ready') return;
 
     order.rider_id = 'rider-1';
     order.rider_name = riderName;
@@ -897,6 +898,7 @@ class MockDatabase {
     const order = this.orders.find((o) => o.id === orderId);
     if (!order) return { success: false, message: 'Order not found' };
 
+    if (order.rider_id !== 'rider-1' || order.status !== 'out_for_delivery') return { success: false, message: 'Order must be assigned and out for delivery.' };
     if (order.delivery_otp !== enteredOtp.trim()) {
       return { success: false, message: 'Invalid 4-digit OTP. Please ask the customer for the correct code.' };
     }
