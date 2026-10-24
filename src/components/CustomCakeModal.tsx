@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useCakeDialog } from './useCakeDialog';
 import { X, Sparkles, Image, CheckCircle, AlertCircle, Send } from 'lucide-react';
 import { mockDb } from '../services/mockDatabase';
 
@@ -8,12 +9,15 @@ interface CustomCakeModalProps {
   currency: string;
 }
 
-export const CustomCakeModal: React.FC<CustomCakeModalProps> = ({
+export const CustomCakeModal: React.FC<CustomCakeModalProps> = (props) =>
+  props.isOpen ? <CustomCakeModalDialog {...props} /> : null;
+
+const CustomCakeModalDialog: React.FC<CustomCakeModalProps> = ({
   isOpen,
   onClose,
   currency,
 }) => {
-  if (!isOpen) return null;
+  const dialogRef = useCakeDialog(onClose);
 
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -23,8 +27,9 @@ export const CustomCakeModal: React.FC<CustomCakeModalProps> = ({
   const [colorTheme, setColorTheme] = useState('Pastel Rose & Gold');
   const [writingText, setWritingText] = useState('');
   const [instructions, setInstructions] = useState('');
-  const [imageUrl, setImageUrl] = useState('https://images.unsplash.com/photo-1535141192574-5d4897c13136?w=600&auto=format&fit=crop&q=80');
+  const [imageUrl, setImageUrl] = useState('');
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   // Dynamic estimated price formula for instant customer preview
   const estimatedBase = approxSize.includes('1kg')
@@ -37,31 +42,38 @@ export const CustomCakeModal: React.FC<CustomCakeModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customerName || !customerPhone) return;
+    if (isSubmitted) return;
+    if (!customerName.trim() || !customerPhone.trim()) {
+      setErrorMessage('Please enter your name and contact number.');
+      return;
+    }
+    const phoneDigits = customerPhone.replace(/\D/g, '');
+    if (phoneDigits.length < 7 || phoneDigits.length > 15) {
+      setErrorMessage('Please enter a valid contact phone number.');
+      return;
+    }
+    setErrorMessage('');
 
     mockDb.addCustomCakeRequest({
-      customer_name: customerName,
-      customer_phone: customerPhone,
+      customer_name: customerName.trim(),
+      customer_phone: customerPhone.trim(),
       cake_type: cakeType,
       approx_size: approxSize,
       flavor,
       color_theme: colorTheme,
       writing_text: writingText,
       instructions,
-      reference_image_url: imageUrl,
+      reference_image_url: imageUrl.trim() || undefined,
       estimated_price: estimatedBase,
     });
 
     setIsSubmitted(true);
-    setTimeout(() => {
-      setIsSubmitted(false);
-      onClose();
-    }, 2500);
+
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
-      <div 
+    <div onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="custom-cake-title" data-cake-dialog tabIndex={-1}
         className="bg-white rounded-3xl max-w-xl w-full shadow-2xl border border-rose-100 overflow-hidden my-6 flex flex-col max-h-[92vh]"
         onClick={(e) => e.stopPropagation()}
       >
@@ -71,12 +83,13 @@ export const CustomCakeModal: React.FC<CustomCakeModalProps> = ({
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-900 text-lg">Custom Cake Design Studio</h3>
+              <h3 id="custom-cake-title" className="font-bold text-slate-900 text-lg">Your dream cake, imagined</h3>
               <p className="text-xs text-slate-500">Design your bespoke anniversary or birthday cake</p>
             </div>
           </div>
           <button
             onClick={onClose}
+            aria-label="Close custom cake studio"
             className="p-1.5 rounded-full hover:bg-white text-slate-500 cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -84,17 +97,20 @@ export const CustomCakeModal: React.FC<CustomCakeModalProps> = ({
         </div>
 
         {isSubmitted ? (
-          <div className="p-12 text-center space-y-4">
+          <div role="status" className="p-12 text-center space-y-4">
             <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto text-3xl">
               ✓
             </div>
-            <h4 className="text-xl font-bold text-slate-900">Custom Request Received!</h4>
+            <h4 className="text-xl font-bold text-slate-900">Your design is saved</h4>
             <p className="text-xs text-slate-600 max-w-xs mx-auto">
-              Our head pastry chef will review your design reference and call you back at <strong>{customerPhone}</strong> within 30 minutes with final confirmation.
+              This demo request is saved on this device. It has not been sent to a bakery, and no callback or booking has been arranged.
             </p>
+            <button type="button" onClick={onClose} className="px-6 py-3 rounded-xl bg-rose-600 text-white text-sm font-semibold">Back to the cakes</button>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="overflow-y-auto p-6 space-y-4 flex-1 text-xs">
+            <p className="bg-rose-50 text-slate-600 p-3 rounded-xl">Explore a custom cake design. This demo saves your request on this device only.</p>
+            {errorMessage && <p role="alert" className="text-red-700 bg-red-50 p-3 rounded-xl">{errorMessage}</p>}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="font-bold text-slate-700 block mb-1">Your Full Name</label>
@@ -102,7 +118,7 @@ export const CustomCakeModal: React.FC<CustomCakeModalProps> = ({
                   type="text"
                   required
                   placeholder="e.g. Farhana Sultana"
-                  value={customerName}
+                  aria-label="Your full name" value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-slate-800"
                 />
@@ -114,7 +130,7 @@ export const CustomCakeModal: React.FC<CustomCakeModalProps> = ({
                   type="tel"
                   required
                   placeholder="017XX-XXXXXX"
-                  value={customerPhone}
+                  aria-label="Mobile contact" value={customerPhone}
                   onChange={(e) => setCustomerPhone(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-slate-800"
                 />
@@ -125,7 +141,7 @@ export const CustomCakeModal: React.FC<CustomCakeModalProps> = ({
               <div>
                 <label className="font-bold text-slate-700 block mb-1">Cake Occasion / Theme</label>
                 <select
-                  value={cakeType}
+                  aria-label="Cake occasion" value={cakeType}
                   onChange={(e) => setCakeType(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-slate-800 cursor-pointer"
                 >
@@ -140,7 +156,7 @@ export const CustomCakeModal: React.FC<CustomCakeModalProps> = ({
               <div>
                 <label className="font-bold text-slate-700 block mb-1">Approximate Weight</label>
                 <select
-                  value={approxSize}
+                  aria-label="Approximate weight" value={approxSize}
                   onChange={(e) => setApproxSize(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-slate-800 cursor-pointer"
                 >
@@ -157,7 +173,7 @@ export const CustomCakeModal: React.FC<CustomCakeModalProps> = ({
                 <label className="font-bold text-slate-700 block mb-1">Flavor Preference</label>
                 <input
                   type="text"
-                  value={flavor}
+                  aria-label="Flavor preference" value={flavor}
                   onChange={(e) => setFlavor(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-slate-800"
                 />
@@ -167,7 +183,7 @@ export const CustomCakeModal: React.FC<CustomCakeModalProps> = ({
                 <label className="font-bold text-slate-700 block mb-1">Color Palette & Mood</label>
                 <input
                   type="text"
-                  value={colorTheme}
+                  aria-label="Color palette" value={colorTheme}
                   onChange={(e) => setColorTheme(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-slate-800"
                 />
@@ -179,7 +195,7 @@ export const CustomCakeModal: React.FC<CustomCakeModalProps> = ({
               <input
                 type="text"
                 placeholder="e.g. Happy 1st Birthday Little Prince Aayan 👑"
-                value={writingText}
+                aria-label="Dedication text" value={writingText}
                 onChange={(e) => setWritingText(e.target.value)}
                 className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-slate-800"
               />
@@ -187,11 +203,11 @@ export const CustomCakeModal: React.FC<CustomCakeModalProps> = ({
 
             <div>
               <label className="font-bold text-slate-700 block mb-1">
-                Reference Image URL (Stored in Supabase custom-cake-images bucket)
+                Reference image URL (optional)
               </label>
               <div className="flex gap-2 items-center">
                 <input
-                  type="text"
+                  type="url" placeholder="https://…" aria-label="Reference image URL"
                   value={imageUrl}
                   onChange={(e) => setImageUrl(e.target.value)}
                   className="flex-1 px-3.5 py-2 rounded-xl border border-slate-200 text-slate-800 font-mono text-[11px]"
@@ -211,7 +227,7 @@ export const CustomCakeModal: React.FC<CustomCakeModalProps> = ({
               <textarea
                 rows={2}
                 placeholder="Sugar flowers, less sweetness, specific topper request..."
-                value={instructions}
+                aria-label="Design instructions" value={instructions}
                 onChange={(e) => setInstructions(e.target.value)}
                 className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-slate-800"
               />
@@ -220,7 +236,7 @@ export const CustomCakeModal: React.FC<CustomCakeModalProps> = ({
             <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200 flex items-center justify-between">
               <div>
                 <span className="font-bold text-amber-900 block">Estimated Quote Starting At:</span>
-                <span className="text-[11px] text-amber-800">Final quote confirmed after chef design review</span>
+                <span className="text-[11px] text-amber-800">Illustrative estimate; a bakery must confirm the price</span>
               </div>
               <div className="text-xl font-black text-amber-900">
                 {currency}{estimatedBase}
@@ -232,7 +248,7 @@ export const CustomCakeModal: React.FC<CustomCakeModalProps> = ({
               className="w-full py-3.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-2xl shadow-lg shadow-rose-200 flex items-center justify-center gap-2 text-xs transition-all cursor-pointer"
             >
               <Send className="w-4 h-4" />
-              <span>Submit Custom Cake Request</span>
+              <span>Save my demo design</span>
             </button>
           </form>
         )}

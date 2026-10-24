@@ -1,6 +1,5 @@
 {
-  "name": "SweetDelight Cake Shop & Operations Portal",
-  "description": "Production-ready Cake Shop e-commerce platform and staff operations suite featuring responsive storefront, live kitchen display, delivery rider portal, permission-based admin panel, and high-performance caching.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "name": "Aurora’s Cake",
+  "description": "An elegant celebration cake boutique with a local demonstration of cake customization, cart, checkout and staff tools.",
+  "requestFramePermissions": []
 }

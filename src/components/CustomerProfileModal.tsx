@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useCakeDialog } from './useCakeDialog';
 import { 
   X, 
   User, 
@@ -26,6 +27,14 @@ import {
 import { Order, OrderStatus, Product, CartItem } from '../types';
 import { mockDb } from '../services/mockDatabase';
 
+const readProfile = (): {name?: string; phone?: string; email?: string; address?: string} => {
+  try {
+    const value = JSON.parse(localStorage.getItem('aurora_customer_profile_v1') || '{}');
+    if (!value || typeof value !== 'object') return {};
+    return Object.fromEntries(Object.entries(value).filter(([, entry]) => typeof entry === 'string'));
+  } catch { return {}; }
+};
+
 interface CustomerProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -36,7 +45,10 @@ interface CustomerProfileModalProps {
   onTrackOrder: (orderId: string) => void;
 }
 
-export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
+export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = (props) =>
+  props.isOpen ? <CustomerProfileModalDialog {...props} /> : null;
+
+const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
   isOpen,
   onClose,
   orders,
@@ -45,7 +57,6 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
   onReorder,
   onTrackOrder,
 }) => {
-  if (!isOpen) return null;
 
   // Active Tab: default to Recent Orders
   const [activeTab, setActiveTab] = useState<'orders' | 'profile'>('orders');
@@ -70,11 +81,11 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
   }, [isOpen, orders]);
 
   // Customer Profile State
-  const [customerName, setCustomerName] = useState('Tanvir Rahman');
-  const [customerPhone, setCustomerPhone] = useState('+880 1712-345678');
-  const [customerEmail, setCustomerEmail] = useState('tanvir.tangail@gmail.com');
-  const [savedAddress, setSavedAddress] = useState('House #24, Road #3, Akur Takur Para, Tangail');
-  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [customerName, setCustomerName] = useState(() => readProfile().name || '');
+  const [customerPhone, setCustomerPhone] = useState(() => readProfile().phone || '');
+  const [customerEmail, setCustomerEmail] = useState(() => readProfile().email || '');
+  const [savedAddress, setSavedAddress] = useState(() => readProfile().address || '');
+  const [isEditingProfile, setIsEditingProfile] = useState(() => !readProfile().name);
   const [profileSuccessMsg, setProfileSuccessMsg] = useState<string | null>(null);
 
   // Filter orders: all, active, delivered
@@ -85,6 +96,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
+  const dialogRef = useCakeDialog(reviewOrder ? () => setReviewOrder(null) : onClose, reviewOrder?.id);
 
   // Reorder notification toast
   const [reorderedOrderId, setReorderedOrderId] = useState<string | null>(null);
@@ -106,38 +118,33 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
 
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
-    setIsEditingProfile(false);
-    setProfileSuccessMsg('Profile information updated successfully!');
+    try {
+      localStorage.setItem('aurora_customer_profile_v1', JSON.stringify({ name: customerName.trim(), phone: customerPhone.trim(), email: customerEmail.trim(), address: savedAddress.trim() }));
+      setIsEditingProfile(false);
+      setProfileSuccessMsg('Profile saved on this device.');
+    } catch {
+      setProfileSuccessMsg('Storage is unavailable. Your profile could not be saved.');
+    }
     setTimeout(() => setProfileSuccessMsg(null), 2500);
   };
 
   const handleReorderClick = (order: Order) => {
-    setReorderedOrderId(order.id);
-    const itemCount = order.items.reduce((sum, it) => sum + it.quantity, 0);
-    setReorderNotification(`Reordered: ${itemCount} ${itemCount === 1 ? 'item' : 'items'} added to your cart!`);
-
-    // Automatically adds the items to cart via onReorder
+    onClose();
     onReorder(order);
-
-    setTimeout(() => {
-      setReorderedOrderId(null);
-      setReorderNotification(null);
-      onClose();
-    }, 600);
   };
 
   const handleSubmitReview = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!reviewOrder) return;
+    if (!reviewOrder || !reviewComment.trim()) return;
 
     const firstItem = reviewOrder.items[0];
     if (firstItem) {
       mockDb.addReview({
         product_id: firstItem.product_id,
         product_name: firstItem.product_name,
-        customer_name: customerName,
+        customer_name: customerName.trim() || 'Guest',
         rating: reviewRating,
-        comment: reviewComment || 'Exquisite taste and timely delivery in Tangail!',
+        comment: reviewComment.trim(),
       });
     }
 
@@ -216,8 +223,8 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
-      <div 
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="profile-title" data-cake-dialog tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+      <div
         className="bg-white rounded-3xl max-w-3xl w-full shadow-2xl border border-rose-100 overflow-hidden my-6 flex flex-col max-h-[92vh]"
         onClick={(e) => e.stopPropagation()}
       >
@@ -225,19 +232,19 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
         <div className="p-6 bg-gradient-to-r from-rose-950 via-slate-900 to-rose-900 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-rose-500 to-amber-500 flex items-center justify-center text-white text-2xl font-black shadow-lg border-2 border-white/20">
-              TR
+              {customerName ? customerName.trim().split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase() : 'AC'}
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-xl font-black text-white">{customerName}</h3>
+                <h3 id="profile-title" className="text-xl font-black text-white">{customerName || 'Your cake journal'}</h3>
                 <span className="bg-amber-400 text-slate-900 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 shadow-xs">
-                  <Sparkles className="w-2.5 h-2.5" /> VIP Member
+                  <Sparkles className="w-2.5 h-2.5" /> Local profile
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-0.5 flex items-center gap-2">
                 <span>{customerPhone}</span>
                 <span>•</span>
-                <span className="text-emerald-400 font-semibold">Phone Verified (OTP)</span>
+                <span className="text-emerald-400 font-semibold">Saved on this device</span>
               </p>
             </div>
           </div>
@@ -245,12 +252,13 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
           <button
             onClick={onClose}
             className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer self-end sm:self-center"
-            title="Close"
+            title="Close" aria-label="Close your cake journal"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        <p className="text-xs text-slate-600 bg-rose-50 px-6 py-3">Demo order history and profile details are stored on this device. This is not a signed-in customer account.</p>
         {/* Quick Metrics Bar */}
         <div className="grid grid-cols-3 gap-2 px-6 py-3 bg-slate-50 border-b border-slate-200/80 text-xs">
           <div className="space-y-0.5">
@@ -549,7 +557,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                 <div>
                   <h4 className="font-bold text-slate-900 text-base">Your Customer Details</h4>
                   <p className="text-xs text-slate-500">
-                    Used automatically for rapid one-click checkout and OTP delivery confirmation.
+                    Save your preferred contact details on this device.
                   </p>
                 </div>
                 {!isEditingProfile && (
@@ -576,18 +584,18 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                   <input
                     type="text"
                     disabled={!isEditingProfile}
-                    value={customerName}
+                    aria-label="Full name" value={customerName}
                     onChange={(e) => setCustomerName(e.target.value)}
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 disabled:bg-slate-50 disabled:text-slate-600 font-semibold text-slate-900"
                   />
                 </div>
 
                 <div>
-                  <label className="font-bold text-slate-700 block mb-1">Mobile Phone (OTP Verification)</label>
+                  <label className="font-bold text-slate-700 block mb-1">Mobile phone</label>
                   <input
                     type="tel"
                     disabled={!isEditingProfile}
-                    value={customerPhone}
+                    aria-label="Mobile phone" value={customerPhone}
                     onChange={(e) => setCustomerPhone(e.target.value)}
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 disabled:bg-slate-50 disabled:text-slate-600 font-semibold text-slate-900"
                   />
@@ -598,7 +606,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                   <input
                     type="email"
                     disabled={!isEditingProfile}
-                    value={customerEmail}
+                    aria-label="Email address" value={customerEmail}
                     onChange={(e) => setCustomerEmail(e.target.value)}
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 disabled:bg-slate-50 disabled:text-slate-600 font-semibold text-slate-900"
                   />
@@ -609,7 +617,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                   <textarea
                     rows={2}
                     disabled={!isEditingProfile}
-                    value={savedAddress}
+                    aria-label="Delivery address" value={savedAddress}
                     onChange={(e) => setSavedAddress(e.target.value)}
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 disabled:bg-slate-50 disabled:text-slate-600 font-semibold text-slate-900"
                   />
@@ -639,10 +647,10 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
               <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-3xl p-5 space-y-2">
                 <div className="flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-amber-600" />
-                  <h5 className="font-bold text-amber-950 text-sm">SweetDelight VIP Perks</h5>
+                  <h5 className="font-bold text-amber-950 text-sm">A little extra sweetness</h5>
                 </div>
                 <p className="text-xs text-amber-900/80 leading-relaxed">
-                  You earn <strong>5% SweetCash points</strong> on every completed delivery. Use coupon codes <strong>WELCOME100</strong> or <strong>BIRTHDAY10</strong> at checkout anytime!
+                  Try the demo offers <strong>WELCOME100</strong> or <strong>BIRTHDAY10</strong> when exploring checkout. Eligibility is shown before you save an order.
                 </p>
               </div>
             </div>
@@ -653,11 +661,12 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
       {/* REVIEW SUBMISSION MODAL */}
       {reviewOrder && (
         <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="review-title" data-cake-subdialog tabIndex={-1} className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
             <div className="flex items-center justify-between">
-              <h4 className="font-bold text-slate-900 text-base">Rate Your Cake Experience</h4>
+              <h4 id="review-title" className="font-bold text-slate-900 text-base">Try a demo review</h4>
               <button
                 onClick={() => setReviewOrder(null)}
+                aria-label="Close demo review"
                 className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400"
               >
                 <X className="w-4 h-4" />
@@ -671,7 +680,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                 </div>
                 <h5 className="font-bold text-slate-900 text-sm">Thank You for Your Review!</h5>
                 <p className="text-xs text-slate-500">
-                  Your feedback helps other celebration planners in Tangail find their perfect cake.
+                  Your demo review is saved on this device for preview.
                 </p>
               </div>
             ) : (
@@ -690,6 +699,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                       <button
                         key={star}
                         type="button"
+                        aria-label={`Rate ${star} out of 5`} aria-pressed={reviewRating === star}
                         onClick={() => setReviewRating(star)}
                         className="p-1 hover:scale-110 transition-transform cursor-pointer"
                       >
@@ -711,7 +721,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                     rows={3}
                     required
                     placeholder="How was the flavor, sponge texture, delivery, and cake writing?"
-                    value={reviewComment}
+                    aria-label="Review comment" value={reviewComment}
                     onChange={(e) => setReviewComment(e.target.value)}
                     className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-slate-800"
                   />

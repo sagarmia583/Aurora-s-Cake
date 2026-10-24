@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useCakeDialog } from './useCakeDialog';
 import { 
   X, 
   MapPin, 
@@ -14,6 +15,11 @@ import {
 import { CartItem, DeliveryZone, DeliverySlot, Order, PaymentMethod } from '../types';
 import { mockDb } from '../services/mockDatabase';
 
+const localDate = () => {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
+
 interface CheckoutModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -24,7 +30,10 @@ interface CheckoutModalProps {
   onOrderSuccess: (order: Order) => void;
 }
 
-export const CheckoutModal: React.FC<CheckoutModalProps> = ({
+export const CheckoutModal: React.FC<CheckoutModalProps> = (props) =>
+  props.isOpen ? <CheckoutModalDialog {...props} /> : null;
+
+const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   isOpen,
   onClose,
   items,
@@ -33,15 +42,15 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   slots,
   onOrderSuccess,
 }) => {
-  if (!isOpen) return null;
+  const dialogRef = useCakeDialog(onClose);
 
   // Form State
-  const [customerName, setCustomerName] = useState('Tanvir Rahman');
-  const [customerPhone, setCustomerPhone] = useState('01712-345678');
-  const [deliveryAddress, setDeliveryAddress] = useState('House #24, Road #3, Akur Takur Para, Tangail');
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [deliveryAddress, setDeliveryAddress] = useState('');
   const [selectedZoneId, setSelectedZoneId] = useState(zones[0]?.id || '');
-  const [selectedSlot, setSelectedSlot] = useState(slots[0]?.slot_label || '04:00 PM - 06:00 PM (Evening Teatime)');
-  const [deliveryDate, setDeliveryDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedSlot, setSelectedSlot] = useState(slots.find((slot) => slot.is_active)?.slot_label || '');
+  const [deliveryDate, setDeliveryDate] = useState(() => localDate());
   const [orderNote, setOrderNote] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cod');
 
@@ -54,43 +63,32 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const selectedZone = zones.find((z) => z.id === selectedZoneId) || zones[0];
+  const selectedZone = zones.find((zone) => zone.id === selectedZoneId && zone.is_active) || zones.find((zone) => zone.is_active);
+  const selectedDeliverySlot = slots.find((slot) => slot.slot_label === selectedSlot && slot.is_active)?.slot_label || slots.find((slot) => slot.is_active)?.slot_label || '';
   const itemsSubtotal = items.reduce((sum, item) => sum + item.total_price, 0);
 
-  // Preliminary preview calculation
+  const coupon = mockDb.getCoupons().find((item) => item.code.toUpperCase() === appliedCoupon && item.is_active);
   let estimatedDiscount = 0;
-  if (appliedCoupon === 'WELCOME100' && itemsSubtotal >= 800) estimatedDiscount = 100;
-  if (appliedCoupon === 'BIRTHDAY10' && itemsSubtotal >= 1000) estimatedDiscount = Math.round(itemsSubtotal * 0.1);
-  if (appliedCoupon === 'SWEETDELIGHT' && itemsSubtotal >= 1500) estimatedDiscount = Math.min(500, Math.round(itemsSubtotal * 0.15));
-
+  if (coupon && itemsSubtotal >= coupon.min_order_amount) {
+    estimatedDiscount = coupon.discount_type === 'fixed' ? coupon.discount_value : Math.round(itemsSubtotal * coupon.discount_value / 100);
+    if (coupon.max_discount_amount !== undefined) estimatedDiscount = Math.min(estimatedDiscount, coupon.max_discount_amount);
+  }
   const estimatedTotal = Math.max(0, itemsSubtotal - estimatedDiscount + (selectedZone?.delivery_fee || 0));
 
   const handleApplyCoupon = () => {
     setCouponError(null);
     const code = couponInput.trim().toUpperCase();
     if (!code) return;
-
-    if (code === 'WELCOME100') {
-      if (itemsSubtotal < 800) {
-        setCouponError('Requires minimum order of ৳800');
-        return;
-      }
-      setAppliedCoupon(code);
-    } else if (code === 'BIRTHDAY10') {
-      if (itemsSubtotal < 1000) {
-        setCouponError('Requires minimum order of ৳1000');
-        return;
-      }
-      setAppliedCoupon(code);
-    } else if (code === 'SWEETDELIGHT') {
-      if (itemsSubtotal < 1500) {
-        setCouponError('Requires minimum order of ৳1500');
-        return;
-      }
-      setAppliedCoupon(code);
-    } else {
-      setCouponError('Invalid or expired coupon code');
+    const match = mockDb.getCoupons().find((item) => item.code.toUpperCase() === code && item.is_active);
+    if (!match) {
+      setCouponError('This coupon is not available.');
+      return;
     }
+    if (itemsSubtotal < match.min_order_amount) {
+      setCouponError(`Requires a minimum cake subtotal of ${currency}${match.min_order_amount}.`);
+      return;
+    }
+    setAppliedCoupon(code);
   };
 
   const handlePlaceOrder = async (e: React.FormEvent) => {
@@ -102,15 +100,28 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       return;
     }
 
+    if (!items.length || !selectedZone || !selectedDeliverySlot) {
+      setErrorMessage('Add a cake and choose an available delivery zone and time.');
+      return;
+    }
+    if (!deliveryDate || deliveryDate < localDate()) {
+      setErrorMessage('Please choose today or a future delivery date.');
+      return;
+    }
+    const phoneDigits = customerPhone.replace(/\D/g, '');
+    if (phoneDigits.length < 7 || phoneDigits.length > 15) {
+      setErrorMessage('Please enter a valid contact phone number.');
+      return;
+    }
     setIsSubmitting(true);
     try {
       // Calls server-authoritative RPC simulation
       const result = await mockDb.createSecureOrder({
-        customer_name: customerName,
-        customer_phone: customerPhone,
-        delivery_address: deliveryAddress,
-        delivery_zone_id: selectedZoneId || zones[0].id,
-        delivery_slot: selectedSlot,
+        customer_name: customerName.trim(),
+        customer_phone: customerPhone.trim(),
+        delivery_address: deliveryAddress.trim(),
+        delivery_zone_id: selectedZone.id,
+        delivery_slot: selectedDeliverySlot,
         delivery_date: deliveryDate,
         cart_items: items,
         coupon_code: appliedCoupon || undefined,
@@ -132,8 +143,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
-      <div 
+    <div onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="checkout-title" data-cake-dialog tabIndex={-1}
         className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl border border-rose-100 overflow-hidden my-6 flex flex-col max-h-[92vh]"
         onClick={(e) => e.stopPropagation()}
       >
@@ -141,12 +152,13 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         <div className="p-6 bg-gradient-to-r from-rose-50 to-amber-50 border-b border-rose-100 flex items-center justify-between">
           <div>
             <span className="text-xs font-bold uppercase tracking-wider text-rose-600 bg-rose-100/70 px-2.5 py-0.5 rounded-full">
-              Safe & Tamper-Proof Checkout
+              Preview checkout
             </span>
-            <h3 className="text-xl font-bold text-slate-900 mt-1">Delivery & Payment Details</h3>
+            <h3 id="checkout-title" className="text-xl font-bold text-slate-900 mt-1">A little closer to cake</h3>
           </div>
           <button
             onClick={onClose}
+            aria-label="Close checkout"
             className="p-2 rounded-full hover:bg-white text-slate-500 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -155,8 +167,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handlePlaceOrder} className="overflow-y-auto p-6 space-y-6 flex-1">
+          <p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">This is a demo checkout. Orders are saved on this device only. No payment is taken and no order is sent to the bakery.</p>
           {errorMessage && (
-            <div className="bg-red-50 text-red-700 p-3.5 rounded-xl border border-red-200 text-xs flex items-center gap-2">
+            <div role="alert" className="bg-red-50 text-red-700 p-3.5 rounded-xl border border-red-200 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMessage}</span>
             </div>
@@ -174,6 +187,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 <input
                   type="text"
                   required
+                  aria-label="Full name" autoComplete="name" placeholder="Your name"
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
                   className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 focus:outline-rose-500 text-slate-800"
@@ -181,11 +195,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </div>
               <div>
                 <label className="text-xs font-semibold text-slate-600 block mb-1">
-                  Mobile Number (For Delivery OTP)
+                  Mobile number
                 </label>
                 <input
                   type="tel"
                   required
+                  aria-label="Mobile number" autoComplete="tel" placeholder="Your contact number"
                   value={customerPhone}
                   onChange={(e) => setCustomerPhone(e.target.value)}
                   className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 focus:outline-rose-500 text-slate-800"
@@ -198,6 +213,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               <textarea
                 required
                 rows={2}
+                aria-label="Street address" autoComplete="street-address"
                 value={deliveryAddress}
                 onChange={(e) => setDeliveryAddress(e.target.value)}
                 placeholder="House, road, flat number, nearby school or hospital in Tangail..."
@@ -215,12 +231,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             
             {/* Zones */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              {zones.map((zone) => (
-                <div
+              {zones.filter((zone) => zone.is_active).map((zone) => (
+                <button type="button" aria-pressed={selectedZone?.id === zone.id}
                   key={zone.id}
                   onClick={() => setSelectedZoneId(zone.id)}
                   className={`p-3 rounded-xl border cursor-pointer transition-all text-left ${
-                    selectedZoneId === zone.id
+                    selectedZone?.id === zone.id
                       ? 'border-rose-600 bg-rose-50 text-rose-950 font-medium ring-1 ring-rose-400'
                       : 'border-slate-200 hover:border-slate-300 text-slate-700'
                   }`}
@@ -230,7 +246,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     Fee: {currency}{zone.delivery_fee}
                   </div>
                   <div className="text-[10px] text-slate-500 mt-0.5">{zone.estimated_time}</div>
-                </div>
+                </button>
               ))}
             </div>
 
@@ -239,7 +255,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               <div>
                 <label className="text-xs font-semibold text-slate-600 block mb-1">Delivery Date</label>
                 <input
-                  type="date"
+                  type="date" required min={localDate()} aria-label="Delivery date"
                   value={deliveryDate}
                   onChange={(e) => setDeliveryDate(e.target.value)}
                   className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 focus:outline-rose-500 text-slate-800"
@@ -248,12 +264,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
               <div>
                 <label className="text-xs font-semibold text-slate-600 block mb-1">Delivery Time Slot</label>
-                <select
-                  value={selectedSlot}
+                <select aria-label="Delivery time slot" required
+                  value={selectedDeliverySlot}
                   onChange={(e) => setSelectedSlot(e.target.value)}
                   className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 focus:outline-rose-500 text-slate-800"
                 >
-                  {slots.map((slot) => (
+                  {slots.filter((slot) => slot.is_active).map((slot) => (
                     <option key={slot.id} value={slot.slot_label}>
                       {slot.slot_label}
                     </option>
@@ -272,16 +288,17 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
-                { id: 'cod', label: 'Cash on Delivery', sub: 'Pay upon delivery OTP' },
-                { id: 'bkash', label: 'bKash', sub: 'Instant mobile wallet' },
-                { id: 'nagad', label: 'Nagad', sub: 'Postal digital bank' },
-                { id: 'card', label: 'Debit / Card', sub: 'Visa & Mastercard' },
+                { id: 'cod', label: 'Cash on delivery', sub: 'Demo selection' },
+                { id: 'bkash', label: 'bKash', sub: 'Preview only' },
+                { id: 'nagad', label: 'Nagad', sub: 'Preview only' },
+                { id: 'card', label: 'Card', sub: 'Preview only' },
               ].map((method) => {
                 const isSelected = paymentMethod === method.id;
                 return (
                   <button
                     key={method.id}
                     type="button"
+                    aria-pressed={isSelected}
                     onClick={() => setPaymentMethod(method.id as PaymentMethod)}
                     className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
                       isSelected
@@ -301,12 +318,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
           <div className="space-y-2">
             <label className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">
               <Tag className="w-3.5 h-3.5 text-rose-600" />
-              <span>Have a promo coupon? Try: WELCOME100, BIRTHDAY10, SWEETDELIGHT</span>
+              <span>Demo offers: WELCOME100 or BIRTHDAY10</span>
             </label>
             <div className="flex gap-2">
               <input
                 type="text"
-                placeholder="Enter coupon code"
+                aria-label="Coupon code" placeholder="Enter coupon code"
                 value={couponInput}
                 onChange={(e) => setCouponInput(e.target.value)}
                 className="flex-1 px-3.5 py-2 text-xs rounded-xl border border-slate-200 uppercase tracking-wider font-semibold"
@@ -340,7 +357,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             </label>
             <input
               type="text"
-              placeholder="e.g. Please ring doorbell twice, leave with gate security"
+              aria-label="Order note" placeholder="Anything we should know about delivery?"
               value={orderNote}
               onChange={(e) => setOrderNote(e.target.value)}
               className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 focus:outline-rose-500 text-slate-800"
@@ -374,22 +391,22 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
           <div className="flex items-center gap-2 text-[11px] text-slate-500 bg-amber-50/70 p-2.5 rounded-xl border border-amber-200/60">
             <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0" />
             <span>
-              <strong>Zero-Trust Security:</strong> Final invoice amount is re-verified and computed directly by PostgreSQL RPC. Client modifications are rejected.
+              Your preview total includes the selected cake, add-ons, delivery, and any eligible demo discount.
             </span>
           </div>
 
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || !items.length || !selectedZone || !selectedDeliverySlot}
             className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-3.5 px-4 rounded-2xl shadow-lg shadow-rose-200 flex items-center justify-center gap-2 text-sm transition-all cursor-pointer active:scale-98 disabled:opacity-50"
           >
             {isSubmitting ? (
-              <span>Verifying and placing order...</span>
+              <span>Saving your demo order...</span>
             ) : (
               <>
                 <Sparkles className="w-4 h-4" />
-                <span>Confirm & Place Order — {currency}{estimatedTotal}</span>
+                <span>Save demo order — {currency}{estimatedTotal}</span>
               </>
             )}
           </button>

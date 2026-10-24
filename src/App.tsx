@@ -3,17 +3,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { Navbar, ViewMode } from './components/Navbar';
 import { CustomerStorefront } from './components/CustomerStorefront';
-import { MobileAppExperience } from './components/MobileAppExperience';
+const MobileAppExperience = lazy(() => import('./components/MobileAppExperience').then(m => ({default: m.MobileAppExperience})));
 import { ProductDetailModal } from './components/ProductDetailModal';
 import { CartDrawer } from './components/CartDrawer';
 import { CheckoutModal } from './components/CheckoutModal';
 import { OrderTrackingModal } from './components/OrderTrackingModal';
 import { KitchenDisplay } from './components/KitchenDisplay';
 import { DeliveryRiderPortal } from './components/DeliveryRiderPortal';
-import { AdminPanel } from './components/AdminPanel';
+const AdminPanel = lazy(() => import('./components/AdminPanel').then(m => ({default: m.AdminPanel})));
 import { CachePerformanceHub } from './components/CachePerformanceHub';
 import { DatabaseSchemaViewer } from './components/DatabaseSchemaViewer';
 import { SupabaseSyncModal } from './components/SupabaseSyncModal';
@@ -53,20 +53,20 @@ export default function App() {
   // Core Data (100% Database-Driven)
   const [settings, setSettings] = useState<ShopSettings>({
     id: 'setting-1',
-    shop_name: 'SweetDelight Artisan Cake Boutique',
+    shop_name: 'Aurora’s Cake',
     logo_url: 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=500&auto=format&fit=crop&q=80',
-    phone: '+880 1712-345678',
-    whatsapp: '+880 1712-345678',
-    email: 'orders@sweetdelightcakes.com',
-    address: 'Victoria Road, Tangail Town, Dhaka Division, Bangladesh',
+    phone: '',
+    whatsapp: '',
+    email: '',
+    address: 'Tangail, Bangladesh',
     opening_time: '09:00 AM',
     closing_time: '10:00 PM',
     currency: '৳',
     accepting_orders: true,
     delivery_enabled: true,
-    website_title: 'SweetDelight - Handcrafted Fresh Celebration Cakes',
-    website_description: 'Tangail’s #1 boutique for bespoke celebration cakes, designer wedding cakes, and sweet delicacies with express temperature-controlled delivery.',
-    top_announcement_text: '🚀 3-Hour Express Temperature-Safe Delivery in Tangail',
+    website_title: 'Aurora’s Cake — A Little Slice of Happiness',
+    website_description: 'Discover celebration cakes, thoughtful details, and a little everyday happiness at Aurora’s Cake.',
+    top_announcement_text: 'Made for moments worth celebrating',
     hero_tagline: 'Tangail’s Bespoke Luxury Patisserie',
     hero_title: 'Handcrafted Celebration Cakes Made with Passion',
     hero_subtitle: 'Order fresh 100% halal celebratory cakes made from pure dairy cream and imported Belgian cocoa with guaranteed express delivery.',
@@ -221,6 +221,8 @@ export default function App() {
   };
 
   const handleOrderSuccess = (newOrder: Order) => {
+    setIsCartOpen(false);
+    setIsCheckoutOpen(false);
     setCartItems([]);
     setLatestOrderId(newOrder.id);
     setIsTrackOrderOpen(true);
@@ -279,8 +281,8 @@ export default function App() {
         selected_addons: matchedAddons,
         writing_message: it.writing_message || '',
         quantity: it.quantity,
-        unit_price: it.unit_price,
-        total_price: it.subtotal,
+        unit_price: (matchedVariant.sale_price ?? matchedVariant.price) + matchedAddons.reduce((sum, addon) => sum + addon.price, 0),
+        total_price: ((matchedVariant.sale_price ?? matchedVariant.price) + matchedAddons.reduce((sum, addon) => sum + addon.price, 0)) * it.quantity,
       };
     });
 
@@ -291,7 +293,8 @@ export default function App() {
   const cartTotalCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans selection:bg-rose-500 selection:text-white">
+    <div id="top" className="ac-app flex flex-col">
+      <a className="ac-skip-link" href="#main-content">Skip to content</a>
       {/* Top Navbar */}
       <Navbar
         settings={settings}
@@ -313,7 +316,8 @@ export default function App() {
       />
 
       {/* Main Content Area: Responsive Website vs Mobile App */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6">
+      <main id="main-content" className={viewMode === 'web' && activeRole === 'customer' ? 'ac-main' : 'ac-main ac-main--portal'}>
+        <Suspense fallback={<div className="py-20 text-center text-rose-700" role="status">Opening the studio…</div>}>
         {viewMode === 'mobile_app' ? (
           /* DEDICATED MOBILE APP VIEW */
           <MobileAppExperience
@@ -385,6 +389,7 @@ export default function App() {
             )}
           </>
         )}
+      </Suspense>
       </main>
 
       {/* Customer Mobile Sticky Bottom Navigation (in Web Mode on small screens) */}
@@ -472,7 +477,7 @@ export default function App() {
         currency={settings.currency}
         onUpdateQuantity={handleUpdateCartQuantity}
         onRemoveItem={handleRemoveCartItem}
-        onProceedToCheckout={() => setIsCheckoutOpen(true)}
+        onProceedToCheckout={() => { setIsCartOpen(false); setIsCheckoutOpen(true); }}
       />
 
       <CheckoutModal

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useCakeDialog } from './useCakeDialog';
 import { X, Trash2, ArrowRight, ShoppingBag, ShieldCheck } from 'lucide-react';
 import { CartItem } from '../types';
 
@@ -12,7 +13,10 @@ interface CartDrawerProps {
   onProceedToCheckout: () => void;
 }
 
-export const CartDrawer: React.FC<CartDrawerProps> = ({
+export const CartDrawer: React.FC<CartDrawerProps> = (props) =>
+  props.isOpen ? <CartDrawerDialog {...props} /> : null;
+
+const CartDrawerDialog: React.FC<CartDrawerProps> = ({
   isOpen,
   onClose,
   items,
@@ -21,7 +25,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   onRemoveItem,
   onProceedToCheckout,
 }) => {
-  if (!isOpen) return null;
+  const dialogRef = useCakeDialog(onClose);
 
   const subtotal = items.reduce((sum, item) => sum + item.total_price, 0);
 
@@ -34,18 +38,19 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       />
 
       <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
-        <div className="w-screen max-w-md bg-white shadow-2xl flex flex-col">
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="cart-title" data-cake-dialog tabIndex={-1} className="w-screen max-w-md bg-white shadow-2xl flex flex-col">
           {/* Header */}
           <div className="p-5 border-b border-rose-100 flex items-center justify-between bg-rose-50/50">
             <div className="flex items-center gap-2">
               <ShoppingBag className="w-5 h-5 text-rose-600" />
-              <h3 className="font-bold text-slate-900 text-lg">Your Celebration Bag</h3>
+              <h3 id="cart-title" className="font-bold text-slate-900 text-lg">Your cake bag</h3>
               <span className="text-xs bg-rose-200/80 text-rose-800 font-bold px-2 py-0.5 rounded-full">
                 {items.length} {items.length === 1 ? 'item' : 'items'}
               </span>
             </div>
             <button
               onClick={onClose}
+              aria-label="Close cake bag"
               className="p-1.5 rounded-full hover:bg-slate-200/70 text-slate-500 transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
@@ -100,7 +105,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     <button
                       onClick={() => onRemoveItem(item.cart_item_id)}
                       className="text-slate-400 hover:text-red-500 p-1 transition-colors cursor-pointer"
-                      title="Remove"
+                      title="Remove" aria-label={`Remove ${item.product.name}`}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -130,6 +135,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   <div className="flex items-center justify-between pt-1 border-t border-slate-200/50">
                     <div className="flex items-center border border-slate-300 rounded-lg overflow-hidden bg-white text-xs">
                       <button
+                        aria-label={`Decrease quantity of ${item.product.name}`}
                         onClick={() => onUpdateQuantity(item.cart_item_id, item.quantity - 1)}
                         className="px-2 py-1 hover:bg-slate-100 text-slate-700 cursor-pointer"
                       >
@@ -137,6 +143,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                       </button>
                       <span className="px-2 font-bold text-slate-800">{item.quantity}</span>
                       <button
+                        aria-label={`Increase quantity of ${item.product.name}`}
                         onClick={() => onUpdateQuantity(item.cart_item_id, item.quantity + 1)}
                         className="px-2 py-1 hover:bg-slate-100 text-slate-700 cursor-pointer"
                       >
@@ -161,7 +168,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               </div>
               <div className="flex items-center gap-1.5 text-[11px] text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md">
                 <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                <span>Price verified directly via backend database catalog RPC</span>
+                <span>Delivery and any discounts are shown at checkout.</span>
               </div>
               <button
                 onClick={() => {

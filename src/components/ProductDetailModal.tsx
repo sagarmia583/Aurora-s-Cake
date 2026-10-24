@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useCakeDialog } from './useCakeDialog';
 import { X, Check, Star, Plus, Minus, ShoppingBag, Sparkles, Heart } from 'lucide-react';
 import { Product, ProductVariant, Flavor, ProductAddon, CartItem } from '../types';
 
@@ -11,7 +12,10 @@ interface ProductDetailModalProps {
   onAddToCart: (item: CartItem) => void;
 }
 
-export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
+export const ProductDetailModal: React.FC<ProductDetailModalProps> = (props) =>
+  props.product ? <ProductDetailDialog key={props.product.id} {...props} product={props.product} /> : null;
+
+const ProductDetailDialog: React.FC<Omit<ProductDetailModalProps, 'product'> & { product: Product }> = ({
   product,
   allFlavors,
   allAddons,
@@ -19,11 +23,11 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   onClose,
   onAddToCart,
 }) => {
-  if (!product) return null;
+  const dialogRef = useCakeDialog(onClose);
 
   // Selected state
   const [selectedVariant, setSelectedVariant] = useState<ProductVariant>(
-    product.variants[0] || {
+    product.variants.find((variant) => variant.is_active) || {
       id: 'default',
       product_id: product.id,
       name: '1kg',
@@ -34,7 +38,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   );
 
   const availableFlavors = useMemo(() => {
-    return allFlavors.filter((f) => product.allowed_flavor_ids?.includes(f.id));
+    return allFlavors.filter((f) => f.is_active && product.allowed_flavor_ids?.includes(f.id));
   }, [allFlavors, product]);
 
   const [selectedFlavor, setSelectedFlavor] = useState<Flavor | undefined>(
@@ -42,13 +46,18 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   );
 
   const availableAddons = useMemo(() => {
-    return allAddons.filter((a) => product.allowed_addon_ids?.includes(a.id));
+    return allAddons.filter((a) => a.is_active && product.allowed_addon_ids?.includes(a.id));
   }, [allAddons, product]);
 
   const [selectedAddons, setSelectedAddons] = useState<ProductAddon[]>([]);
   const [writingMessage, setWritingMessage] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [isAddedFeedback, setIsAddedFeedback] = useState(false);
+  useEffect(() => {
+    if (!isAddedFeedback) return;
+    const timeout = window.setTimeout(onClose, 650);
+    return () => window.clearTimeout(timeout);
+  }, [isAddedFeedback, onClose]);
 
   // Calculate live price
   const currentVariantPrice = selectedVariant.sale_price ?? selectedVariant.price;
@@ -65,6 +74,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   };
 
   const handleAddToCart = () => {
+    if (isAddedFeedback) return;
     const item: CartItem = {
       cart_item_id: `cart-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       product,
@@ -79,21 +89,19 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
     onAddToCart(item);
     setIsAddedFeedback(true);
-    setTimeout(() => {
-      setIsAddedFeedback(false);
-      onClose();
-    }, 500);
+
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto animate-fade-in">
-      <div 
+    <div onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto animate-fade-in">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="product-title" data-cake-dialog tabIndex={-1}
         className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl overflow-hidden border border-rose-100 my-8 relative max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header Close */}
         <button
           onClick={onClose}
+          aria-label="Close cake details"
           className="absolute top-4 right-4 z-10 bg-white/80 hover:bg-white text-slate-700 p-2 rounded-full shadow-md transition-all cursor-pointer"
         >
           <X className="w-5 h-5" />
@@ -111,7 +119,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               />
               {product.is_featured && (
                 <span className="absolute top-3 left-3 bg-amber-500 text-white text-[11px] font-bold px-2.5 py-1 rounded-full shadow-md flex items-center gap-1">
-                  <Sparkles className="w-3 h-3" /> Chef's Bestseller
+                  <Sparkles className="w-3 h-3" /> Signature cake
                 </span>
               )}
             </div>
@@ -120,17 +128,9 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               <span className="text-xs font-bold uppercase tracking-wider text-rose-600 bg-rose-50 px-2.5 py-1 rounded-md">
                 {product.category_name || 'Artisan Cake'}
               </span>
-              <h2 className="text-2xl font-bold text-slate-900 leading-tight">
+              <h2 id="product-title" className="text-2xl font-bold text-slate-900 leading-tight">
                 {product.name}
               </h2>
-              <div className="flex items-center gap-2 text-sm text-slate-600">
-                <div className="flex items-center text-amber-500">
-                  <Star className="w-4 h-4 fill-amber-400" />
-                  <span className="ml-1 font-bold">{product.rating}</span>
-                </div>
-                <span className="text-slate-300">•</span>
-                <span>({product.review_count} happy customers)</span>
-              </div>
               <p className="text-sm text-slate-600 leading-relaxed">
                 {product.description}
               </p>
@@ -165,12 +165,13 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               </label>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              {product.variants.map((v) => {
+              {product.variants.filter((variant) => variant.is_active).map((v) => {
                 const isSelected = selectedVariant.id === v.id;
                 return (
                   <button
                     key={v.id}
                     type="button"
+                    aria-pressed={isSelected}
                     onClick={() => setSelectedVariant(v)}
                     className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
                       isSelected
@@ -201,6 +202,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                     <button
                       key={flavor.id}
                       type="button"
+                      aria-pressed={isSelected}
                       onClick={() => setSelectedFlavor(flavor)}
                       className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all cursor-pointer ${
                         isSelected
@@ -231,7 +233,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 {availableAddons.map((addon) => {
                   const isSelected = selectedAddons.some((a) => a.id === addon.id);
                   return (
-                    <div
+                    <button type="button" aria-pressed={isSelected}
                       key={addon.id}
                       onClick={() => toggleAddon(addon)}
                       className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
@@ -255,7 +257,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                       <span className="text-xs font-bold text-rose-600">
                         +{currency}{addon.price}
                       </span>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -274,12 +276,12 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               type="text"
               maxLength={40}
               placeholder="e.g., Happy 25th Birthday Sarah! 🎂"
-              value={writingMessage}
+              aria-label="Message to write on your cake" value={writingMessage}
               onChange={(e) => setWritingMessage(e.target.value)}
               className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-rose-600 focus:ring-2 focus:ring-rose-100 text-sm text-slate-800 placeholder-slate-400"
             />
             <p className="text-[11px] text-slate-500">
-              Our pastry chefs pipe this message with premium chocolate ganache or royal icing at no extra charge.
+              Add a short dedication to make your cake personal.
             </p>
           </div>
 
@@ -290,6 +292,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden bg-slate-50">
                 <button
                   type="button"
+                  aria-label="Decrease cake quantity" disabled={quantity <= 1}
                   onClick={() => setQuantity(Math.max(1, quantity - 1))}
                   className="px-3 py-1.5 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
                 >
@@ -300,6 +303,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 </span>
                 <button
                   type="button"
+                  aria-label="Increase cake quantity"
                   onClick={() => setQuantity(quantity + 1)}
                   className="px-3 py-1.5 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
                 >
@@ -331,7 +335,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
           >
             {isAddedFeedback ? (
               <>
-                <Check className="w-5 h-5 animate-bounce" /> Added to Cart!
+                <Check className="w-5 h-5" /> <span role="status">Added to your bag</span>
               </>
             ) : (
               <>
