@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useCakeDialog } from './useCakeDialog';
-import { 
-  X, 
-  CheckCircle2, 
-  Circle, 
-  Key, 
-  MapPin, 
-  Clock, 
-  Phone, 
+import {
+  X,
+  CheckCircle2,
+  Circle,
+  Key,
+  MapPin,
+  Clock,
+  Phone,
   Receipt,
   RotateCcw,
-  Bike
+  Bike,
 } from 'lucide-react';
 import { Order, OrderStatus } from '../types';
 
@@ -46,18 +46,30 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
   onReorder,
 }) => {
   const [selectedOrderId, setSelectedOrderId] = useState(currentOrderId || orders[0]?.id);
+
   useEffect(() => {
     if (currentOrderId) setSelectedOrderId(currentOrderId);
   }, [currentOrderId]);
+
   const selectedOrder = orders.find((order) => order.id === selectedOrderId) || orders[0];
   const dialogRef = useCakeDialog(onClose, selectedOrder?.id);
 
   if (!selectedOrder) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="tracking-empty-title" data-cake-dialog tabIndex={-1} className="bg-white rounded-3xl p-8 max-w-md w-full text-center space-y-4">
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="tracking-empty-title"
+          data-cake-dialog
+          tabIndex={-1}
+          className="bg-white rounded-3xl p-8 max-w-md w-full text-center"
+        >
           <div className="text-4xl">🎂</div>
-          <h3 id="tracking-empty-title" className="text-lg font-bold text-slate-800">Your cake journey starts here</h3>
+          <h3 id="tracking-empty-title" className="text-lg font-bold text-slate-800">
+            Your cake journey starts here
+          </h3>
           <p className="text-xs text-slate-500">
             Choose a cake and open checkout. Order receipts from this device appear here.
           </p>
@@ -73,7 +85,6 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
     );
   }
 
-  // Calculate current stage index
   const stageOrder: OrderStatus[] = [
     'pending',
     'confirmed',
@@ -89,11 +100,16 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="tracking-title" data-cake-dialog tabIndex={-1}
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="tracking-title"
+        data-cake-dialog
+        tabIndex={-1}
         className="bg-white rounded-3xl max-w-3xl w-full shadow-2xl border border-rose-100 overflow-hidden my-6 flex flex-col max-h-[92vh]"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="p-6 bg-gradient-to-r from-rose-50 via-pink-50 to-amber-50 border-b border-rose-100 flex items-center justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
@@ -104,7 +120,9 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
                 #{selectedOrder.order_number}
               </span>
             </div>
-            <h3 id="tracking-title" className="text-xl font-bold text-slate-900 mt-1">{selectedOrder.persistence === 'google_sheets' ? 'Your order receipt' : 'Your cake journey'}</h3>
+            <h3 id="tracking-title" className="text-xl font-bold text-slate-900 mt-1">
+              {selectedOrder.persistence === 'google_sheets' ? 'Your order receipt' : 'Your cake journey'}
+            </h3>
           </div>
           <button
             onClick={onClose}
@@ -115,17 +133,26 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
           </button>
         </div>
 
-        {/* Content */}
         <div className="overflow-y-auto p-6 space-y-6 flex-1">
-          <p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">{selectedOrder.persistence === 'google_sheets' ? 'Your order was saved to Aurora’s Cake’s Google Sheet. This device keeps a copy of the receipt. Contact the bakery for the latest confirmation and delivery status. No online payment was collected.' : 'These are demo orders saved on this device. Status changes do not represent a real bakery delivery or payment.'}</p>
-          {selectedOrder.status === 'cancelled' && <p role="status" className="text-sm font-semibold text-red-700">This order was cancelled.</p>}
-          {/* Order Selector Tab if multiple */}
+          <p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">
+            {selectedOrder.persistence === 'google_sheets'
+              ? 'Your order was saved to Aurora’s Cake’s Google Sheet. This device keeps a local record for updates and delivery checks.'
+              : 'This demo order follows the bakery flow from cake creation to rider delivery.'}
+          </p>
+
+          {selectedOrder.status === 'cancelled' && (
+            <p role="status" className="text-sm font-semibold text-red-700">
+              This order was cancelled.
+            </p>
+          )}
+
           {orders.length > 1 && (
             <div className="flex gap-2 overflow-x-auto pb-2 border-b border-slate-100">
               {orders.map((o) => (
                 <button
                   key={o.id}
-                  onClick={() => setSelectedOrderId(o.id)} aria-pressed={selectedOrder.id === o.id}
+                  onClick={() => setSelectedOrderId(o.id)}
+                  aria-pressed={selectedOrder.id === o.id}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer ${
                     selectedOrder.id === o.id
                       ? 'bg-rose-600 text-white'
@@ -138,28 +165,27 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
             </div>
           )}
 
-          {selectedOrder.persistence !== 'google_sheets' && <>
-          {/* Delivery OTP Security Card */}
-          <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold text-xl shadow-md">
-                <Key className="w-6 h-6" />
+          {(selectedOrder.persistence !== 'google_sheets' || selectedOrder.status === 'out_for_delivery') && (
+            <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold text-xl shadow-md">
+                  <Key className="w-6 h-6" />
+                </div>
+                <div>
+                  <span className="text-xs font-bold uppercase tracking-wider text-amber-800">
+                    Your Delivery Verification OTP
+                  </span>
+                  <p className="text-xs text-amber-900/80">
+                    Provide this 4-digit secret code to the delivery rider only after receiving your cake package.
+                  </p>
+                </div>
               </div>
-              <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-amber-800">
-                  Your Delivery Verification OTP
-                </span>
-                <p className="text-xs text-amber-900/80">
-                  Provide this 4-digit secret code to the delivery rider only after receiving your cake package.
-                </p>
+              <div className="bg-white px-5 py-2.5 rounded-xl border-2 border-amber-400 font-mono text-2xl font-black text-amber-900 tracking-widest shadow-sm">
+                {selectedOrder.delivery_otp}
               </div>
             </div>
-            <div className="bg-white px-5 py-2.5 rounded-xl border-2 border-amber-400 font-mono text-2xl font-black text-amber-900 tracking-widest shadow-sm">
-              {selectedOrder.delivery_otp}
-            </div>
-          </div>
+          )}
 
-          {/* 8-Stage Visual Progress Timeline */}
           <div className="space-y-3">
             <h4 className="text-sm font-bold text-slate-900">Cake Production & Delivery Pipeline</h4>
             <div className="relative pl-6 space-y-6 before:content-[''] before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
@@ -169,7 +195,6 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
 
                 return (
                   <div key={st.status} className="relative flex items-start gap-4">
-                    {/* Step Dot */}
                     <div
                       className={`absolute -left-6 top-0.5 w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all ${
                         isCurrent
@@ -216,8 +241,6 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
             </div>
           </div>
 
-          </>}
-          {/* Delivery & Rider Info */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2 text-xs">
               <h5 className="font-bold text-slate-800 flex items-center gap-1.5">
@@ -227,9 +250,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
               <div className="text-[11px] text-slate-500 font-medium">
                 Zone: {selectedOrder.delivery_zone.name}
               </div>
-              <div className="text-[11px] text-slate-500">
-                Slot: {selectedOrder.delivery_slot}
-              </div>
+              <div className="text-[11px] text-slate-500">Slot: {selectedOrder.delivery_slot}</div>
             </div>
 
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2 text-xs">
@@ -244,13 +265,12 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
               </div>
               {selectedOrder.payment_method === 'cod' && (
                 <div className="text-[11px] text-amber-700 font-bold">
-                  Cash to Collect: {currency}{selectedOrder.total_amount}
+                  {selectedOrder.cod_collected ? 'Cash collected' : 'Cash to collect'}: {currency}{selectedOrder.total_amount}
                 </div>
               )}
             </div>
           </div>
 
-          {/* Items Summary */}
           <div className="space-y-2">
             <h5 className="text-xs font-bold uppercase tracking-wider text-slate-500">
               Ordered Cakes & Add-ons
@@ -271,19 +291,17 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
                       </div>
                     )}
                   </div>
-                  <div className="font-bold text-rose-600 text-sm">
-                    {currency}{it.subtotal}
-                  </div>
+                  <div className="font-bold text-rose-600 text-sm">{currency}{it.subtotal}</div>
                 </div>
               ))}
             </div>
           </div>
         </div>
 
-        {/* Footer */}
         <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs">
           <div className="text-slate-500">
-            Demo order total: <strong className="text-slate-800 text-sm">{currency}{selectedOrder.total_amount}</strong>
+            {selectedOrder.persistence === 'google_sheets' ? 'Order total' : 'Demo order total'}:{' '}
+            <strong className="text-slate-800 text-sm">{currency}{selectedOrder.total_amount}</strong>
           </div>
           <button
             onClick={onClose}
