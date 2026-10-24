@@ -14,6 +14,7 @@ import { OrderTrackingModal } from './components/OrderTrackingModal';
 import { KitchenDisplay } from './components/KitchenDisplay';
 import { DeliveryRiderPortal } from './components/DeliveryRiderPortal';
 const AdminPanel = lazy(() => import('./components/AdminPanel').then(m => ({default: m.AdminPanel})));
+const StaffPortal = lazy(() => import('./components/StaffPortal').then(m => ({default: m.StaffPortal})));
 import { CachePerformanceHub } from './components/CachePerformanceHub';
 import { DatabaseSchemaViewer } from './components/DatabaseSchemaViewer';
 import { SupabaseSyncModal } from './components/SupabaseSyncModal';
@@ -24,6 +25,7 @@ import { supabaseDataService } from './services/supabaseDataService';
 import { useGoogleSheetContent } from './hooks/useGoogleSheetContent';
 import { SheetContentPanel } from './components/SheetContentPanel';
 import { loadConfirmedSheetOrders, rememberConfirmedSheetOrder } from './services/googleSheetOrders';
+import { fetchCustomerOrderStatus } from './services/sheetStaffApi';
 import { reconcilePublicCart, reorderFromPublicOrder } from './services/reconcilePublicCart';
 import { 
   ShopSettings, 
@@ -48,6 +50,7 @@ export default function App() {
   const sheetContent = useGoogleSheetContent();
   const publicData = sheetContent.data;
   const [isSheetContentOpen, setIsSheetContentOpen] = useState(false);
+  const [isStaffPortalOpen, setIsStaffPortalOpen] = useState(false);
   // Dual Experience: Responsive Website vs Mobile App
   const [viewMode, setViewMode] = useState<ViewMode>('web');
 
@@ -215,6 +218,7 @@ export default function App() {
       <a className="ac-skip-link" href="#main-content">Skip to content</a>
       {/* Top Navbar */}
       <Navbar
+        onOpenStaffPortal={() => setIsStaffPortalOpen(true)}
         settings={settings}
         publicData={publicData}
         isSheetConnected={sheetContent.status.state === 'connected'}
@@ -373,6 +377,7 @@ export default function App() {
 
       {activeRole !== 'customer' && <div className="mx-auto my-3 w-full max-w-6xl px-5 text-xs text-slate-500">Website content is managed in Google Sheets. These Studio tools are local demonstrations. Manage real orders in the private orders and order_items Sheet tabs. Content edits here are replaced on the next Sheet refresh.</div>}
 
+      <Suspense fallback={null}><StaffPortal isOpen={isStaffPortalOpen} onClose={() => setIsStaffPortalOpen(false)} endpoint={sheetContent.endpoint} /></Suspense>
       <SheetContentPanel isOpen={isSheetContentOpen} onClose={() => setIsSheetContentOpen(false)} endpoint={sheetContent.endpoint} status={sheetContent.status} orderSubmissionEnabled={publicData.order_submission_enabled} onRefresh={sheetContent.refresh} onSaveEndpoint={sheetContent.updateEndpoint}/>
       {/* Modals & Slide-outs */}
       <ProductDetailModal
