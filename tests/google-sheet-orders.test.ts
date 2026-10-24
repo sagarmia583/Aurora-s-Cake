@@ -238,6 +238,6 @@ test('delivery OTP rate limit and order transition checks are persisted server-s
 test('customer status requires both unpredictable order reference and matching phone',()=>{
   const h=harness(),created=h.post(request());
   assert.equal(h.post({action:'get_order_status',order_id:created.order.id,customer_phone:'01700000000'}).code,'not_found');
-  assert.equal(h.post({action:'get_order_status',order_id:'ord_fake',customer_phone:request().customer_phone}).code,'not_found');
+  assert.equal(h.post({action:'get_order_status',order_id:'ord_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',customer_phone:request().customer_phone}).code,'not_found');
   assert.equal(h.get('get_order_status').ok,false);
 });
