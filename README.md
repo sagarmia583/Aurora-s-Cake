@@ -22,8 +22,10 @@ npm run build
 - Search, category filters and sorting by the cheapest available cake variant
 - Cake size, flavour, add-ons, dedication, quantity and live pricing
 - Persistent cart, cash-on-delivery Sheet orders when enabled, local preview checkout, coupons, receipts and reorder
-- Custom design requests and a local customer profile
+- Real custom design quotation requests in a private Sheet, reviewed by authenticated staff; local preview remains a fallback
+- Free Google customer account linking and cross-device order recovery for explicitly linked receipts
 - Verified Google staff sign-in for live COD order confirmation, kitchen status, rider assignment, and OTP/COD delivery
+- Verified staff management for live product visibility/prices, shop order toggles, custom cake quotes and rider operations
 - Developer-only mock Studio and optional legacy Supabase tools (not production order management)
 
 ## Google Sheets content
@@ -39,11 +41,11 @@ Copy the latest code from Studio or apps-script, run setupSheetDatabase, then de
 
 ## Production staff operations
 
-Use the **Staff login** link. Deploy the latest `apps-script/StaffOperations.gs` together with `Code.gs`, configure verified staff Google accounts, and set the site's public OAuth client ID. Full instructions and end-to-end validation: [Live Operations Setup](docs/LIVE_OPERATIONS_SETUP.md). This is **not** automatically deployed just because GitHub is updated.
+Use **Staff login** for live operations and **My Google orders** for optional customer receipt linking/recovery. Deploy all current Apps Script files (including `CustomerAccounts.gs`, `LiveCatalog.gs` and `CustomCakeRequests.gs`) alongside `Code.gs` and `SeedData.gs`; configure the Google OAuth client ID and private staff allowlist. Full instructions and end-to-end validation: [Live Operations Setup](docs/LIVE_OPERATIONS_SETUP.md). This is **not** automatically deployed just because GitHub is updated.
 
 ## Preview data
 
-Custom requests and Studio workflows use the local mock database. Studio role switches are developer-only demonstration controls and exclude real Sheet receipts. The authenticated Staff Portal reads/writes real private Sheet orders; its updates can refresh the customer's original device-held receipt during tracking. No verified customer phone-login or cross-device receipt recovery is provided yet. No online payment is collected. Configure authenticated staff workflows and a payment integration before offering those features.
+When the configured endpoint supports live COD checkout, custom cake requests are submitted to the private Sheet and quoted by authorized staff. Without a live endpoint they remain explicitly marked local previews. Studio developer tools use the local mock database. Studio role switches are developer-only demonstration controls and exclude real Sheet receipts. The authenticated Staff Portal reads/writes real private Sheet orders; its updates can refresh the customer's original device-held receipt during tracking. No verified customer phone-login or cross-device receipt recovery is provided yet. No online payment is collected. Configure authenticated staff workflows and a payment integration before offering those features.
 
 The former SweetDelight branding and placeholder contact links have been removed from the rebuilt storefront. Stored data from a previous version in the same browser may still use its old catalogue or settings. Fresh browsers start with the Aurora catalogue and an empty order history.
 
