@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 type Row = unknown[];
 const ORDER_HEADERS=['id','order_number','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','delivery_address','delivery_zone_id','delivery_zone_name','delivery_fee','delivery_slot','delivery_date','status','subtotal','discount_amount','total_amount','coupon_code','order_note','payment_method','payment_status','receipt_json'];
 const ITEM_HEADERS=['id','order_id','product_id','product_name','variant_id','variant_name','flavor_id','flavor_name','writing_message','unit_price','quantity','addons_json','subtotal'];
+const CUSTOM_HEADERS=['id','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','cake_type','approx_size','flavor','color_theme','writing_text','instructions','reference_image_url','status','estimated_price','quoted_price','receipt_json'];
 const futureDate=()=>new Date(Date.now()+2*86400000).toISOString().slice(0,10);
 const ADMIN_TOKEN='admin_'+ 'a'.repeat(130);
 const RIDER_TOKEN='rider_'+ 'b'.repeat(130);
@@ -29,7 +30,7 @@ function harness(options:{withoutPrivate?:boolean}={}) {
     delivery_slots:[['id','slot_label','is_active'],['s1','10 AM - 12 PM',true]],
     coupons:[['id','code','discount_type','discount_value','min_order_amount','max_discount_amount','is_active'],['c1','SAVE10','percentage',10,100,120,true]],
   };
-  if(!options.withoutPrivate){tables.orders=[ORDER_HEADERS];tables.order_items=[ITEM_HEADERS];}
+  if(!options.withoutPrivate){tables.orders=[ORDER_HEADERS];tables.order_items=[ITEM_HEADERS];tables.custom_cake_requests=[CUSTOM_HEADERS];}
   const reads:string[]=[];const writes:string[]=[];
   const throttles=new Map<string,string>();
   let failNextItemWrite=false;let failAfterOrderWrite=false;let acquired=0;
@@ -62,7 +63,7 @@ function harness(options:{withoutPrivate?:boolean}={}) {
     SpreadsheetApp:{openById:()=>book,getActiveSpreadsheet:()=>book},
     PropertiesService:{getScriptProperties:()=>({getProperty:(key:string)=>key==='AURORA_GOOGLE_CLIENT_ID'?'test-client.apps.googleusercontent.com':key==='AURORA_STAFF_USERS'?STAFF_CONFIG:null})},
     UrlFetchApp:{fetch:(url:string)=>({getResponseCode:()=>200,getContentText:()=>JSON.stringify({aud:'test-client.apps.googleusercontent.com',iss:'https://accounts.google.com',sub:url.includes('intruder_')?'other-google-user':'verified-google-user',exp:Math.floor(Date.now()/1000)+3600,email_verified:'true',email:url.includes('rider_')?'rider@example.com':url.includes('intruder_')?'intruder@example.com':'owner@example.com'})})},
-    CacheService:{getScriptCache:()=>({get:(key:string)=>key.startsWith('aurora_cod_')?throttles.get(key)||null:null,put:(key:string,value:string)=>{if(key.startsWith('aurora_cod_'))throttles.set(key,value);},remove:()=>{}})},
+    CacheService:{getScriptCache:()=>({get:(key:string)=>(key.startsWith('aurora_cod_')||key.startsWith('aurora_custom_'))?throttles.get(key)||null:null,put:(key:string,value:string)=>{if((key.startsWith('aurora_cod_')||key.startsWith('aurora_custom_')))throttles.set(key,value);},remove:()=>{}})},
     LockService:{getScriptLock:()=>({tryLock:()=>{acquired++;return true;},releaseLock:()=>{acquired--;}})},
     Utilities:{DigestAlgorithm:{SHA_256:'sha256'},Charset:{UTF_8:'utf8'},computeDigest:(_algorithm:string,value:string)=>Array.from(createHash('sha256').update(value).digest()),formatDate:(date:Date)=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Dhaka',year:'numeric',month:'2-digit',day:'2-digit'}).format(date),getUuid:()=>Math.random().toString(36).slice(2)},
     ContentService:{MimeType:{JSON:'json',JAVASCRIPT:'js'},createTextOutput:(content:string)=>({content,setMimeType(){return this;}})},
@@ -72,6 +73,7 @@ function harness(options:{withoutPrivate?:boolean}={}) {
   vm.runInContext(fs.readFileSync(new URL('../apps-script/StaffOperations.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/CustomerAccounts.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/LiveCatalog.gs',import.meta.url),'utf8'),context);
+  vm.runInContext(fs.readFileSync(new URL('../apps-script/CustomCakeRequests.gs',import.meta.url),'utf8'),context);
   const post=(payload:unknown)=>JSON.parse(context.doPost({postData:{type:'text/plain',contents:JSON.stringify(payload)}}).content);
   const get=(action:string)=>JSON.parse(context.doGet({parameter:{action}}).content);
   const records=(name:string)=>tables[name].slice(1).map(row=>Object.fromEntries(tables[name][0].map((key,index)=>[String(key),row[index]])));
@@ -339,4 +341,36 @@ test('free admin price updates change authoritative checkout amounts, not browse
   assert.equal(save('settings','accepting_orders','accepting_orders',false).updated,true);
   const blocked=h.post(request({request_id:'cccccccc-1111-4111-8111-222222222222'}));
   assert.equal(blocked.code,'shop_closed');
+});
+
+test('free custom cake quote submission is private, idempotent and managed by authorized staff',()=>{
+  const h=harness();
+  const draft={action:'create_custom_cake',request_id:'bbbbbbbb-2222-4222-8222-333333333333',
+    customer_name:'Birthday Customer',customer_phone:'+880 1700 999999',
+    cake_type:'Theme Birthday Cake',approx_size:'1.5kg',flavor:'Chocolate',color_theme:'Blue',
+    writing_text:'Happy Birthday',instructions:'Please call first',reference_image_url:'https://example.com/cake.jpg'};
+  assert.equal(h.post(draft).saved,true);
+  assert.equal(h.post(draft).saved,true);
+  assert.equal(h.records('custom_cake_requests').length,1);
+  assert.equal(h.post({...draft,cake_type:'Different'}).code,'idempotency_conflict');
+  assert.equal(h.post({...draft,request_id:'bbbbbbbb-2222-4222-8222-444444444444',reference_image_url:'javascript:alert(1)'}).code,'invalid_url');
+  const publicData=h.get('public');assert.equal(JSON.stringify(publicData).includes('Birthday Customer'),false);
+  const rider=h.post({action:'staff_custom_cakes',id_token:RIDER_TOKEN});assert.equal(rider.code,'forbidden');
+  const manager=h.post({action:'staff_custom_cakes',id_token:ADMIN_TOKEN});
+  assert.equal(manager.requests.length,1);assert.equal(manager.requests[0].customer_name,'Birthday Customer');
+  assert.equal(h.post({action:'staff_custom_quote',id_token:ADMIN_TOKEN,request_id:draft.request_id,status:'quoted',quoted_price:2450}).updated,true);
+  const status=h.post({action:'get_custom_cake_status',request_id:draft.request_id,customer_phone:draft.customer_phone});
+  assert.equal(status.status,'quoted');assert.equal(status.quoted_price,2450);
+  assert.equal(h.post({action:'get_custom_cake_status',request_id:draft.request_id,customer_phone:'01700000000'}).code,'not_found');
+});
+test('free custom cake requests are throttled per phone while saved retries stay possible',()=>{
+  const h=harness();
+  const draft={action:'create_custom_cake',customer_name:'Cake Buyer',customer_phone:'01700112233',
+    cake_type:'Anniversary Cake',approx_size:'1kg',flavor:'Vanilla',color_theme:'',
+    writing_text:'',instructions:'',reference_image_url:''};
+  const id=(n:number)=>'cccccccc-2222-4222-8222-'+String(n).padStart(12,'0');
+  for(let n=1;n<=3;n++)assert.equal(h.post({...draft,request_id:id(n)}).saved,true);
+  assert.equal(h.post({...draft,request_id:id(4)}).code,'rate_limited');
+  assert.equal(h.post({...draft,request_id:id(1)}).saved,true);
+  assert.equal(h.records('custom_cake_requests').length,3);
 });
