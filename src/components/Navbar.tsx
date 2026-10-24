@@ -120,6 +120,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         .ac-nav-links a:after,.ac-nav-link:after{content:'';height:1px;position:absolute;bottom:5px;left:0;width:0;background:#174B3B;transition:width .2s}
         .ac-nav-links a:hover:after,.ac-nav-link:hover:after{width:100%}
         .ac-nav-actions{display:flex;align-items:center;gap:13px}
+        .ac-nav-staff-link{border:1px solid #174B3B;border-radius:20px;background:transparent;color:#174B3B;font-size:11px!important;font-weight:700;padding:8px 12px;white-space:nowrap}
+        @media(max-width:600px){.ac-nav-staff-link{display:none}}
         .ac-nav-icon{width:39px;height:42px;display:grid;place-items:center;border:0;background:transparent;color:#174B3B;position:relative}
         .ac-nav-icon:hover{color:#24352E}
         .ac-nav-bag{display:flex;align-items:center;gap:9px;height:42px;background:none;border:0;color:#174B3B;padding:0 0 0 8px;font-size:13px!important;white-space:nowrap}
