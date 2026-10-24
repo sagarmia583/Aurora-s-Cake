@@ -23,7 +23,7 @@ export interface StatusSnapshot {
 function objectValue(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
-async function privatePost(endpoint: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+export async function privatePost(endpoint: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const url = validateGoogleSheetsEndpoint(endpoint).href;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20000);
