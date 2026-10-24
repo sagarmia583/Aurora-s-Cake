@@ -150,7 +150,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       `}</style>
       <div className="ac-nav-top">
         <span>{settings.top_announcement_text ?? ''}</span>
-        <button type="button" className="ac-nav-studio-toggle" aria-expanded={studioOpen} aria-controls="ac-studio-menu" onClick={() => setStudioOpen(!studioOpen)}>Studio <ChevronDown size={10} strokeWidth={1.5} /></button>
+        {import.meta.env.DEV && <button type="button" className="ac-nav-studio-toggle" aria-expanded={studioOpen} aria-controls="ac-studio-menu" onClick={() => setStudioOpen(!studioOpen)}>Studio <ChevronDown size={10} strokeWidth={1.5} /></button>}
       </div>
       <div className="ac-nav-main">
         <a className="ac-nav-brand" href="#top" onClick={openStorefront} aria-label={settings.shop_name + ' home'}>
@@ -196,7 +196,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         <button type="button" className="ac-nav-mobile-small" onClick={() => customerAction(onOpenProfile)}>My account &amp; orders</button>
         <button type="button" className="ac-nav-mobile-small" onClick={() => customerAction(onOpenTrackOrder)}>Track an order</button>
       </nav>}
-      {studioOpen && <div id="ac-studio-menu" className="ac-nav-studio">
+      {import.meta.env.DEV && studioOpen && <div id="ac-studio-menu" className="ac-nav-studio">
         <h2 className="ac-nav-studio-title">Behind the bakery</h2>
         <label htmlFor="ac-staff-role">Staff workspace</label>
         <select id="ac-staff-role" value={activeRole} onChange={(event) => { onRoleChange(event.target.value as StaffRole | 'customer'); onViewModeChange('web'); setStudioOpen(false); }}>
