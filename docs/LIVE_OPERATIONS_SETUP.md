@@ -49,7 +49,7 @@ not exposed through the role selector in production.
    expose only the public catalogue/website settings; staff list and customer
    status lookup require POST. A customer status lookup needs the unpredictable
    receipt ID plus the matching checkout phone. It returns only limited status,
-   not address, items or OTP.
+   not address or order items. After dispatch, a **linked** customer signed in with the matching verified Google account can also retrieve their delivery OTP; unverified lookups never return it.
 
 ## End-to-end acceptance checklist
 
@@ -69,6 +69,18 @@ not exposed through the role selector in production.
       Failed OTPs lock after five attempts for fifteen minutes.
 - [ ] Customer's refreshed receipt shows delivered and paid, with a recorded
       status history.
+- [ ] Open **My Google orders**, sign in, explicitly link a device-held COD receipt,
+      and recover it on a different device using the same verified Google account.
+- [ ] Verify a different Google account cannot claim that linked receipt.
+- [ ] At dispatch, the linked customer can retrieve their OTP only with the matching
+      Google login, not by using the guest order-status endpoint.
+- [ ] Admin changes cake size regular and sale price; a fresh COD checkout uses the
+      current Sheet values and the public storefront refreshes.
+- [ ] Admin disables ordering: a new COD checkout is rejected server-side.
+- [ ] Submit one custom cake quotation request, verify the private
+      `custom_cake_requests` row, and retry the same reference without duplication.
+- [ ] An authorized order manager saves a quote and customer retrieves the
+      latest quotation status from the same request ID and phone.
 - [ ] On an old Apps Script deployment, new operations fail clearly rather than
       being mistaken for completed writes.
 
@@ -95,3 +107,33 @@ not exposed through the role selector in production.
 - GitHub Actions checks TypeScript, existing checkout tests, private operations
   security tests, and production build. A passing CI does NOT replace a manual
   deployed Google OAuth/Apps Script acceptance test.
+
+## No-paid-service operating plan (free quotas apply)
+
+- **Hosting:** Netlify Free is USD 0/month and currently has a hard **300-credit monthly**
+  usage limit. You must keep the site on the Free plan; do not enable paid upgrades
+  or add-ons. See [Netlify pricing](https://www.netlify.com/pricing/) and
+  [Free credit limits](https://docs.netlify.com/manage/accounts-and-billing/billing/billing-for-credit-based-plans/credit-based-pricing-plans/).
+- **Backend:** Google Apps Script + Sheets uses the shop owner's own Google account,
+  not Supabase paid compute or a paid hosted server. Google's published consumer
+  quotas include **20,000 URL Fetch calls/day**, **6 min per execution**, and
+  additional total execution/storage/service limits that can change.
+  See [official Apps Script quotas](https://developers.google.com/apps-script/guides/services/quotas).
+  Each staff/customer Google login verification uses an Apps Script URL Fetch call.
+- **Login:** Google's standard Identity Services Web client ID is used for both staff
+  and optional customer login; never put an OAuth client secret or service-role key
+  into frontend code. You configure the OAuth consent screen and JavaScript origins.
+- **Checkout:** Guest phone contact and **cash-on-delivery only**. There is no
+  subscription, SMS sender, payment-gateway commission or automated bKash/Nagad
+  transaction verification. The shop manually reconciles received COD cash.
+- **Custom requests:** Design reference images must be publicly viewable HTTPS links.
+  No paid image-upload storage is provisioned. Custom requests are quotations,
+  not confirmed payments or orders. Latest reference/phone is saved locally on
+  the sending device for the free status lookup.
+- **Capacity:** Sheets/App Script quotas make this appropriate for a small local
+  bakery, not an unlimited-traffic service. If free quotas are exhausted, the
+  service may stop responding until the quota resets; code alone cannot guarantee
+  uninterrupted no-cost hosting.
+- **Final deployment:** GitHub commits and passing CI do NOT copy files to
+  Apps Script or configure OAuth/Netlify settings. Shop-owner Google account
+  access is required for these explicit steps; no secrets should be shared publicly.
