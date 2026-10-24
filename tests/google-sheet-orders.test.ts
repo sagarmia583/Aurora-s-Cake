@@ -8,6 +8,13 @@ type Row = unknown[];
 const ORDER_HEADERS=['id','order_number','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','delivery_address','delivery_zone_id','delivery_zone_name','delivery_fee','delivery_slot','delivery_date','status','subtotal','discount_amount','total_amount','coupon_code','order_note','payment_method','payment_status','receipt_json'];
 const ITEM_HEADERS=['id','order_id','product_id','product_name','variant_id','variant_name','flavor_id','flavor_name','writing_message','unit_price','quantity','addons_json','subtotal'];
 const futureDate=()=>new Date(Date.now()+2*86400000).toISOString().slice(0,10);
+const ADMIN_TOKEN='admin_'+ 'a'.repeat(130);
+const RIDER_TOKEN='rider_'+ 'b'.repeat(130);
+const INTRUDER_TOKEN='intruder_'+ 'c'.repeat(130);
+const STAFF_CONFIG=JSON.stringify({
+  'owner@example.com':{role:'super_admin',name:'Owner'},
+  'rider@example.com':{role:'delivery_man',name:'Rider'},
+});
 const request=(patch:Record<string,unknown>={})=>({action:'create_order',request_id:'a1111111-2222-4333-8444-555555555555',customer_name:'Test Customer',customer_phone:'+880 1700 000000',delivery_address:'Test delivery address',delivery_zone_id:'z1',delivery_slot:'10 AM - 12 PM',delivery_date:futureDate(),cart_items:[{product_id:'p1',variant_id:'v1',flavor_id:'f1',addon_ids:['a1'],writing_message:'Happy birthday',quantity:2}],coupon_code:'SAVE10',order_note:'Call before delivery',payment_method:'cod',...patch});
 function harness(options:{withoutPrivate?:boolean}={}) {
   const tables:Record<string,Row[]>={
@@ -52,14 +59,16 @@ function harness(options:{withoutPrivate?:boolean}={}) {
   const context:Record<string,any>={
     console:{log:()=>{},error:()=>{}},Date,JSON,Object,Array,String,Math,
     SpreadsheetApp:{openById:()=>book,getActiveSpreadsheet:()=>book},
-    PropertiesService:{getScriptProperties:()=>({getProperty:()=>null})},
+    PropertiesService:{getScriptProperties:()=>({getProperty:(key:string)=>key==='AURORA_GOOGLE_CLIENT_ID'?'test-client.apps.googleusercontent.com':key==='AURORA_STAFF_USERS'?STAFF_CONFIG:null})},
+    UrlFetchApp:{fetch:(url:string)=>({getResponseCode:()=>200,getContentText:()=>JSON.stringify({aud:'test-client.apps.googleusercontent.com',iss:'https://accounts.google.com',sub:'verified-google-user',exp:Math.floor(Date.now()/1000)+3600,email_verified:'true',email:url.includes('rider_')?'rider@example.com':url.includes('intruder_')?'intruder@example.com':'owner@example.com'})})},
     CacheService:{getScriptCache:()=>({get:()=>null,put:()=>{},remove:()=>{}})},
     LockService:{getScriptLock:()=>({tryLock:()=>{acquired++;return true;},releaseLock:()=>{acquired--;}})},
-    Utilities:{DigestAlgorithm:{SHA_256:'sha256'},Charset:{UTF_8:'utf8'},computeDigest:(_algorithm:string,value:string)=>Array.from(createHash('sha256').update(value).digest()),formatDate:(date:Date)=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Dhaka',year:'numeric',month:'2-digit',day:'2-digit'}).format(date)},
+    Utilities:{DigestAlgorithm:{SHA_256:'sha256'},Charset:{UTF_8:'utf8'},computeDigest:(_algorithm:string,value:string)=>Array.from(createHash('sha256').update(value).digest()),formatDate:(date:Date)=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Dhaka',year:'numeric',month:'2-digit',day:'2-digit'}).format(date),getUuid:()=>Math.random().toString(36).slice(2)},
     ContentService:{MimeType:{JSON:'json',JAVASCRIPT:'js'},createTextOutput:(content:string)=>({content,setMimeType(){return this;}})},
   };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/Code.gs',import.meta.url),'utf8'),context);
+  vm.runInContext(fs.readFileSync(new URL('../apps-script/StaffOperations.gs',import.meta.url),'utf8'),context);
   const post=(payload:unknown)=>JSON.parse(context.doPost({postData:{type:'text/plain',contents:JSON.stringify(payload)}}).content);
   const get=(action:string)=>JSON.parse(context.doGet({parameter:{action}}).content);
   const records=(name:string)=>tables[name].slice(1).map(row=>Object.fromEntries(tables[name][0].map((key,index)=>[String(key),row[index]])));
@@ -172,4 +181,63 @@ test('a busy lock is uncertain because an earlier same-ID request may still comm
   const response=h.post(request());
   assert.equal(response.success,false);assert.equal(response.code,'busy');assert.equal('persisted' in response,false);
   assert.equal(h.writes.length,0);
+});
+
+test('staff operations reject missing and unapproved Google tokens without reading private orders',()=>{
+  const h=harness();
+  assert.equal(h.post({action:'staff_orders'}).code,'unauthorized');
+  assert.equal(h.post({action:'staff_orders',id_token:INTRUDER_TOKEN}).code,'forbidden');
+  assert.equal(h.get('staff_orders').ok,false);
+  assert.equal(h.reads.includes('orders'),false);
+});
+test('verified staff manage the same private receipt; riders see assigned orders without delivery OTP',()=>{
+  const h=harness(),created=h.post(request());
+  assert.equal(created.persisted,true);
+  const orderId=created.order.id;
+  const adminSession=h.post({action:'staff_session',id_token:ADMIN_TOKEN});
+  assert.equal(adminSession.role,'super_admin');
+  assert.equal(adminSession.riders[0].email,'rider@example.com');
+  const riderBefore=h.post({action:'staff_orders',id_token:RIDER_TOKEN});
+  assert.equal(riderBefore.orders.length,0);
+  const update=(operation:string,id_token:string,extra:Record<string,unknown>={})=>h.post({action:'staff_mutate',id_token,operation,order_id:orderId,...extra});
+  assert.equal(update('confirm',ADMIN_TOKEN).ok,true);
+  assert.equal(update('start_baking',ADMIN_TOKEN).ok,true);
+  assert.equal(update('mark_ready',ADMIN_TOKEN).ok,true);
+  assert.equal(update('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
+  const riderQueue=h.post({action:'staff_orders',id_token:RIDER_TOKEN});
+  assert.equal(riderQueue.orders.length,1);
+  assert.equal(Object.prototype.hasOwnProperty.call(riderQueue.orders[0],'delivery_otp'),false);
+  assert.equal(update('pick_up',RIDER_TOKEN).ok,true);
+  assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
+  assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:created.order.delivery_otp,cash_collected:false}).code,'cash_unconfirmed');
+  assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:created.order.delivery_otp,cash_collected:true}).ok,true);
+  const customer=h.post({action:'get_order_status',order_id:orderId,customer_phone:request().customer_phone});
+  assert.equal(customer.status,'delivered');
+  assert.equal(customer.payment_status,'paid');
+  assert.equal(customer.cod_collected,true);
+  assert.equal(Object.prototype.hasOwnProperty.call(customer,'delivery_otp'),false);
+  const retry=h.post(request());
+  assert.equal(retry.order.status,'delivered');
+  assert.equal(h.records('orders').length,1);
+  assert.equal(h.records('order_items').length,1);
+});
+test('delivery OTP rate limit and order transition checks are persisted server-side',()=>{
+  const h=harness(),created=h.post(request());
+  const orderId=created.order.id;
+  const update=(operation:string,id_token:string,extra:Record<string,unknown>={})=>h.post({action:'staff_mutate',id_token,operation,order_id:orderId,...extra});
+  assert.equal(update('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).code,'invalid_transition');
+  assert.equal(update('pick_up',RIDER_TOKEN).code,'invalid_transition');
+  for(const operation of ['confirm','start_baking','mark_ready']) assert.equal(update(operation,ADMIN_TOKEN).ok,true);
+  assert.equal(update('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
+  assert.equal(update('pick_up',RIDER_TOKEN).ok,true);
+  assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
+  for(let i=0;i<5;i++) assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:'0000',cash_collected:true}).code,'invalid_otp');
+  assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:created.order.delivery_otp,cash_collected:true}).code,'otp_locked');
+  assert.equal(h.post({action:'get_order_status',order_id:orderId,customer_phone:request().customer_phone}).status,'out_for_delivery');
+});
+test('customer status requires both unpredictable order reference and matching phone',()=>{
+  const h=harness(),created=h.post(request());
+  assert.equal(h.post({action:'get_order_status',order_id:created.order.id,customer_phone:'01700000000'}).code,'not_found');
+  assert.equal(h.post({action:'get_order_status',order_id:'ord_fake',customer_phone:request().customer_phone}).code,'not_found');
+  assert.equal(h.get('get_order_status').ok,false);
 });
