@@ -31,6 +31,7 @@ function harness(options:{withoutPrivate?:boolean}={}) {
   };
   if(!options.withoutPrivate){tables.orders=[ORDER_HEADERS];tables.order_items=[ITEM_HEADERS];}
   const reads:string[]=[];const writes:string[]=[];
+  const throttles=new Map<string,string>();
   let failNextItemWrite=false;let failAfterOrderWrite=false;let acquired=0;
   const sheet=(name:string):any=>({
     getLastRow:()=>tables[name].length,
@@ -61,7 +62,7 @@ function harness(options:{withoutPrivate?:boolean}={}) {
     SpreadsheetApp:{openById:()=>book,getActiveSpreadsheet:()=>book},
     PropertiesService:{getScriptProperties:()=>({getProperty:(key:string)=>key==='AURORA_GOOGLE_CLIENT_ID'?'test-client.apps.googleusercontent.com':key==='AURORA_STAFF_USERS'?STAFF_CONFIG:null})},
     UrlFetchApp:{fetch:(url:string)=>({getResponseCode:()=>200,getContentText:()=>JSON.stringify({aud:'test-client.apps.googleusercontent.com',iss:'https://accounts.google.com',sub:'verified-google-user',exp:Math.floor(Date.now()/1000)+3600,email_verified:'true',email:url.includes('rider_')?'rider@example.com':url.includes('intruder_')?'intruder@example.com':'owner@example.com'})})},
-    CacheService:{getScriptCache:()=>({get:()=>null,put:()=>{},remove:()=>{}})},
+    CacheService:{getScriptCache:()=>({get:(key:string)=>key.startsWith('aurora_cod_')?throttles.get(key)||null:null,put:(key:string,value:string)=>{if(key.startsWith('aurora_cod_'))throttles.set(key,value);},remove:()=>{}})},
     LockService:{getScriptLock:()=>({tryLock:()=>{acquired++;return true;},releaseLock:()=>{acquired--;}})},
     Utilities:{DigestAlgorithm:{SHA_256:'sha256'},Charset:{UTF_8:'utf8'},computeDigest:(_algorithm:string,value:string)=>Array.from(createHash('sha256').update(value).digest()),formatDate:(date:Date)=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Dhaka',year:'numeric',month:'2-digit',day:'2-digit'}).format(date),getUuid:()=>Math.random().toString(36).slice(2)},
     ContentService:{MimeType:{JSON:'json',JAVASCRIPT:'js'},createTextOutput:(content:string)=>({content,setMimeType(){return this;}})},
@@ -240,4 +241,15 @@ test('customer status requires both unpredictable order reference and matching p
   assert.equal(h.post({action:'get_order_status',order_id:created.order.id,customer_phone:'01700000000'}).code,'not_found');
   assert.equal(h.post({action:'get_order_status',order_id:'ord_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',customer_phone:request().customer_phone}).code,'not_found');
   assert.equal(h.get('get_order_status').ok,false);
+});
+
+test('COD burst protection prevents six new orders per phone but never blocks a committed retry',()=>{
+  const h=harness();
+  const uuid=(n:number)=>'aaaaaaaa-1111-4111-8111-'+String(n).padStart(12,'0');
+  for(let n=1;n<=5;n++) assert.equal(h.post(request({request_id:uuid(n)})).persisted,true);
+  const blocked=h.post(request({request_id:uuid(6)}));
+  assert.equal(blocked.code,'order_rate_limited');
+  assert.equal(h.records('orders').length,5);
+  assert.equal(h.post(request({request_id:uuid(1)})).persisted,true);
+  assert.equal(h.records('orders').length,5);
 });
