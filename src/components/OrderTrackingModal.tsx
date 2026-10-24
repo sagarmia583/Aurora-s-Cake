@@ -138,8 +138,8 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
             </div>
           )}
 
-          {(selectedOrder.persistence !== 'google_sheets' || selectedOrder.status === 'out_for_delivery') && (
           {/* Delivery OTP Security Card */}
+          {(selectedOrder.persistence !== 'google_sheets' || selectedOrder.status === 'out_for_delivery') && (
           <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold text-xl shadow-md">
