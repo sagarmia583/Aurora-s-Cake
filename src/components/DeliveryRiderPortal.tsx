@@ -24,10 +24,7 @@ export const DeliveryRiderPortal: React.FC<DeliveryRiderPortalProps> = ({ orders
   // Active Rider deliveries: orders that are ready, assigned, picked up, or out_for_delivery
   const riderDeliveries = orders.filter(
     (o) =>
-      o.status === 'ready' ||
-      o.status === 'assigned' ||
-      o.status === 'picked_up' ||
-      o.status === 'out_for_delivery' ||
+      (o.rider_id === 'rider-1' && ['assigned', 'picked_up', 'out_for_delivery'].includes(o.status)) ||
       (o.status === 'delivered' && o.rider_id === 'rider-1')
   );
 
@@ -213,7 +210,7 @@ export const DeliveryRiderPortal: React.FC<DeliveryRiderPortalProps> = ({ orders
 
                 {/* Status Transitions */}
                 <div className="pt-1">
-                  {order.status === 'ready' || order.status === 'assigned' ? (
+                  {order.status === 'assigned' ? (
                     <button
                       onClick={() => handlePickUp(order.id)}
                       className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl text-xs flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer"
