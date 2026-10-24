@@ -157,6 +157,11 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                 </div>
               </div>
               <p className="text-sm text-slate-600">Showing up to 100 recent authorized orders. Status updates are written to the same private Sheet used by Customer checkout.</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                <div className="bg-white border rounded-xl p-3"><strong className="text-xl">{orders.length}</strong><p className="text-slate-500">Orders in visible queue</p></div>
+                <div className="bg-white border rounded-xl p-3"><strong className="text-xl">{orders.filter(o=>o.status==='pending').length}</strong><p className="text-slate-500">Awaiting confirmation</p></div>
+                <div className="bg-white border rounded-xl p-3"><strong className="text-xl">৳{orders.filter(o=>o.payment_method==='cod'&&o.payment_status==='paid'&&o.cod_collected).reduce((total,o)=>total+o.total_amount,0).toLocaleString()}</strong><p className="text-slate-500">Reported COD collected (visible orders only)</p></div>
+              </div>
               {orders.length === 0 && <div className="bg-white rounded-xl p-8 text-center">No orders available for your role.</div>}
               <div className="grid gap-4">
                 {orders.map(order => {
@@ -168,7 +173,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                       <span className="self-start rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1 text-emerald-900 text-xs font-bold">{order.status.replaceAll('_',' ')}</span>
                     </div>
                     <div className="grid sm:grid-cols-3 gap-2 text-sm text-slate-700">
-                      <div><strong>Address:</strong> {order.delivery_address}</div>
+                      <div><strong>Address:</strong> {order.delivery_address}<p className="mt-1"><a className="text-emerald-700 underline" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.delivery_address)}`} target="_blank" rel="noopener noreferrer">Open in Google Maps</a></p></div>
                       <div><strong>Slot:</strong> {order.delivery_date} · {order.delivery_slot}</div>
                       <div><strong>COD:</strong> {order.total_amount} · {order.payment_status} {order.cod_collected ? '· collected' : ''}</div>
                     </div>
