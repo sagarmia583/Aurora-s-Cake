@@ -71,9 +71,10 @@ function auroraCatalogPost_(input) {
     var headers=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0]
       .map(function(value){return String(value).trim().toLowerCase();});
     var key=tableName==='settings'?'key':'id';
-    var keyIndex=headers.indexOf(key), fieldIndex=headers.indexOf(field);
+    var targetColumn=tableName==='settings'?'value':field;
+    var keyIndex=headers.indexOf(key), fieldIndex=headers.indexOf(targetColumn);
     if (keyIndex<0||fieldIndex<0||headers.lastIndexOf(key)!==keyIndex||
-        headers.lastIndexOf(field)!==fieldIndex) auroraReject_('invalid_sheet','Missing or duplicate expected column.');
+        headers.lastIndexOf(targetColumn)!==fieldIndex) auroraReject_('invalid_sheet','Missing or duplicate expected column.');
     var ids=sheet.getLastRow()>1 ?
       sheet.getRange(2,keyIndex+1,sheet.getLastRow()-1,1).getValues() : [];
     var rows=[];
