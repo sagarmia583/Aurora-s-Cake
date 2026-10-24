@@ -141,6 +141,10 @@ function auroraCheckoutRateLimit_(request) {
     .map(function(byte){return ('0'+((byte+256)%256).toString(16)).slice(-2);}).join('').slice(0,24);
   var key = 'aurora_cod_phone_'+hash;
   var globalKey = 'aurora_cod_global_10m';
+  var attemptKey = 'aurora_cod_attempt_'+request.request_id;
+  // A network/Sheet failure before the receipt commit must not count the same
+  // request ID again on a safety-preserving retry.
+  if (cache.get(attemptKey)) return;
   var phoneCount = Number(cache.get(key)||0);
   var globalCount = Number(cache.get(globalKey)||0);
   if (phoneCount >= 5 || globalCount >= 120) {
@@ -148,6 +152,7 @@ function auroraCheckoutRateLimit_(request) {
   }
   cache.put(key,String(phoneCount+1),600);
   cache.put(globalKey,String(globalCount+1),600);
+  cache.put(attemptKey,'1',600);
 }
 function auroraReject_(code,message) {
   var error = new Error(message); error.auroraValidation = true; error.code = code; throw error;
