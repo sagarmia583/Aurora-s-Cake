@@ -117,7 +117,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
 
         {/* Content */}
         <div className="overflow-y-auto p-6 space-y-6 flex-1">
-          <p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">{selectedOrder.persistence === 'google_sheets' ? 'Your order was saved to Aurora’s Cake’s Google Sheet. This device keeps a copy of the receipt. Contact the bakery for the latest confirmation and delivery status. No online payment was collected.' : 'These are demo orders saved on this device. Status changes do not represent a real bakery delivery or payment.'}</p>
+          <p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">{selectedOrder.persistence === 'google_sheets' ? 'Your order was saved to Aurora’s Cake’s Google Sheet. This device keeps a copy of the receipt. Updates appear here when the bakery staff portal is configured and reachable; otherwise this device displays the last saved status. No online payment was collected.' : 'These are demo orders saved on this device. Status changes do not represent a real bakery delivery or payment.'}</p>
           {selectedOrder.status === 'cancelled' && <p role="status" className="text-sm font-semibold text-red-700">This order was cancelled.</p>}
           {/* Order Selector Tab if multiple */}
           {orders.length > 1 && (
