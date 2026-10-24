@@ -1,3 +1,4 @@
+import type { PublicSiteData } from '../types/siteContent';
 import {
   ShopSettings,
   Category,
@@ -480,6 +481,23 @@ class MockDatabase {
     this.reviews = this.load('cake_db_reviews', [] as Review[]);
     this.customCakes = this.load('cake_db_custom_cakes', [] as CustomCakeRequest[]);
     this.auditLogs = this.load('cake_db_audit_logs', [] as AuditLog[]);
+  }
+
+  /** Apply only validated public catalogue/content data. Private local records are preserved. */
+  public applyPublicSnapshot(snapshot: PublicSiteData) {
+    const data = JSON.parse(JSON.stringify(snapshot)) as PublicSiteData;
+    this.settings = data.settings;
+    this.categories = data.categories;
+    this.products = data.products;
+    this.flavors = data.flavors;
+    this.addons = data.addons;
+    this.banners = data.banners;
+    this.deliveryZones = data.zones;
+    this.deliverySlots = data.slots;
+    this.coupons = data.coupons;
+    this.reviews = data.reviews;
+    cacheEngine.clearAll();
+    this.notify();
   }
 
   private load<T>(key: string, fallback: T): T {

@@ -57,6 +57,13 @@ export interface ShopSettings {
   footer_about_text?: string;
   facebook_url?: string;
   instagram_url?: string;
+  youtube_url?: string;
+  tiktok_url?: string;
+  website_url?: string;
+  profile_image_url?: string;
+  brand_tagline?: string;
+  facebook_handle?: string;
+  mobile_subtitle?: string;
 }
 
 export interface Category {

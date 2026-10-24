@@ -1,11 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowRight, ArrowUpRight, ChevronDown, Clock, Database, Menu, Search, ShoppingBag, UserRound, X, Zap } from 'lucide-react';
 import { ShopSettings, StaffRole } from '../types';
+import type { PublicSiteData } from '../types/siteContent';
+import { DEFAULT_PUBLIC_SITE_DATA } from '../content/defaultSiteData';
 
 export type ViewMode = 'web' | 'mobile_app';
 
 interface NavbarProps {
   settings: ShopSettings;
+  publicData?: PublicSiteData;
+  onOpenSheetSettings?: () => void;
+  isSheetConnected?: boolean;
   activeRole: StaffRole | 'customer';
   onRoleChange: (role: StaffRole | 'customer') => void;
   viewMode: ViewMode;
@@ -35,10 +40,18 @@ const staffRoles: { value: StaffRole | 'customer'; label: string }[] = [
 ];
 
 export const Navbar: React.FC<NavbarProps> = ({
-  settings, activeRole, onRoleChange, viewMode, onViewModeChange, cartCount,
+  settings: suppliedSettings, activeRole, onRoleChange, viewMode, onViewModeChange, cartCount,
   onOpenCart, onOpenProfile, onOpenCacheHub, onOpenDbViewer, onOpenSupabaseSync,
   isSupabaseConnected, onOpenTrackOrder, onOpenCustomCake, searchQuery, onSearchChange,
+  publicData, onOpenSheetSettings, isSheetConnected,
 }) => {
+  const data: PublicSiteData = publicData ?? DEFAULT_PUBLIC_SITE_DATA;
+  const settings = publicData?.settings ?? suppliedSettings;
+  const text = (key: string) => data.content[key] ?? DEFAULT_PUBLIC_SITE_DATA.content[key] ?? '';
+  const safeUrl = (value?: string) => value && /^(https?:\/\/|mailto:|tel:|#)/i.test(value.trim()) ? value.trim() : '';
+  const facebookUrl = safeUrl(settings.facebook_url);
+  const logoUrl = settings.logo_url && /^(https?:\/\/|\/[^/])/i.test(settings.logo_url.trim()) ? settings.logo_url.trim() : '';
+  const navigationLinks = data.links.filter(link => link.is_active && link.location === 'navigation' && safeUrl(link.url)).sort((a, b) => a.sort_order - b.sort_order);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [studioOpen, setStudioOpen] = useState(false);
@@ -136,23 +149,24 @@ export const Navbar: React.FC<NavbarProps> = ({
         @media(max-width:380px){.ac-nav-main{width:calc(100% - 28px)}.ac-nav-brand-symbol{display:none}.ac-nav-wordmark{font-size:25px}.ac-nav-top{font-size:9px}.ac-nav-icon{width:31px}}
       `}</style>
       <div className="ac-nav-top">
-        <span>A little cake. A lot of happiness.</span>
+        <span>{settings.top_announcement_text ?? ''}</span>
         <button type="button" className="ac-nav-studio-toggle" aria-expanded={studioOpen} aria-controls="ac-studio-menu" onClick={() => setStudioOpen(!studioOpen)}>Studio <ChevronDown size={10} strokeWidth={1.5} /></button>
       </div>
       <div className="ac-nav-main">
-        <a className="ac-nav-brand" href="#" onClick={openStorefront} aria-label="Aurora’s Cake home">
-          <svg className="ac-nav-brand-symbol" viewBox="0 0 42 48" fill="none" aria-hidden="true">
+        <a className="ac-nav-brand" href="#top" onClick={openStorefront} aria-label={settings.shop_name + ' home'}>
+          {logoUrl ? <img className="ac-nav-brand-symbol" src={logoUrl} alt="" width="42" height="45" style={{ objectFit: 'contain' }} /> : <svg className="ac-nav-brand-symbol" viewBox="0 0 42 48" fill="none" aria-hidden="true">
             <path d="M5 39h32M8 36V23c4 0 4 5 8 5s4-5 8-5 4 5 10 5v8H8Zm0-13v-4h26v4M12 19v-6h18v6M21 12V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
             <path d="M21 6c-4-3 0-6 0-6s4 3 0 6Z" fill="currentColor" transform="translate(0 2)" />
             <path d="M4 44c8-2 26-2 34 0" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
-          </svg>
-          <span><span className="ac-nav-wordmark">Aurora’s Cake<span style={{ color: '#F2B691', fontSize: '.6em' }}>.</span></span><span className="ac-nav-brand-sub">Little moments. Lovely cakes.</span></span>
+          </svg>}
+          <span><span className="ac-nav-wordmark">{settings.shop_name}</span>{text('brand_tagline') && <span className="ac-nav-brand-sub">{text('brand_tagline')}</span>}</span>
         </a>
         <nav className="ac-nav-links" aria-label="Main navigation">
-          <a href="#catalog" onClick={openStorefront}>Our cakes</a>
-          <button type="button" className="ac-nav-link" onClick={() => customerAction(onOpenCustomCake)}>Custom cakes</button>
-          <a href="#our-story" onClick={openStorefront}>Our story</a>
-          <a className="ac-nav-social" href="https://www.facebook.com/aurorascake26" target="_blank" rel="noopener noreferrer" aria-label="Aurora’s Cake on Facebook (opens in a new tab)">Facebook <ArrowUpRight size={13} strokeWidth={1.5} /></a>
+          {text('nav_cakes') && <a href="#catalog" onClick={openStorefront}>{text('nav_cakes')}</a>}
+          {text('nav_custom') && <button type="button" className="ac-nav-link" onClick={() => customerAction(onOpenCustomCake)}>{text('nav_custom')}</button>}
+          {text('nav_story') && <a href="#our-story" onClick={openStorefront}>{text('nav_story')}</a>}
+          {facebookUrl && text('nav_facebook') && <a className="ac-nav-social" href={facebookUrl} target="_blank" rel="noopener noreferrer" aria-label={settings.shop_name + ' on Facebook (opens in a new tab)'}>{text('nav_facebook')} <ArrowUpRight size={13} strokeWidth={1.5} /></a>}
+          {navigationLinks.map(link => <a key={link.id} className="ac-nav-social" href={safeUrl(link.url)} target={/^https?:/i.test(link.url) ? '_blank' : undefined} rel="noopener noreferrer">{link.label}{/^https?:/i.test(link.url) && <ArrowUpRight size={13} />}</a>)}
         </nav>
         <div className="ac-nav-actions">
           <button type="button" className="ac-nav-icon" aria-label={searchOpen ? 'Close cake search' : 'Search cakes'} aria-expanded={searchOpen} aria-controls="ac-cake-search" onClick={() => setSearchOpen(!searchOpen)}>
@@ -169,15 +183,16 @@ export const Navbar: React.FC<NavbarProps> = ({
       {searchOpen && <div className="ac-nav-search" id="ac-cake-search">
         <form className="ac-nav-search-form" role="search" onSubmit={(event) => { event.preventDefault(); openStorefront(); window.setTimeout(() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth' }), 0); }}>
           <Search size={19} strokeWidth={1.5} aria-hidden="true" />
-          <input ref={searchRef} className="ac-nav-search-input" type="search" aria-label="Search cake collection" placeholder="Find your next favourite cake…" value={searchQuery} onChange={(event) => onSearchChange(event.target.value)} />
-          <button type="submit" className="ac-nav-search-submit"><span>Explore cakes</span><ArrowRight size={17} strokeWidth={1.5} /></button>
+          <input ref={searchRef} className="ac-nav-search-input" type="search" aria-label="Search cake collection" placeholder={text('nav_search_placeholder')} value={searchQuery} onChange={(event) => onSearchChange(event.target.value)} />
+          <button type="submit" className="ac-nav-search-submit"><span>{text('hero_cta')}</span><ArrowRight size={17} strokeWidth={1.5} /></button>
         </form>
       </div>}
       {mobileOpen && <nav id="ac-mobile-navigation" className="ac-nav-mobile" aria-label="Mobile navigation">
-        <a href="#catalog" onClick={openStorefront}>Our cakes <ArrowRight size={16} strokeWidth={1.5} /></a>
-        <button type="button" onClick={() => customerAction(onOpenCustomCake)}>Custom cakes <ArrowRight size={16} strokeWidth={1.5} /></button>
-        <a href="#our-story" onClick={openStorefront}>Our story <ArrowRight size={16} strokeWidth={1.5} /></a>
-        <a href="https://www.facebook.com/aurorascake26" target="_blank" rel="noopener noreferrer" aria-label="Aurora’s Cake on Facebook (opens in a new tab)" onClick={() => setMobileOpen(false)}>Facebook <ArrowUpRight size={16} strokeWidth={1.5} /></a>
+        {text('nav_cakes') && <a href="#catalog" onClick={openStorefront}>{text('nav_cakes')} <ArrowRight size={16} strokeWidth={1.5} /></a>}
+        {text('nav_custom') && <button type="button" onClick={() => customerAction(onOpenCustomCake)}>{text('nav_custom')} <ArrowRight size={16} strokeWidth={1.5} /></button>}
+        {text('nav_story') && <a href="#our-story" onClick={openStorefront}>{text('nav_story')} <ArrowRight size={16} strokeWidth={1.5} /></a>}
+        {facebookUrl && text('nav_facebook') && <a href={facebookUrl} target="_blank" rel="noopener noreferrer" aria-label={settings.shop_name + ' on Facebook (opens in a new tab)'} onClick={() => setMobileOpen(false)}>{text('nav_facebook')} <ArrowUpRight size={16} strokeWidth={1.5} /></a>}
+        {navigationLinks.map(link => <a key={link.id} href={safeUrl(link.url)} target={/^https?:/i.test(link.url) ? '_blank' : undefined} rel="noopener noreferrer" onClick={() => setMobileOpen(false)}>{link.label}<ArrowUpRight size={16} /></a>)}
         <button type="button" className="ac-nav-mobile-small" onClick={() => customerAction(onOpenProfile)}>My account &amp; orders</button>
         <button type="button" className="ac-nav-mobile-small" onClick={() => customerAction(onOpenTrackOrder)}>Track an order</button>
       </nav>}
@@ -193,6 +208,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button type="button" aria-pressed={viewMode === 'mobile_app'} onClick={() => onViewModeChange('mobile_app')}>Mobile app</button>
         </div>
         <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenTrackOrder)}><Clock size={14} /> Track an order</button>
+        {onOpenSheetSettings && <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenSheetSettings)}><Database size={14} /> Google Sheets content <span className="ac-nav-status" data-connected={isSheetConnected} title={isSheetConnected ? 'Connected to Google Sheets' : 'Google Sheets is not connected'} /></button>}
         <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenSupabaseSync)}><Database size={14} /> Database connection <span className="ac-nav-status" data-connected={isSupabaseConnected} title={isSupabaseConnected ? 'Connected' : 'Local preview'} /></button>
         <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenCacheHub)}><Zap size={14} /> Cache performance</button>
         <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenDbViewer)}><Database size={14} /> Database schema</button>

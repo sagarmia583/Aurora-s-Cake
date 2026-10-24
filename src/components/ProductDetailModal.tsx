@@ -1,13 +1,14 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useCakeDialog } from './useCakeDialog';
-import { X, Check, Star, Plus, Minus, ShoppingBag, Sparkles, Heart } from 'lucide-react';
-import { Product, ProductVariant, Flavor, ProductAddon, CartItem } from '../types';
+import { X, Check, Plus, Minus, ShoppingBag, Sparkles } from 'lucide-react';
+import { Product, Flavor, ProductAddon, CartItem } from '../types';
 
 interface ProductDetailModalProps {
   product: Product | null;
   allFlavors: Flavor[];
   allAddons: ProductAddon[];
   currency: string;
+  acceptingOrders?: boolean;
   onClose: () => void;
   onAddToCart: (item: CartItem) => void;
 }
@@ -20,36 +21,37 @@ const ProductDetailDialog: React.FC<Omit<ProductDetailModalProps, 'product'> & {
   allFlavors,
   allAddons,
   currency,
+  acceptingOrders = true,
   onClose,
   onAddToCart,
 }) => {
   const dialogRef = useCakeDialog(onClose);
 
-  // Selected state
-  const [selectedVariant, setSelectedVariant] = useState<ProductVariant>(
-    product.variants.find((variant) => variant.is_active) || {
-      id: 'default',
-      product_id: product.id,
-      name: '1kg',
-      weight_grams: 1000,
-      price: product.base_price,
-      is_active: true,
-    }
-  );
-
+  // Resolve the current catalog entry so changed or deactivated variants cannot be purchased.
+  const activeVariants = product.variants.filter(variant => variant.is_active);
+  const [selectedVariantId, setSelectedVariantId] = useState<string | undefined>(activeVariants[0]?.id);
+  const selectedVariant = activeVariants.find(variant => variant.id === selectedVariantId);
   const availableFlavors = useMemo(() => {
     return allFlavors.filter((f) => f.is_active && product.allowed_flavor_ids?.includes(f.id));
   }, [allFlavors, product]);
 
-  const [selectedFlavor, setSelectedFlavor] = useState<Flavor | undefined>(
-    availableFlavors[0]
-  );
+  const [selectedFlavorId, setSelectedFlavorId] = useState<string | undefined>(availableFlavors[0]?.id);
+  const selectedFlavor = availableFlavors.find(flavor => flavor.id === selectedFlavorId);
+  const needsFlavorSelection = availableFlavors.length > 0 && !selectedFlavor;
+  const removedFlavor = !!selectedFlavorId && !selectedFlavor;
 
   const availableAddons = useMemo(() => {
     return allAddons.filter((a) => a.is_active && product.allowed_addon_ids?.includes(a.id));
   }, [allAddons, product]);
 
-  const [selectedAddons, setSelectedAddons] = useState<ProductAddon[]>([]);
+  const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>([]);
+  const selectedAddons = selectedAddonIds.flatMap(id => {
+    const addon = availableAddons.find(item => item.id === id);
+    return addon ? [addon] : [];
+  });
+  const unavailableAddonIds = selectedAddonIds.filter(id => !availableAddons.some(addon => addon.id === id));
+  const canAddToCart = acceptingOrders && product.is_active && !!selectedVariant && !needsFlavorSelection && !unavailableAddonIds.length;
+  const unavailableLabel = !acceptingOrders ? 'Orders currently closed' : !product.is_active || !selectedVariant ? 'Unavailable' : needsFlavorSelection ? 'Please choose a flavor' : 'Review unavailable extras';
   const [writingMessage, setWritingMessage] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [isAddedFeedback, setIsAddedFeedback] = useState(false);
@@ -60,21 +62,16 @@ const ProductDetailDialog: React.FC<Omit<ProductDetailModalProps, 'product'> & {
   }, [isAddedFeedback, onClose]);
 
   // Calculate live price
-  const currentVariantPrice = selectedVariant.sale_price ?? selectedVariant.price;
+  const currentVariantPrice = selectedVariant ? selectedVariant.sale_price ?? selectedVariant.price : 0;
   const addonsTotal = selectedAddons.reduce((sum, a) => sum + a.price, 0);
   const unitPrice = currentVariantPrice + addonsTotal;
   const totalPrice = unitPrice * quantity;
 
   const toggleAddon = (addon: ProductAddon) => {
-    if (selectedAddons.some((a) => a.id === addon.id)) {
-      setSelectedAddons(selectedAddons.filter((a) => a.id !== addon.id));
-    } else {
-      setSelectedAddons([...selectedAddons, addon]);
-    }
+    setSelectedAddonIds(ids => ids.includes(addon.id) ? ids.filter(id => id !== addon.id) : [...ids, addon.id]);
   };
-
   const handleAddToCart = () => {
-    if (isAddedFeedback) return;
+    if (isAddedFeedback || !canAddToCart || !selectedVariant) return;
     const item: CartItem = {
       cart_item_id: `cart-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       product,
@@ -139,9 +136,9 @@ const ProductDetailDialog: React.FC<Omit<ProductDetailModalProps, 'product'> & {
               <div className="pt-2">
                 <div className="flex items-baseline gap-2">
                   <span className="text-2xl font-black text-rose-600">
-                    {currency}{currentVariantPrice}
+                    {selectedVariant ? currency + currentVariantPrice : 'Unavailable'}
                   </span>
-                  {selectedVariant.sale_price && (
+                  {selectedVariant && selectedVariant.sale_price !== undefined && selectedVariant.sale_price < selectedVariant.price && (
                     <span className="text-base text-slate-400 line-through">
                       {currency}{selectedVariant.price}
                     </span>
@@ -165,15 +162,15 @@ const ProductDetailDialog: React.FC<Omit<ProductDetailModalProps, 'product'> & {
               </label>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              {product.variants.filter((variant) => variant.is_active).map((v) => {
-                const isSelected = selectedVariant.id === v.id;
+              {activeVariants.map((v) => {
+                const isSelected = selectedVariant?.id === v.id;
                 return (
                   <button
                     key={v.id}
                     type="button"
                     aria-pressed={isSelected}
-                    onClick={() => setSelectedVariant(v)}
-                    className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                    onClick={() => setSelectedVariantId(v.id)}
+                    className={`p-3 rounded-2xl border text-left transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
                       isSelected
                         ? 'border-rose-600 bg-rose-50/70 text-rose-950 ring-2 ring-rose-200'
                         : 'border-slate-200 hover:border-slate-300 bg-white text-slate-700'
@@ -189,6 +186,11 @@ const ProductDetailDialog: React.FC<Omit<ProductDetailModalProps, 'product'> & {
             </div>
           </div>
 
+          {!selectedVariant && <p role="status" className="text-xs font-semibold text-slate-600">No selected size is currently available. Choose an available size to continue.</p>}
+
+          {needsFlavorSelection && <p role="alert" className="text-xs font-semibold text-amber-800 bg-amber-50 rounded-xl p-3">Please choose a currently available flavor before adding this cake.</p>}
+          {removedFlavor && !availableFlavors.length && <p role="status" className="text-xs text-slate-600 bg-slate-50 rounded-xl p-3">Your previous flavor option is no longer available. This cake currently has no flavor options, so no flavor will be added.</p>}
+
           {/* 2. Flavor Selection */}
           {availableFlavors.length > 0 && (
             <div className="space-y-3">
@@ -203,8 +205,8 @@ const ProductDetailDialog: React.FC<Omit<ProductDetailModalProps, 'product'> & {
                       key={flavor.id}
                       type="button"
                       aria-pressed={isSelected}
-                      onClick={() => setSelectedFlavor(flavor)}
-                      className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                      onClick={() => setSelectedFlavorId(flavor.id)}
+                      className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
                         isSelected
                           ? 'border-rose-600 bg-rose-50/50 text-rose-900 ring-1 ring-rose-400'
                           : 'border-slate-200 hover:border-slate-300 bg-white text-slate-700'
@@ -223,6 +225,8 @@ const ProductDetailDialog: React.FC<Omit<ProductDetailModalProps, 'product'> & {
             </div>
           )}
 
+          {unavailableAddonIds.length > 0 && <div role="alert" className="text-xs text-amber-800 bg-amber-50 rounded-xl p-3 space-y-2"><p>Some selected extras are no longer available for this cake. They are excluded from the displayed total. Remove them to continue.</p><button type="button" className="font-semibold underline underline-offset-4" onClick={() => setSelectedAddonIds(ids => ids.filter(id => availableAddons.some(addon => addon.id === id)))}>Remove unavailable extras</button></div>}
+
           {/* 3. Add-ons Selection */}
           {availableAddons.length > 0 && (
             <div className="space-y-3">
@@ -236,7 +240,7 @@ const ProductDetailDialog: React.FC<Omit<ProductDetailModalProps, 'product'> & {
                     <button type="button" aria-pressed={isSelected}
                       key={addon.id}
                       onClick={() => toggleAddon(addon)}
-                      className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
+                      className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
                         isSelected
                           ? 'border-rose-500 bg-rose-50/60 text-slate-900'
                           : 'border-slate-200 hover:bg-slate-50 text-slate-700'
@@ -315,7 +319,7 @@ const ProductDetailDialog: React.FC<Omit<ProductDetailModalProps, 'product'> & {
             <div className="text-right">
               <span className="text-xs text-slate-500 block">Total Item Price</span>
               <span className="text-2xl font-black text-rose-600">
-                {currency}{totalPrice}
+                {selectedVariant ? currency + totalPrice : 'Unavailable'}
               </span>
             </div>
           </div>
@@ -326,8 +330,8 @@ const ProductDetailDialog: React.FC<Omit<ProductDetailModalProps, 'product'> & {
           <button
             type="button"
             onClick={handleAddToCart}
-            disabled={isAddedFeedback}
-            className={`w-full py-3.5 px-6 rounded-2xl font-bold text-sm shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer ${
+            disabled={isAddedFeedback || !canAddToCart}
+            className={`w-full py-3.5 px-6 rounded-2xl font-bold text-sm shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
               isAddedFeedback
                 ? 'bg-emerald-600 text-white shadow-emerald-200'
                 : 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-200 active:scale-98'
@@ -337,9 +341,11 @@ const ProductDetailDialog: React.FC<Omit<ProductDetailModalProps, 'product'> & {
               <>
                 <Check className="w-5 h-5" /> <span role="status">Added to your bag</span>
               </>
+            ) : !canAddToCart ? (
+              <span>{unavailableLabel}</span>
             ) : (
               <>
-                <ShoppingBag className="w-5 h-5" /> Add to Cart — {currency}{totalPrice}
+                <ShoppingBag className="w-5 h-5" /> Add to Cart — {selectedVariant ? currency + totalPrice : 'Unavailable'}
               </>
             )}
           </button>

@@ -1,6 +1,8 @@
-import React, { useMemo, useState } from 'react';
-import { ArrowDown, ArrowRight, ArrowUpRight, CakeSlice, Check, ChevronDown, Flower2, Heart, Leaf, Plus, Truck, Facebook } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ArrowRight, ArrowUpRight, CakeSlice, Check, ChevronDown, Flower2, Heart, Leaf, Truck, Facebook, Phone, Mail, Plus } from 'lucide-react';
 import { Product, Category, ShopSettings, Flavor, Banner, Review } from '../types';
+import type { PublicSiteData, SiteHighlight } from '../types/siteContent';
+import { DEFAULT_PUBLIC_SITE_DATA } from '../content/defaultSiteData';
 
 interface CustomerStorefrontProps {
   settings: ShopSettings;
@@ -15,135 +17,151 @@ interface CustomerStorefrontProps {
   onOpenCustomCake: () => void;
   onOpenProfile?: () => void;
   searchQuery: string;
+  publicData?: PublicSiteData;
 }
 
-const categoryLabels: Record<string, string> = {
-  'birthday-cakes': 'Birthday cakes',
-  'chocolate-cakes': 'Chocolate',
-  'wedding-anniversary': 'Wedding & anniversary',
-  cheesecakes: 'Cheesecakes',
-  'cupcakes-pastries': 'Cupcakes',
-};
+const preline: React.CSSProperties = { whiteSpace: 'pre-line' };
+const ordered = <T extends { is_active: boolean; sort_order: number }>(rows: T[]) => rows.filter(row => row.is_active).sort((a, b) => a.sort_order - b.sort_order);
+const safeLink = (value?: string) => value && /^(https?:\/\/|mailto:|tel:|#)/i.test(value.trim()) ? value.trim() : '';
+const safeImage = (value?: string) => value && /^(https?:\/\/|\/[^/])/i.test(value.trim()) ? value.trim() : '';
 
 function startingPrice(product: Product) {
   const prices = product.variants.filter(v => v.is_active).map(v => v.sale_price ?? v.price);
   return prices.length ? Math.min(...prices) : product.sale_price ?? product.base_price;
 }
 
-const faq = [
-  ['Can I make a cake my own?', 'Absolutely. Choose your cake size and flavour, add a personal message, then finish with candles, a topper or a little extra. Each cake page shows the available options.'],
-  ['How do custom cakes work?', 'Open our custom cake studio, tell us the occasion, flavours and colours you have in mind, and add a reference image link if you have one. You can review an estimate before saving your request.'],
-  ['Where can I see delivery options?', 'The checkout shows the available delivery zones, delivery fees, dates and time slots. Select your zone to see the total before placing an order.'],
-  ['Can I place a real order on this website?', 'This rebuilt website is currently a preview. Checkout and custom requests are saved on this device for demonstration; no payment is collected and no order is sent to the bakery.'],
-];
+function HighlightIcon({ name, size = 20 }: { name?: string; size?: number }) {
+  const icons = { cake: CakeSlice, flower: Flower2, heart: Heart, leaf: Leaf, truck: Truck, check: Check };
+  const Icon = icons[name as keyof typeof icons] ?? Heart;
+  return <Icon size={size} strokeWidth={1.3} aria-hidden="true" />;
+}
 
 export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
-  settings, products, categories, currency, onSelectProduct, onOpenCustomCake,
-  onOpenTrackOrder, onOpenProfile, searchQuery,
+  settings: suppliedSettings, products, categories, currency, onSelectProduct, onOpenCustomCake,
+  onOpenTrackOrder, onOpenProfile, searchQuery, publicData,
 }) => {
-  const facebookUrl = 'https://www.facebook.com/aurorascake26';
+  const data: PublicSiteData = publicData ?? DEFAULT_PUBLIC_SITE_DATA;
+  const settings = publicData?.settings ?? suppliedSettings;
+  const text = (key: string) => data.content[key] ?? DEFAULT_PUBLIC_SITE_DATA.content[key] ?? '';
   const [category, setCategory] = useState('all');
   const [sort, setSort] = useState('featured');
   const [heroIndex, setHeroIndex] = useState(0);
-  const activeProducts = products.filter(p => p.is_active);
-  const heroProducts = [activeProducts.find(p => p.id === 'prod-5'), activeProducts.find(p => p.id === 'prod-2'), activeProducts.find(p => p.id === 'prod-1')].filter(Boolean) as Product[];
-  const heroProduct = heroProducts[heroIndex % (heroProducts.length || 1)];
-  const heroPhotos = ['/images/floral-signature.webp', '/images/red-velvet.webp', '/images/chocolate-fudge.webp'];
-  const filtered = useMemo(() => products.filter(p => p.is_active)
-    .filter(p => category === 'all' || p.category_id === category)
-    .filter(p => `${p.name} ${p.description} ${p.category_name || ''}`.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+  const slides = ordered(data.hero_slides);
+  const slide = slides[heroIndex % (slides.length || 1)];
+  const heroImage = safeImage(slide?.image_url);
+  const highlights = (section: SiteHighlight['section']) => ordered(data.highlights.filter(row => row.section === section));
+  const promises = highlights('promise');
+  const occasions = highlights('occasion');
+  const customSteps = highlights('custom_step');
+  const socialPhotos = highlights('social_gallery').filter(row => safeImage(row.image_url));
+  const faqs = ordered(data.faqs);
+  const facebookUrl = safeLink(settings.facebook_url);
+  const instagramUrl = safeLink(settings.instagram_url);
+  const settingsSocialLinks = [{ id: 'instagram', label: 'Instagram', url: instagramUrl }, { id: 'youtube', label: 'YouTube', url: safeLink(settings.youtube_url) }, { id: 'tiktok', label: 'TikTok', url: safeLink(settings.tiktok_url) }, { id: 'website', label: 'Website', url: safeLink(settings.website_url) }].filter(link => link.url);
+  const settingsSocialUrls = new Set([facebookUrl, ...settingsSocialLinks.map(link => link.url)]);
+  const extraSocialLinks = ordered(data.links.filter(row => row.location === 'social')).filter(row => safeLink(row.url) && !settingsSocialUrls.has(row.url));
+  const footerLinks = ordered(data.links.filter(row => row.location === 'footer')).filter(row => safeLink(row.url));
+  const socialUrl = facebookUrl || instagramUrl || safeLink(settings.website_url) || safeLink(extraSocialLinks[0]?.url) || '';
+  const profileImage = safeImage((settings as ShopSettings & { profile_image_url?: string }).profile_image_url);
+  const customImage = safeImage(text('custom_image_url'));
+  const storyImage = safeImage(text('story_image_url'));
+  const logo = safeImage(settings.logo_url);
+  const activeProducts = products.filter(product => product.is_active);
+  const filtered = useMemo(() => products.filter(product => product.is_active)
+    .filter(product => category === 'all' || product.category_id === category)
+    .filter(product => `${product.name} ${product.description} ${product.category_name ?? ''}`.toLowerCase().includes(searchQuery.trim().toLowerCase()))
     .sort((a, b) => sort === 'price-low' ? startingPrice(a) - startingPrice(b) : sort === 'price-high' ? startingPrice(b) - startingPrice(a) : Number(b.is_featured) - Number(a.is_featured)), [products, category, sort, searchQuery]);
+  useEffect(() => {
+    if (category !== 'all' && !categories.some(item => item.id === category && item.is_active)) setCategory('all');
+  }, [category, categories]);
   const money = (amount: number) => `${currency}${amount.toLocaleString('en-BD')}`;
 
   return <div className="ac-storefront">
-    <section className="ac-hero ac-container" aria-labelledby="hero-heading">
+    <section className="ac-hero ac-container" aria-labelledby="hero-heading" style={!heroImage ? { gridTemplateColumns: '1fr' } : undefined}>
       <div className="ac-hero-copy">
-        <span className="ac-eyebrow"><span className="ac-tiny-line" /> A little slice of happiness</span>
-        <h1 id="hero-heading">Good days.<br />Great cakes.<br /><em>Made for you.</em><span className="ac-heading-flower" aria-hidden="true">✳</span></h1>
-        <p>Big birthdays, little wins, and all the sweet moments in between. Find a cake that feels like you.</p>
+        {text('hero_eyebrow') && <span className="ac-eyebrow"><span className="ac-tiny-line" />{text('hero_eyebrow')}</span>}
+        <h1 id="hero-heading" style={preline}>{text('hero_title')}</h1>
+        {text('hero_description') && <p style={preline}>{text('hero_description')}</p>}
         <div className="ac-hero-actions">
-          <a href="#catalog" className="ac-button">Explore our cakes <ArrowUpRight size={17} /></a>
-          <button onClick={onOpenCustomCake} className="ac-text-button">Make it your own <ArrowRight size={16} /></button>
+          {text('hero_cta') && <a href="#catalog" className="ac-button">{text('hero_cta')} <ArrowUpRight size={17} /></a>}
+          {text('hero_secondary_cta') && <button onClick={onOpenCustomCake} className="ac-text-button">{text('hero_secondary_cta')} <ArrowRight size={16} /></button>}
         </div>
-        <div className="ac-hero-footnote"><Heart size={15} strokeWidth={1.5} /> Your flavour. Your message. Your moment.</div>
+        {text('hero_note') && <div className="ac-hero-footnote"><Heart size={15} strokeWidth={1.5} />{text('hero_note')}</div>}
       </div>
-      <div className="ac-hero-visual">
+      {heroImage && <div className="ac-hero-visual">
         <div className="ac-hero-backdrop" />
         <div className="ac-hero-image-wrap">
-          <img className="ac-hero-image" src={heroPhotos[heroIndex % heroPhotos.length]} alt={heroIndex === 0 ? 'A celebration cake with delicate finishing touches' : heroProduct?.name || 'Celebration cake'} fetchPriority="high" width="1000" height="1200" />
+          <img className="ac-hero-image" src={heroImage} alt={slide.image_alt} fetchPriority="high" width="1000" height="1200" />
           <div className="ac-hero-image-shade" />
-          <div className="ac-hero-image-caption"><span>The celebration collection</span><span>A little slice of lovely.</span></div>
+          {(text('hero_image_label') || text('hero_image_caption')) && <div className="ac-hero-image-caption"><span>{text('hero_image_label')}</span><span>{text('hero_image_caption')}</span></div>}
         </div>
-        <div className="ac-love-stamp" aria-hidden="true"><span>BAKED FOR</span><Heart size={30} strokeWidth={1.5} /><span>HAPPY DAYS</span></div>
+        {(text('hero_stamp_top') || text('hero_stamp_bottom')) && <div className="ac-love-stamp" aria-hidden="true"><span>{text('hero_stamp_top')}</span><Heart size={30} strokeWidth={1.5} /><span>{text('hero_stamp_bottom')}</span></div>}
         <span className="ac-hero-sparkle ac-sparkle-one" aria-hidden="true">✧</span>
         <span className="ac-hero-sparkle ac-sparkle-two" aria-hidden="true">✧</span>
         <div className="ac-hero-card">
-          <div><span className="ac-eyebrow">Make it a celebration</span><strong>{heroProduct?.name || 'Something lovely, just for you'}</strong></div>
-          <button aria-label="Show next celebration cake" onClick={() => setHeroIndex(i => (i + 1) % heroPhotos.length)}><ArrowRight size={20} /></button>
+          <div><span className="ac-eyebrow">{text('hero_card_label')}</span><strong>{slide.title}</strong>{slide.subtitle && <span style={{ display: 'block', marginTop: 5, fontSize: 11 }}>{slide.subtitle}</span>}</div>
+          {slides.length > 1 && <button aria-label="Show next celebration cake" onClick={() => setHeroIndex(index => (index + 1) % slides.length)}><ArrowRight size={20} /></button>}
         </div>
-      </div>
-      <a href="#catalog" className="ac-scroll-note"><ArrowDown size={13} /> A little happiness awaits</a>
+      </div>}
     </section>
 
-    <div className="ac-promise-strip"><div className="ac-container ac-promises">
-      <span><CakeSlice size={20} strokeWidth={1.2} /> Thoughtfully crafted cakes</span><i />
-      <span><Flower2 size={20} strokeWidth={1.2} /> Made personal, by you</span><i />
-      <span><Truck size={20} strokeWidth={1.2} /> A sweet delivery to your door</span>
-    </div></div>
+    {promises.length > 0 && <div className="ac-promise-strip"><div className="ac-container ac-promises">{promises.map((item, index) => <React.Fragment key={item.id}>{index > 0 && <i />}<span><HighlightIcon name={item.icon} /><span>{item.title}{item.description && <small style={{ display: 'block' }}>{item.description}</small>}</span></span></React.Fragment>)}</div></div>}
 
-    <section className="ac-occasions ac-container" aria-labelledby="occasion-heading">
-      <div className="ac-occasion-heading"><h2 id="occasion-heading">What are we celebrating?</h2><span>There’s a cake for that.</span></div>
-      <div className="ac-occasion-grid">
-        {[
-          {title:'Birthday wishes',sub:'Make a wish. Make it sweet.',image:'/images/red-velvet.webp',category:'cat-1'},
-          {title:'Love & togetherness',sub:'For your favourite people.',image:'/images/floral-signature.webp',category:'cat-3'},
-          {title:'Chocolate cravings',sub:'A very good kind of extra.',image:'/images/chocolate-fudge.webp',category:'cat-2'},
-          {title:'Just because',sub:'Little treats. Big smiles.',image:'/images/floral-cake.webp',category:'all'},
-        ].map(occasion => <a key={occasion.title} href="#catalog" className="ac-occasion-card" onClick={() => setCategory(occasion.category)}><div><img src={occasion.image} alt="" loading="lazy" width="150" height="150"/></div><h3>{occasion.title}</h3><p>{occasion.sub}</p><span><ArrowUpRight size={16}/></span></a>)}
-      </div>
-    </section>
+    {occasions.length > 0 && <section className="ac-occasions ac-container" aria-labelledby="occasion-heading">
+      <div className="ac-occasion-heading"><h2 id="occasion-heading">{text('occasions_title')}</h2><span>{text('occasions_subtitle')}</span></div>
+      <div className="ac-occasion-grid">{occasions.map(occasion => <a key={occasion.id} href="#catalog" className="ac-occasion-card" onClick={() => setCategory(categories.some(item => item.id === occasion.category_id && item.is_active) ? occasion.category_id! : 'all')} style={!safeImage(occasion.image_url) ? { gridTemplateColumns: '1fr' } : undefined}>
+        {safeImage(occasion.image_url) && <div><img src={safeImage(occasion.image_url)} alt={occasion.image_alt ?? ''} loading="lazy" width="150" height="150" /></div>}
+        <h3>{occasion.title}</h3><p>{occasion.description}</p><span><ArrowUpRight size={16} /></span>
+      </a>)}</div>
+    </section>}
 
     <section id="catalog" className="ac-catalog ac-container" aria-labelledby="catalog-heading">
-      <div className="ac-section-heading"><div><span className="ac-eyebrow">The cake collection</span><h2 id="catalog-heading">Meet your next<br /><em>favourite cake.</em></h2></div><p>Six delicious reasons<br />to celebrate today.</p></div>
+      <div className="ac-section-heading"><div><span className="ac-eyebrow">{text('catalog_eyebrow')}</span><h2 id="catalog-heading" style={preline}>{text('catalog_title')}</h2></div><p style={preline}>{text('catalog_description')}</p></div>
       <div className="ac-catalog-toolbar">
         <div className="ac-filter-chips" role="group" aria-label="Filter cakes by category">
-          <button aria-pressed={category === 'all'} className={category === 'all' ? 'is-active' : ''} onClick={() => setCategory('all')}>All cakes <span>{activeProducts.length}</span></button>
-          {categories.filter(c => c.is_active).sort((a,b) => a.sort_order - b.sort_order).map(c => <button key={c.id} aria-pressed={category === c.id} className={category === c.id ? 'is-active' : ''} onClick={() => setCategory(c.id)}>{categoryLabels[c.slug] || c.name}</button>)}
+          <button aria-pressed={category === 'all'} className={category === 'all' ? 'is-active' : ''} onClick={() => setCategory('all')}>{text('catalog_all_label')} <span>{activeProducts.length}</span></button>
+          {categories.filter(item => item.is_active).sort((a, b) => a.sort_order - b.sort_order).map(item => <button key={item.id} aria-pressed={category === item.id} className={category === item.id ? 'is-active' : ''} onClick={() => setCategory(item.id)}>{item.name}</button>)}
         </div>
-        <label className="ac-sort"><span className="sr-only">Sort cakes</span><select value={sort} onChange={e => setSort(e.target.value)}><option value="featured">Our favourites</option><option value="price-low">Price: low to high</option><option value="price-high">Price: high to low</option></select><ChevronDown size={14} /></label>
+        <label className="ac-sort"><span className="sr-only">Sort cakes</span><select value={sort} onChange={event => setSort(event.target.value)}><option value="featured">{text('catalog_sort_featured')}</option><option value="price-low">{text('catalog_price_low')}</option><option value="price-high">{text('catalog_price_high')}</option></select><ChevronDown size={14} /></label>
       </div>
-      <div className="ac-results-line" aria-live="polite">{searchQuery ? `Results for “${searchQuery}” · ` : ''}{filtered.length} {filtered.length === 1 ? 'lovely cake' : 'lovely cakes'} to discover</div>
-      <div className="ac-product-grid">
-        {filtered.map((product, index) => <article className="ac-product" key={product.id}>
+      <div className="ac-results-line" aria-live="polite">{searchQuery ? `“${searchQuery}” · ` : ''}{filtered.length} {text('catalog_results_label')}</div>
+      <div className="ac-product-grid">{filtered.map(product => {
+        const firstVariant = product.variants.filter(variant => variant.is_active).sort((a, b) => (a.sale_price ?? a.price) - (b.sale_price ?? b.price))[0];
+        return <article className="ac-product" key={product.id}>
           <button className="ac-product-image-button" onClick={() => onSelectProduct(product)} aria-label={`Choose ${product.name}`}>
-            <img src={product.image_url} alt={product.name} loading="lazy" width="800" height="800" />
-            {product.is_featured && <span className="ac-product-tag">{product.category_id === 'cat-2' ? 'A chocolate love story' : 'The signature collection'}</span>}
-            <span className="ac-product-hover">Make it yours <ArrowUpRight size={15}/></span>
+            {safeImage(product.image_url) && <img src={safeImage(product.image_url)} alt={product.name} loading="lazy" width="800" height="800" />}
+            {product.is_featured && text('catalog_featured_badge') && <span className="ac-product-tag">{text('catalog_featured_badge')}</span>}
+            <span className="ac-product-hover">{text('catalog_customize_label')} <ArrowUpRight size={15} /></span>
           </button>
-          <div className="ac-product-info"><div><span className="ac-product-category">{categoryLabels[categories.find(c => c.id === product.category_id)?.slug || ''] || product.category_name}</span><h3><button onClick={() => onSelectProduct(product)}>{product.name}</button></h3><p className="ac-product-description">{product.description}</p><p>From <strong>{money(startingPrice(product))}</strong><span> / {product.variants.filter(v => v.is_active).sort((a,b) => (a.sale_price ?? a.price) - (b.sale_price ?? b.price))[0]?.name.split(' (')[0] || 'cake'}</span></p></div><button className="ac-add-cake" onClick={() => onSelectProduct(product)} aria-label={`Customize ${product.name}`}><span>Customize</span><ArrowUpRight size={16} strokeWidth={1.8} /></button></div>
-        </article>)}
-      </div>
-      {!filtered.length && <div className="ac-empty"><CakeSlice size={42} strokeWidth={1}/><h3>No cakes found just yet.</h3><p>Try a different search or explore another collection.</p><button className="ac-text-button" onClick={() => setCategory('all')}>Show all categories <ArrowRight size={15}/></button></div>}
-      <div className="ac-catalog-note"><Leaf size={15} strokeWidth={1.2}/> A little note: please share any allergies or dietary needs in your order notes.</div>
+          <div className="ac-product-info"><div><span className="ac-product-category">{categories.find(item => item.id === product.category_id)?.name ?? product.category_name}</span><h3><button onClick={() => onSelectProduct(product)}>{product.name}</button></h3><p className="ac-product-description">{product.description}</p><p>{text('catalog_from_label')} <strong>{money(startingPrice(product))}</strong>{firstVariant && <span> / {firstVariant.name.split(' (')[0]}</span>}</p></div><button className="ac-add-cake" onClick={() => onSelectProduct(product)} aria-label={`${text('catalog_customize_label')} ${product.name}`}><span>{text('catalog_customize_label')}</span><ArrowUpRight size={16} strokeWidth={1.8} /></button></div>
+        </article>;
+      })}</div>
+      {!filtered.length && <div className="ac-empty"><CakeSlice size={42} strokeWidth={1} /><h3>{text('catalog_empty_title')}</h3><p>{text('catalog_empty_description')}</p><button className="ac-text-button" onClick={() => setCategory('all')}>{text('catalog_reset_label')} <ArrowRight size={15} /></button></div>}
+      {text('catalog_note') && <div className="ac-catalog-note"><Leaf size={15} strokeWidth={1.2} />{text('catalog_note')}</div>}
     </section>
 
-    <section className="ac-custom-section" aria-labelledby="custom-heading"><div className="ac-custom-inner ac-container">
-      <div className="ac-custom-visual"><div className="ac-custom-image"><img src="/images/floral-signature.webp" alt="A celebration cake for a special occasion" loading="lazy" width="800" height="900"/></div><div className="ac-custom-label"><span>YOUR OCCASION.</span><span>Your kind of magic.</span></div><span className="ac-custom-doodle" aria-hidden="true">✳</span></div>
-      <div className="ac-custom-copy"><span className="ac-eyebrow">The custom cake studio</span><h2 id="custom-heading">You dream it.<br />We’ll make it <em>cake.</em></h2><p>A favourite colour. An inside joke. A wildly wonderful idea. Let’s turn the things that make you, you, into a cake worth celebrating.</p><div className="ac-custom-steps"><span><Check size={14}/> Choose your flavours</span><span><Check size={14}/> Add your little details</span><span><Check size={14}/> Make it a moment</span></div><button onClick={onOpenCustomCake} className="ac-button">Create your dream cake <ArrowUpRight size={17}/></button><a href={facebookUrl} target="_blank" rel="noopener noreferrer" className="ac-custom-small">Prefer a chat? Find us on Facebook <ArrowUpRight size={13}/></a></div>
+    <section className="ac-custom-section" aria-labelledby="custom-heading"><div className="ac-custom-inner ac-container" style={!customImage ? { gridTemplateColumns: '1fr' } : undefined}>
+      {customImage && <div className="ac-custom-visual"><div className="ac-custom-image"><img src={customImage} alt={text('custom_image_alt')} loading="lazy" width="800" height="900" /></div>{(text('custom_image_label') || text('custom_image_caption')) && <div className="ac-custom-label"><span>{text('custom_image_label')}</span><span>{text('custom_image_caption')}</span></div>}<span className="ac-custom-doodle" aria-hidden="true">✳</span></div>}
+      <div className="ac-custom-copy"><span className="ac-eyebrow">{text('custom_eyebrow')}</span><h2 id="custom-heading" style={preline}>{text('custom_title')}</h2><p style={preline}>{text('custom_description')}</p><div className="ac-custom-steps">{customSteps.map(step => <span key={step.id}><HighlightIcon name={step.icon ?? 'check'} size={14} />{step.title}</span>)}</div>{text('custom_cta') && <button onClick={onOpenCustomCake} className="ac-button">{text('custom_cta')} <ArrowUpRight size={17} /></button>}{socialUrl && text('custom_chat_label') && <a href={socialUrl} target="_blank" rel="noopener noreferrer" className="ac-custom-small">{text('custom_chat_label')} <ArrowUpRight size={13} /></a>}</div>
     </div></section>
 
-    <section id="our-story" className="ac-story ac-container" aria-labelledby="story-heading">
-      <div className="ac-story-words"><span className="ac-eyebrow">A note from Aurora’s</span><h2 id="story-heading">More than a cake.<br /><em>A way to say you care.</em></h2><p>“Happy birthday.” “I’m proud of you.” “Just because.”<br />Sometimes, the sweetest things are the ones we share.</p><p>Aurora’s Cake is a place for those moments — with a collection of celebration cakes and thoughtful details to make each one feel a little more like you.</p><a href="#catalog" className="ac-text-button">Find something to share <ArrowRight size={16}/></a><span className="ac-story-signature"><Heart size={16}/> With love, Aurora’s</span></div>
-      <div className="ac-story-image"><img src="/images/floral-cake.webp" alt="A selection of cupcakes to share" loading="lazy" width="800" height="800"/><div className="ac-story-image-note"><Heart size={16} strokeWidth={1.3}/><span>Little things.<br />Lovely memories.</span></div></div>
+    <section id="our-story" className="ac-story ac-container" aria-labelledby="story-heading" style={!storyImage ? { gridTemplateColumns: '1fr' } : undefined}>
+      <div className="ac-story-words"><span className="ac-eyebrow">{text('story_eyebrow')}</span><h2 id="story-heading" style={preline}>{text('story_title')}</h2><p style={preline}>{text('story_description')}</p>{text('story_cta') && <a href="#catalog" className="ac-text-button">{text('story_cta')} <ArrowRight size={16} /></a>}<span className="ac-story-signature">{profileImage ? <img src={profileImage} alt={settings.shop_name} width="44" height="44" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover' }} /> : <Heart size={16} />}{text('story_signature')}</span></div>
+      {storyImage && <div className="ac-story-image"><img src={storyImage} alt={text('story_image_alt')} loading="lazy" width="800" height="800" />{text('story_image_note') && <div className="ac-story-image-note"><Heart size={16} strokeWidth={1.3} /><span style={preline}>{text('story_image_note')}</span></div>}</div>}
     </section>
 
-    <section className="ac-social-section" aria-labelledby="social-heading"><div className="ac-container ac-social-inner">
-      <div className="ac-social-copy"><span className="ac-eyebrow"><Facebook size={16}/> A little more Aurora’s</span><h2 id="social-heading">Let’s talk<br /><em>all things cake.</em></h2><p>Planning something special? Visit our Facebook page for cake ideas, questions, and a conversation about your next celebration.</p><a href={facebookUrl} target="_blank" rel="noopener noreferrer" className="ac-button">Visit Aurora’s Cake <ArrowUpRight size={17}/></a><span className="ac-social-handle">@aurorascake26</span></div>
-      <div className="ac-social-gallery" aria-label="A taste of the cake collection"><img src="/images/chocolate-fudge.webp" alt="Chocolate cake from the preview collection" loading="lazy" width="500" height="500"/><img src="/images/floral-signature.webp" alt="Floral celebration cake from the preview collection" loading="lazy" width="500" height="600"/><img src="/images/floral-cake.webp" alt="Cupcakes from the preview collection" loading="lazy" width="500" height="500"/><span><Heart size={20}/> Life is sweeter together.</span></div>
-    </div></section>
+    {(socialUrl || socialPhotos.length > 0) && <section className="ac-social-section" aria-labelledby="social-heading"><div className="ac-container ac-social-inner" style={!socialPhotos.length ? { gridTemplateColumns: '1fr' } : undefined}>
+      <div className="ac-social-copy"><span className="ac-eyebrow"><Facebook size={16} />{text('social_eyebrow')}</span><h2 id="social-heading" style={preline}>{text('social_title')}</h2><p style={preline}>{text('social_description')}</p>{socialUrl && text('social_cta') && <a href={socialUrl} target="_blank" rel="noopener noreferrer" className="ac-button">{text('social_cta')} <ArrowUpRight size={17} /></a>}{text('social_handle') && <span className="ac-social-handle">{text('social_handle')}</span>}{extraSocialLinks.map(link => <a key={link.id} href={safeLink(link.url)} target="_blank" rel="noopener noreferrer" className="ac-custom-small">{link.label} <ArrowUpRight size={13} /></a>)}</div>
+      {socialPhotos.length > 0 && <div className="ac-social-gallery" aria-label="Cake collection">{socialPhotos.map(photo => <img key={photo.id} src={safeImage(photo.image_url)} alt={photo.image_alt ?? photo.title} loading="lazy" width="500" height="500" />)}{text('social_image_note') && <span><Heart size={20} />{text('social_image_note')}</span>}</div>}
+    </div></section>}
 
-    <section className="ac-faq ac-container" aria-labelledby="faq-heading"><div><span className="ac-eyebrow">The little details</span><h2 id="faq-heading">Good things<br /><em>to know.</em></h2><p>A few answers before<br />your first bite.</p></div><div className="ac-faq-list">{faq.map(([question, answer]) => <details key={question}><summary>{question}<Plus size={18} strokeWidth={1.3}/></summary><p>{answer}</p></details>)}</div></section>
+    {faqs.length > 0 && <section className="ac-faq ac-container" aria-labelledby="faq-heading"><div><span className="ac-eyebrow">{text('faq_eyebrow')}</span><h2 id="faq-heading" style={preline}>{text('faq_title')}</h2><p style={preline}>{text('faq_description')}</p></div><div className="ac-faq-list">{faqs.map(item => <details key={item.id}><summary>{item.question}<Plus size={18} strokeWidth={1.3} /></summary><p style={preline}>{item.answer}</p></details>)}</div></section>}
 
-    <footer className="ac-footer"><div className="ac-container"><div className="ac-footer-top"><div className="ac-footer-brand"><Flower2 size={32} strokeWidth={1}/><a href="#top">Aurora’s Cake<span>A LITTLE SLICE OF HAPPINESS</span></a></div><p>For moments worth<br /><em>making sweeter.</em></p><a href="#catalog" className="ac-footer-round" aria-label="Explore our cakes"><ArrowUpRight size={28} strokeWidth={1}/></a></div><div className="ac-footer-links"><nav aria-label="Footer"><a href="#catalog">Our cakes</a><button onClick={onOpenCustomCake}>Custom cakes</button><a href="#our-story">Our story</a><a href={facebookUrl} target="_blank" rel="noopener noreferrer">Facebook <ArrowUpRight size={12}/></a><button onClick={onOpenTrackOrder}>Track an order</button>{onOpenProfile && <button onClick={onOpenProfile}>My orders</button>}</nav><span>{settings.address.includes('Tangail') ? 'Tangail, Bangladesh' : settings.address}</span></div><div className="ac-footer-bottom"><span>© {new Date().getFullYear()} Aurora’s Cake</span><span>Website preview · Orders stay on your device · No payment collected</span><span>Made for sweet moments ♡</span></div></div></footer>
+    <footer className="ac-footer"><div className="ac-container">
+      <div className="ac-footer-top"><div className="ac-footer-brand">{logo ? <img src={logo} alt="" width="42" height="42" style={{ width: 42, height: 42, objectFit: 'contain' }} /> : <Flower2 size={32} strokeWidth={1} />}<a href="#top">{settings.shop_name}<span>{text('footer_tagline')}</span></a></div><p style={preline}>{text('footer_about')}</p><a href="#catalog" className="ac-footer-round" aria-label={text('hero_cta')}><ArrowUpRight size={28} strokeWidth={1} /></a></div>
+      <div className="ac-footer-links"><nav aria-label="Footer"><a href="#catalog">{text('nav_cakes')}</a><button onClick={onOpenCustomCake}>{text('nav_custom')}</button><a href="#our-story">{text('nav_story')}</a>{facebookUrl && <a href={facebookUrl} target="_blank" rel="noopener noreferrer">{text('nav_facebook')} <ArrowUpRight size={12} /></a>}{settingsSocialLinks.map(link => <a key={link.id} href={link.url} target="_blank" rel="noopener noreferrer">{link.label} <ArrowUpRight size={12} /></a>)}{extraSocialLinks.map(link => <a key={link.id} href={safeLink(link.url)} target="_blank" rel="noopener noreferrer">{link.label} <ArrowUpRight size={12} /></a>)}{footerLinks.map(link => <a key={link.id} href={safeLink(link.url)} target={/^https?:/i.test(link.url) ? '_blank' : undefined} rel="noopener noreferrer">{link.label}</a>)}<button onClick={onOpenTrackOrder}>Track an order</button>{onOpenProfile && <button onClick={onOpenProfile}>My orders</button>}</nav>{settings.address && <span style={preline}>{settings.address}{(settings.opening_time || settings.closing_time) && <span style={{ display: 'block', marginTop: 6 }}>{settings.opening_time}{settings.opening_time && settings.closing_time ? ' – ' : ''}{settings.closing_time}</span>}</span>}</div>
+      {(settings.phone || settings.whatsapp || settings.email) && <div className="ac-footer-links" style={{ paddingTop: 0 }}><nav aria-label={text('footer_contact_label') || 'Contact'}>{settings.phone && <a href={'tel:' + settings.phone.replace(/[^\d+]/g, '')}><Phone size={13} />{settings.phone}</a>}{settings.whatsapp && <a href={'https://wa.me/' + settings.whatsapp.replace(/\D/g, '')} target="_blank" rel="noopener noreferrer">WhatsApp {settings.whatsapp}</a>}{settings.email && <a href={'mailto:' + settings.email}><Mail size={13} />{settings.email}</a>}</nav></div>}
+      <div className="ac-footer-bottom"><span>© {new Date().getFullYear()} {settings.shop_name}</span><span>{text('footer_preview_note')}</span><span>{text('footer_copyright_note')}</span></div>
+    </div></footer>
   </div>;
 };

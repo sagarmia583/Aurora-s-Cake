@@ -44,9 +44,12 @@ import {
   StaffRole,
 } from '../types';
 import { mockDb } from '../services/mockDatabase';
+import type { PublicSiteData } from '../types/siteContent';
+import { DEFAULT_PUBLIC_SITE_DATA } from '../content/defaultSiteData';
 
 interface MobileAppExperienceProps {
   settings: ShopSettings;
+  publicData?: PublicSiteData;
   products: Product[];
   categories: Category[];
   flavors: Flavor[];
@@ -89,7 +92,11 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
   onOpenTrackOrder,
   onOpenSupabaseSync,
   isSupabaseConnected,
+  publicData,
 }) => {
+  const text = (key: string) => publicData?.content[key] ?? DEFAULT_PUBLIC_SITE_DATA.content[key] ?? '';
+  const activeBanner = banners.find(banner => banner.is_active);
+  const logoUrl = settings.logo_url?.trim();
   // Mobile app sub-persona
   const [appRole, setAppRole] = useState<'customer' | 'rider' | 'kitchen' | 'admin'>('customer');
   // Customer App active tab
@@ -135,31 +142,23 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
   };
 
   const handleQuickAdd = (product: Product) => {
-    const defVariant = product.variants[0] || {
-      id: `var-def-${product.id}`,
-      product_id: product.id,
-      name: '1kg',
-      weight_grams: 1000,
-      price: product.base_price,
-      is_active: true,
-    };
-    const defFlavor = flavors[0];
-    const price = defVariant.sale_price || defVariant.price;
-
+    const variant = product.variants.find(item => item.is_active);
+    if (!settings.accepting_orders || !product.is_active || !variant) return;
+    const flavor = flavors.find(item => item.is_active && product.allowed_flavor_ids.includes(item.id));
+    const price = variant.sale_price ?? variant.price;
     const newItem: CartItem = {
       cart_item_id: `cart-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       product,
-      selected_variant: defVariant,
-      selected_flavor: defFlavor,
+      selected_variant: variant,
+      selected_flavor: flavor,
       selected_addons: [],
-      writing_message: 'Happy Celebration',
+      writing_message: '',
       quantity: 1,
       unit_price: price,
       total_price: price,
     };
     onAddToCart(newItem);
   };
-
   return (
     <div className="flex flex-col items-center justify-center space-y-4">
       {/* Top Device & Role Controls Bar */}
@@ -254,13 +253,13 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
               <div className="bg-white px-4 py-2.5 border-b border-slate-100 flex items-center justify-between shrink-0 shadow-xs">
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-rose-500 to-amber-500 flex items-center justify-center text-white text-base shadow-xs">
-                    🍰
+                    {logoUrl ? <img src={logoUrl} alt="" width="32" height="32" className="w-full h-full object-contain bg-white" /> : <Cake className="w-5 h-5" aria-hidden="true" />}
                   </div>
                   <div>
                     <h3 className="font-black text-xs text-slate-900 leading-tight">
                       {settings.shop_name}
                     </h3>
-                    <p className="text-[10px] text-slate-400 font-medium">Tangail Boutique</p>
+                    {settings.mobile_subtitle && <p className="text-[10px] text-slate-400 font-medium">{settings.mobile_subtitle}</p>}
                   </div>
                 </div>
 
@@ -294,7 +293,7 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
                   <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
-                    placeholder="Search chocolate, red velvet, vanilla..."
+                    aria-label="Search cakes" placeholder={text('nav_search_placeholder')}
                     value={appSearch}
                     onChange={(e) => setAppSearch(e.target.value)}
                     className="w-full pl-9 pr-3 py-2 bg-white rounded-xl text-xs border border-slate-200 focus:outline-rose-500"
@@ -334,7 +333,7 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
                       <span className="text-[10px] font-bold">All</span>
                     </button>
 
-                    {categories.map((c) => (
+                    {categories.filter(category => category.is_active).sort((a, b) => a.sort_order - b.sort_order).map((c) => (
                       <button
                         key={c.id}
                         onClick={() => setSelectedCat(c.id)}
@@ -360,22 +359,22 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
                 </div>
 
                 {/* Dynamic Hero Banner */}
-                {banners[0] && (
+                {activeBanner && (
                   <div className="relative rounded-2xl overflow-hidden bg-slate-900 text-white shadow-md">
                     <img
-                      src={banners[0].image_url}
+                      src={activeBanner.image_url}
                       alt="Banner"
                       className="w-full h-32 object-cover opacity-60"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent p-3.5 flex flex-col justify-end">
                       <span className="text-[10px] bg-rose-500/80 text-white font-bold px-2 py-0.5 rounded-full w-max">
-                        {settings.hero_tagline || 'Special Offer'}
+                        {publicData?.content.hero_eyebrow ?? activeBanner.title}
                       </span>
                       <h4 className="font-black text-sm text-white mt-1 leading-snug">
-                        {banners[0].title}
+                        {activeBanner.title}
                       </h4>
                       <p className="text-[11px] text-slate-300 line-clamp-1">
-                        {banners[0].subtitle}
+                        {activeBanner.subtitle}
                       </p>
                     </div>
                   </div>
@@ -385,15 +384,16 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between px-0.5">
                     <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-                      Celebration Cakes ({filteredProducts.length})
+                      {text('catalog_title').replace(/\n/g, ' ')} ({filteredProducts.length})
                     </h4>
-                    <span className="text-[10px] text-slate-400">Baked upon order</span>
+                    {text('catalog_note') && <span title={text('catalog_note')} className="text-[10px] text-slate-400 line-clamp-2 max-w-28">{text('catalog_note')}</span>}
                   </div>
 
                   <div className="grid grid-cols-2 gap-2.5">
                     {filteredProducts.map((p) => {
-                      const firstVar = p.variants[0];
-                      const price = firstVar?.sale_price || firstVar?.price || p.base_price;
+                      const firstVar = p.variants.find(variant => variant.is_active);
+                      const price = firstVar ? firstVar.sale_price ?? firstVar.price : undefined;
+                      const available = p.is_active && !!firstVar && settings.accepting_orders;
                       return (
                         <div
                           key={p.id}
@@ -409,10 +409,10 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
                                 alt={p.name}
                                 className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                               />
-                              <div className="absolute top-1.5 right-1.5 bg-black/60 backdrop-blur-xs text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
+                              {p.rating > 0 && p.review_count > 0 && <div className="absolute top-1.5 right-1.5 bg-black/60 backdrop-blur-xs text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
                                 <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-400" />
-                                <span>{p.rating || 5}</span>
-                              </div>
+                                <span>{p.rating}</span>
+                              </div>}
                             </div>
 
                             <h5
@@ -422,20 +422,22 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
                               {p.name}
                             </h5>
                             <p className="text-[10px] text-slate-400 line-clamp-1 mt-0.5">
-                              {firstVar?.name || '1kg'} • {p.category_name}
+                              {firstVar?.name ?? 'Unavailable'}{p.category_name ? ' • ' + p.category_name : ''}
                             </p>
                           </div>
 
                           <div className="flex items-center justify-between pt-2 border-t border-slate-100 mt-2">
                             <span className="text-xs font-black text-rose-600">
-                              {currency}{price}
+                              {price !== undefined ? currency + price : 'Unavailable'}
                             </span>
                             <button
                               onClick={() => handleQuickAdd(p)}
-                              className="bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white p-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer"
-                              title="Add to Cart"
+                              disabled={!available}
+                              aria-label={!available ? (!settings.accepting_orders ? 'Orders currently closed' : 'Unavailable') : 'Add ' + p.name + ' to bag'}
+                              className="bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white p-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                              title={!available ? (!settings.accepting_orders ? 'Orders currently closed' : 'Unavailable') : 'Add to Cart'}
                             >
-                              <Plus className="w-3.5 h-3.5" />
+                              {available ? <Plus className="w-3.5 h-3.5" /> : <span className="text-[8px]">{!settings.accepting_orders ? 'Orders closed' : 'Unavailable'}</span>}
                             </button>
                           </div>
                         </div>
@@ -551,7 +553,7 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
                   <h4 className="text-xs font-black uppercase text-slate-600">
                     My Assigned Deliveries ({orders.filter((o) => o.status !== 'delivered' && o.status !== 'cancelled').length})
                   </h4>
-                  <span className="text-[10px] text-slate-400">Tangail Town Zone</span>
+                  <span className="text-[10px] text-slate-400">{zones.filter(zone => zone.is_active).map(zone => zone.name).join(', ')}</span>
                 </div>
 
                 {orders.filter((o) => o.status !== 'delivered' && o.status !== 'cancelled').length === 0 ? (
@@ -663,7 +665,7 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
                   <ChefHat className="w-5 h-5 text-rose-400" />
                   <div>
                     <h4 className="text-xs font-black">Bakery Kitchen Display</h4>
-                    <p className="text-[10px] text-slate-400">Tangail Head Chef Screen</p>
+                    <p className="text-[10px] text-slate-400">{settings.shop_name}</p>
                   </div>
                 </div>
                 <span className="text-[10px] bg-rose-500/20 text-rose-300 font-bold px-2 py-0.5 rounded-full">
