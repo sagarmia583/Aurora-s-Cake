@@ -469,6 +469,7 @@ export default function App() {
       />
 
       <CustomCakeModal
+        sheetOrderEndpoint={publicData.order_submission_enabled ? sheetContent.endpoint : undefined}
         isOpen={isCustomCakeOpen}
         onClose={() => setIsCustomCakeOpen(false)}
         currency={settings.currency}
