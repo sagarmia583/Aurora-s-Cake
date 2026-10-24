@@ -59,7 +59,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
           <div className="text-4xl">🎂</div>
           <h3 id="tracking-empty-title" className="text-lg font-bold text-slate-800">Your cake journey starts here</h3>
           <p className="text-xs text-slate-500">
-            Choose a cake and try the demo checkout to explore your order journey.
+            Choose a cake and open checkout. Order receipts from this device appear here.
           </p>
           <button
             onClick={onClose}
@@ -96,15 +96,15 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
         {/* Header */}
         <div className="p-6 bg-gradient-to-r from-rose-50 via-pink-50 to-amber-50 border-b border-rose-100 flex items-center justify-between">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-bold uppercase tracking-wider text-rose-600 bg-rose-100 px-2.5 py-0.5 rounded-full">
-                Demo order tracking
+                {selectedOrder.persistence === 'google_sheets' ? 'Order saved' : 'Demo order tracking'}
               </span>
-              <span className="text-xs text-slate-400 font-medium">
+              <span className="text-xs text-slate-400 font-medium break-all">
                 #{selectedOrder.order_number}
               </span>
             </div>
-            <h3 id="tracking-title" className="text-xl font-bold text-slate-900 mt-1">Your cake journey</h3>
+            <h3 id="tracking-title" className="text-xl font-bold text-slate-900 mt-1">{selectedOrder.persistence === 'google_sheets' ? 'Your order receipt' : 'Your cake journey'}</h3>
           </div>
           <button
             onClick={onClose}
@@ -117,8 +117,8 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
 
         {/* Content */}
         <div className="overflow-y-auto p-6 space-y-6 flex-1">
-          <p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">These are demo orders saved on this device. Status changes do not represent a real bakery delivery or payment.</p>
-          {selectedOrder.status === 'cancelled' && <p role="status" className="text-sm font-semibold text-red-700">This demo order was cancelled.</p>}
+          <p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">{selectedOrder.persistence === 'google_sheets' ? 'Your order was saved to Aurora’s Cake’s Google Sheet. This device keeps a copy of the receipt. Contact the bakery for the latest confirmation and delivery status. No online payment was collected.' : 'These are demo orders saved on this device. Status changes do not represent a real bakery delivery or payment.'}</p>
+          {selectedOrder.status === 'cancelled' && <p role="status" className="text-sm font-semibold text-red-700">This order was cancelled.</p>}
           {/* Order Selector Tab if multiple */}
           {orders.length > 1 && (
             <div className="flex gap-2 overflow-x-auto pb-2 border-b border-slate-100">
@@ -138,6 +138,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
             </div>
           )}
 
+          {selectedOrder.persistence !== 'google_sheets' && <>
           {/* Delivery OTP Security Card */}
           <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -215,6 +216,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
             </div>
           </div>
 
+          </>}
           {/* Delivery & Rider Info */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2 text-xs">

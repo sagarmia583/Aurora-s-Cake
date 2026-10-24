@@ -231,7 +231,7 @@ export function normalizePublicSiteData(input: unknown, defaults: PublicSiteData
     id:text(row.id).trim(),product_id:text(row.product_id),product_name:text(row.product_name),customer_name:text(row.customer_name),
     rating:Math.min(5,number(row.rating,'reviews.rating',0)),comment:text(row.comment),status:'approved' as const,created_at:text(row.created_at),
   }));
-  return {schema_version:1,settings:settings as unknown as ShopSettings,content,hero_slides,highlights,faqs,links,products,categories,flavors,addons,banners,zones,slots,coupons,reviews};
+  return {schema_version:1,order_submission_enabled:lookup('order_submission_enabled') === true,settings:settings as unknown as ShopSettings,content,hero_slides,highlights,faqs,links,products,categories,flavors,addons,banners,zones,slots,coupons,reviews};
 }
 
 export function validateGoogleSheetsEndpoint(endpoint: string): URL {

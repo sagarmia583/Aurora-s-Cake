@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useCakeDialog } from './useCakeDialog';
 import { 
   X, 
@@ -14,6 +14,8 @@ import {
 } from 'lucide-react';
 import { CartItem, DeliveryZone, DeliverySlot, Order, PaymentMethod } from '../types';
 import { mockDb } from '../services/mockDatabase';
+import { calculateSheetOrderEstimate, createSheetOrderAttempt, submitSheetOrder, SheetOrderSubmissionError } from '../services/googleSheetOrders';
+import type { SheetOrderAttempt } from '../services/googleSheetOrders';
 
 const localDate = () => {
   const date = new Date();
@@ -28,10 +30,11 @@ interface CheckoutModalProps {
   zones: DeliveryZone[];
   slots: DeliverySlot[];
   onOrderSuccess: (order: Order) => void;
+  sheetOrderEndpoint?: string;
 }
 
 export const CheckoutModal: React.FC<CheckoutModalProps> = (props) =>
-  props.isOpen ? <CheckoutModalDialog {...props} /> : null;
+  <CheckoutModalDialog {...props} />;
 
 const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   isOpen,
@@ -41,8 +44,9 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   zones,
   slots,
   onOrderSuccess,
+  sheetOrderEndpoint,
 }) => {
-  const dialogRef = useCakeDialog(onClose);
+  const isLiveOrder = !!sheetOrderEndpoint;
 
   // Form State
   const [customerName, setCustomerName] = useState('');
@@ -62,18 +66,24 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   // Submitting
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [unconfirmed, setUnconfirmed] = useState(false);
+  const orderAttemptRef = useRef<SheetOrderAttempt | null>(null);
+  const submissionInFlight = useRef(false);
+  const closeCheckout = () => { if (!submissionInFlight.current) onClose(); };
+  const dialogRef = useCakeDialog(closeCheckout, isOpen);
 
   const selectedZone = zones.find((zone) => zone.id === selectedZoneId && zone.is_active) || zones.find((zone) => zone.is_active);
   const selectedDeliverySlot = slots.find((slot) => slot.slot_label === selectedSlot && slot.is_active)?.slot_label || slots.find((slot) => slot.is_active)?.slot_label || '';
   const itemsSubtotal = items.reduce((sum, item) => sum + item.total_price, 0);
 
   const coupon = mockDb.getCoupons().find((item) => item.code.toUpperCase() === appliedCoupon && item.is_active);
-  let estimatedDiscount = 0;
-  if (coupon && itemsSubtotal >= coupon.min_order_amount) {
+  const liveEstimate = isLiveOrder ? calculateSheetOrderEstimate(itemsSubtotal, selectedZone?.delivery_fee ?? 0, coupon) : undefined;
+  let estimatedDiscount = liveEstimate?.discount ?? 0;
+  if (!isLiveOrder && coupon && itemsSubtotal >= coupon.min_order_amount) {
     estimatedDiscount = coupon.discount_type === 'fixed' ? coupon.discount_value : Math.round(itemsSubtotal * coupon.discount_value / 100);
     if (coupon.max_discount_amount !== undefined) estimatedDiscount = Math.min(estimatedDiscount, coupon.max_discount_amount);
   }
-  const estimatedTotal = Math.max(0, itemsSubtotal - estimatedDiscount + (selectedZone?.delivery_fee || 0));
+  const estimatedTotal = liveEstimate?.total ?? Math.max(0, itemsSubtotal - estimatedDiscount + (selectedZone?.delivery_fee || 0));
 
   const handleApplyCoupon = () => {
     setCouponError(null);
@@ -91,15 +101,38 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     setAppliedCoupon(code);
   };
 
+  const retryOriginalOrder = async () => {
+    const originalAttempt = orderAttemptRef.current;
+    if (!originalAttempt || submissionInFlight.current) return;
+    submissionInFlight.current = true;
+    setIsSubmitting(true);
+    setErrorMessage(null);
+    try {
+      const confirmedOrder = await submitSheetOrder(originalAttempt);
+      orderAttemptRef.current = null;
+      setUnconfirmed(false);
+      onOrderSuccess(confirmedOrder);
+      onClose();
+    } catch (error: unknown) {
+      setErrorMessage(error instanceof Error ? error.message : 'The original order could not be confirmed.');
+      setUnconfirmed(error instanceof SheetOrderSubmissionError && error.ambiguous);
+    } finally {
+      submissionInFlight.current = false;
+      setIsSubmitting(false);
+    }
+  };
+
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submissionInFlight.current) return;
+    // An uncertain original write must be retried unchanged before consulting refreshed form or catalog data.
+    if (unconfirmed && orderAttemptRef.current) { await retryOriginalOrder(); return; }
     setErrorMessage(null);
-
+    setUnconfirmed(false);
     if (!customerName.trim() || !customerPhone.trim() || !deliveryAddress.trim()) {
       setErrorMessage('Please fill in your name, contact phone, and delivery address.');
       return;
     }
-
     if (!items.length || !selectedZone || !selectedDeliverySlot) {
       setErrorMessage('Add a cake and choose an available delivery zone and time.');
       return;
@@ -113,37 +146,56 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
       setErrorMessage('Please enter a valid contact phone number.');
       return;
     }
+    submissionInFlight.current = true;
     setIsSubmitting(true);
     try {
-      // Calls server-authoritative RPC simulation
-      const result = await mockDb.createSecureOrder({
-        customer_name: customerName.trim(),
-        customer_phone: customerPhone.trim(),
-        delivery_address: deliveryAddress.trim(),
-        delivery_zone_id: selectedZone.id,
-        delivery_slot: selectedDeliverySlot,
-        delivery_date: deliveryDate,
-        cart_items: items,
-        coupon_code: appliedCoupon || undefined,
-        order_note: orderNote || undefined,
-        payment_method: paymentMethod,
-      });
-
-      if (result.success) {
-        onOrderSuccess(result.order);
+      if (sheetOrderEndpoint) {
+        orderAttemptRef.current = createSheetOrderAttempt(sheetOrderEndpoint, {
+          customer_name: customerName,
+          customer_phone: customerPhone,
+          delivery_address: deliveryAddress,
+          delivery_zone_id: selectedZone.id,
+          delivery_slot: selectedDeliverySlot,
+          delivery_date: deliveryDate,
+          cart_items: items.map(item => ({
+            product_id: item.product.id,
+            variant_id: item.selected_variant.id,
+            ...(item.selected_flavor ? { flavor_id: item.selected_flavor.id } : {}),
+            addon_ids: item.selected_addons.map(addon => addon.id),
+            writing_message: item.writing_message,
+            quantity: item.quantity,
+          })),
+          ...(appliedCoupon ? { coupon_code: appliedCoupon } : {}),
+          ...(orderNote.trim() ? { order_note: orderNote } : {}),
+          payment_method: 'cod',
+          expected_total: estimatedTotal,
+        }, orderAttemptRef.current);
+        const confirmedOrder = await submitSheetOrder(orderAttemptRef.current);
+        orderAttemptRef.current = null;
+        onOrderSuccess(confirmedOrder);
         onClose();
       } else {
-        setErrorMessage(result.error || 'Failed to place order.');
+        const result = await mockDb.createSecureOrder({
+          customer_name: customerName.trim(), customer_phone: customerPhone.trim(), delivery_address: deliveryAddress.trim(),
+          delivery_zone_id: selectedZone.id, delivery_slot: selectedDeliverySlot, delivery_date: deliveryDate,
+          cart_items: items, coupon_code: appliedCoupon || undefined, order_note: orderNote || undefined,
+          payment_method: paymentMethod,
+        });
+        if (!result.success) throw new Error(result.error || 'The demo order could not be saved on this device.');
+        onOrderSuccess({ ...result.order, persistence: 'local_demo' });
+        onClose();
       }
-    } catch (err: unknown) {
-      setErrorMessage(err instanceof Error ? err.message : 'Order processing error.');
+    } catch (error: unknown) {
+      setErrorMessage(error instanceof Error ? error.message : 'The order could not be confirmed. Your bag has been kept.');
+      setUnconfirmed(error instanceof SheetOrderSubmissionError && error.ambiguous);
     } finally {
+      submissionInFlight.current = false;
       setIsSubmitting(false);
     }
   };
-
+  if (!isOpen) return null;
   return (
-    <div onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+    <div onClick={(e) => { if (e.target === e.currentTarget) closeCheckout(); }} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="checkout-title" data-cake-dialog tabIndex={-1}
         className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl border border-rose-100 overflow-hidden my-6 flex flex-col max-h-[92vh]"
         onClick={(e) => e.stopPropagation()}
@@ -152,12 +204,13 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
         <div className="p-6 bg-gradient-to-r from-rose-50 to-amber-50 border-b border-rose-100 flex items-center justify-between">
           <div>
             <span className="text-xs font-bold uppercase tracking-wider text-rose-600 bg-rose-100/70 px-2.5 py-0.5 rounded-full">
-              Preview checkout
+              {isLiveOrder ? 'Cash-on-delivery checkout' : 'Demo checkout'}
             </span>
             <h3 id="checkout-title" className="text-xl font-bold text-slate-900 mt-1">A little closer to cake</h3>
           </div>
           <button
-            onClick={onClose}
+            onClick={closeCheckout}
+            disabled={isSubmitting}
             aria-label="Close checkout"
             className="p-2 rounded-full hover:bg-white text-slate-500 transition-colors cursor-pointer"
           >
@@ -167,11 +220,12 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handlePlaceOrder} className="overflow-y-auto p-6 space-y-6 flex-1">
-          <p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">This is a demo checkout. Orders are saved on this device only. No payment is taken and no order is sent to the bakery.</p>
+          <fieldset disabled={isSubmitting || unconfirmed} className="min-w-0 space-y-6 border-0 p-0 m-0">
+          <p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">{isLiveOrder ? 'Place your order with the bakery and pay cash on delivery. No online payment is collected. Confirmation appears only after Google Sheets confirms your order was saved.' : 'Live Google Sheets ordering is not activated yet. This demo checkout stays on this device; it is not sent to the bakery and no payment is collected.'}</p>
           {errorMessage && (
             <div role="alert" className="bg-red-50 text-red-700 p-3.5 rounded-xl border border-red-200 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{errorMessage}</span>
+              <div><span>{errorMessage}</span>{unconfirmed && orderAttemptRef.current && <p className="mt-2 text-[11px]">Order reference: <span className="font-mono">{orderAttemptRef.current.request_id}</span>. Use “Retry original order” below to send the exact original cakes, delivery details, quote and reference. Editing is paused until Google Sheets confirms the order or explicitly rejects it.</p>}</div>
             </div>
           )}
 
@@ -216,7 +270,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
                 aria-label="Street address" autoComplete="street-address"
                 value={deliveryAddress}
                 onChange={(e) => setDeliveryAddress(e.target.value)}
-                placeholder="House, road, flat number, nearby school or hospital in Tangail..."
+                placeholder="House, road, flat number, or a nearby landmark..."
                 className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 focus:outline-rose-500 text-slate-800"
               />
             </div>
@@ -287,13 +341,15 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
             </h4>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {[
+              {(isLiveOrder ? [
+                { id: 'cod', label: 'Cash on delivery', sub: 'Pay when your order arrives' },
+              ] : [
                 { id: 'cod', label: 'Cash on delivery', sub: 'Demo selection' },
                 { id: 'bkash', label: 'bKash', sub: 'Preview only' },
                 { id: 'nagad', label: 'Nagad', sub: 'Preview only' },
                 { id: 'card', label: 'Card', sub: 'Preview only' },
-              ].map((method) => {
-                const isSelected = paymentMethod === method.id;
+              ]).map((method) => {
+                const isSelected = (isLiveOrder ? 'cod' : paymentMethod) === method.id;
                 return (
                   <button
                     key={method.id}
@@ -318,7 +374,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
           <div className="space-y-2">
             <label className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">
               <Tag className="w-3.5 h-3.5 text-rose-600" />
-              <span>Demo offers: WELCOME100 or BIRTHDAY10</span>
+              <span>{isLiveOrder ? 'Have a coupon?' : 'Demo offers: WELCOME100 or BIRTHDAY10'}</span>
             </label>
             <div className="flex gap-2">
               <input
@@ -339,7 +395,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
             {appliedCoupon && (
               <div className="text-xs text-emerald-700 bg-emerald-50 p-2 rounded-lg flex items-center gap-1.5 font-medium">
                 <CheckCircle className="w-3.5 h-3.5" />
-                Coupon <strong>{appliedCoupon}</strong> successfully applied!
+                Coupon <strong>{appliedCoupon}</strong> {isLiveOrder ? 'included in the estimate; the bakery validates it before saving.' : 'applied to this demo.'}
               </div>
             )}
             {couponError && (
@@ -382,7 +438,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
             )}
             <hr className="border-slate-200" />
             <div className="flex justify-between text-base font-bold text-slate-900 pt-1">
-              <span>Payable Total</span>
+              <span>{isLiveOrder ? 'Estimated total' : 'Preview total'}</span>
               <span className="text-rose-600 text-lg font-black">{currency}{estimatedTotal}</span>
             </div>
           </div>
@@ -391,25 +447,31 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
           <div className="flex items-center gap-2 text-[11px] text-slate-500 bg-amber-50/70 p-2.5 rounded-xl border border-amber-200/60">
             <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0" />
             <span>
-              Your preview total includes the selected cake, add-ons, delivery, and any eligible demo discount.
+              {isLiveOrder ? 'The bakery checks current prices and availability before saving. Your receipt shows the confirmed total. No online payment is collected.' : 'Your preview total includes the selected cake, add-ons, delivery, and any eligible demo discount.'}
             </span>
           </div>
 
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={isSubmitting || !items.length || !selectedZone || !selectedDeliverySlot}
+            hidden={unconfirmed}
+            disabled={isSubmitting || unconfirmed || !items.length || !selectedZone || !selectedDeliverySlot}
             className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-3.5 px-4 rounded-2xl shadow-lg shadow-rose-200 flex items-center justify-center gap-2 text-sm transition-all cursor-pointer active:scale-98 disabled:opacity-50"
           >
             {isSubmitting ? (
-              <span>Saving your demo order...</span>
+              <span>{isLiveOrder ? 'Sending your order and waiting for confirmation...' : 'Saving your demo order...'}</span>
             ) : (
               <>
                 <Sparkles className="w-4 h-4" />
-                <span>Save demo order — {currency}{estimatedTotal}</span>
+                <span>{isLiveOrder ? 'Place cash-on-delivery order' : 'Save demo order'} — {currency}{estimatedTotal}</span>
               </>
             )}
           </button>
+          </fieldset>
+          {unconfirmed && orderAttemptRef.current && <div className="space-y-3">
+            <p role="status" className="text-xs text-slate-600">The original order is still unconfirmed. This retry uses its saved details and reference even if the current cake collection or delivery options have changed. You can close this window and return without losing that reference.</p>
+            <button type="button" onClick={() => { void retryOriginalOrder(); }} disabled={isSubmitting} className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-3.5 px-4 rounded-2xl disabled:opacity-50">{isSubmitting ? 'Checking the original order...' : 'Retry original order'}</button>
+          </div>}
         </form>
       </div>
     </div>

@@ -62,7 +62,7 @@ test('endpoint validation restricts executable JSONP to Apps Script web app URLs
   assert.throws(()=>validateGoogleSheetsEndpoint('http://script.google.com/macros/s/abc/exec'),GoogleSheetsError);
 });
 
-test('Apps Script exposes only allowlisted public data and rejects write actions',()=>{
+test('Apps Script GET exposes only allowlisted public data and POST rejects missing orders',()=>{
   const reads:string[]=[];
   const tables:Record<string,unknown[][]>={
     settings:[['key','value'],['shop_name','Live Bakery'],['password','do-not-expose']],
@@ -92,7 +92,10 @@ test('Apps Script exposes only allowlisted public data and rejects write actions
   assert.equal(response.data.products[0].variants[0].id,'v1');
   assert.equal(JSON.stringify(response).includes('do-not-expose'),false);
   assert.equal(reads.includes('orders'),false);
-  assert.equal(JSON.parse(context.doPost().content).ok,false);
+  const invalidPost=JSON.parse(context.doPost().content);
+  assert.equal(invalidPost.success,false);
+  assert.equal(invalidPost.persisted,false);
+  assert.equal(response.data.order_submission_enabled,true);
   assert.equal(JSON.parse(context.doGet({parameter:{action:'setup'}}).content).ok,false);
   assert.equal(JSON.parse(context.doGet({parameter:{action:'public',callback:'alert(1)'}}).content).ok,false);
 });

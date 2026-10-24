@@ -2,6 +2,7 @@ import type { PublicSiteData } from '../types/siteContent';
 
 export const DEFAULT_PUBLIC_SITE_DATA: PublicSiteData = {
   "schema_version": 1,
+  "order_submission_enabled": false,
   "settings": {
     "id": "setting-1",
     "shop_name": "Aurora’s Cake",
@@ -280,7 +281,7 @@ export const DEFAULT_PUBLIC_SITE_DATA: PublicSiteData = {
     {
       "id": "faq-4",
       "question": "Can I place a real order on this website?",
-      "answer": "Checkout and custom requests are currently local demonstrations. No payment is collected and no order is sent to the bakery. Visit our Facebook page to discuss an actual order.",
+      "answer": "When checkout offers cash on delivery to Aurora's Cake, a confirmed saved receipt means your order has reached our Google Sheet. Contact us to confirm availability and delivery. No online payment is collected. If checkout is labelled a demo, it stays on this device. Discuss custom cake requests with us on Facebook.",
       "sort_order": 4,
       "is_active": true
     }

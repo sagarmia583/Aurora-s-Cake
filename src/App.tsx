@@ -23,6 +23,7 @@ import { mockDb } from './services/mockDatabase';
 import { supabaseDataService } from './services/supabaseDataService';
 import { useGoogleSheetContent } from './hooks/useGoogleSheetContent';
 import { SheetContentPanel } from './components/SheetContentPanel';
+import { loadConfirmedSheetOrders, rememberConfirmedSheetOrder } from './services/googleSheetOrders';
 import { reconcilePublicCart, reorderFromPublicOrder } from './services/reconcilePublicCart';
 import { 
   ShopSettings, 
@@ -108,9 +109,9 @@ export default function App() {
     }
   }, [cartItems]);
 
-  // Orders/customer data remain device-local and are never read by the public Sheet endpoint.
+  // Public reads never include orders. Confirmed private Sheet receipts are cached on this device.
   const refreshData = async () => {
-    setOrders(mockDb.getOrders());
+    setOrders([...loadConfirmedSheetOrders(), ...mockDb.getOrders().filter(order => order.persistence !== 'google_sheets')]);
     setCustomCakes(mockDb.getCustomCakes());
     setAuditLogs(mockDb.getAuditLogs());
   };
@@ -188,6 +189,8 @@ export default function App() {
   };
 
   const handleOrderSuccess = (newOrder: Order) => {
+    if (newOrder.persistence === 'google_sheets') rememberConfirmedSheetOrder(newOrder);
+    setOrders(previous => [newOrder, ...previous.filter(order => order.id !== newOrder.id)]);
     setCartNotice('');
     setIsCartOpen(false);
     setIsCheckoutOpen(false);
@@ -204,6 +207,7 @@ export default function App() {
     setIsCartOpen(true);
   };
 
+  const demoOrders = orders.filter(order => order.persistence !== 'google_sheets');
   const cartTotalCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
@@ -248,7 +252,7 @@ export default function App() {
             banners={banners}
             zones={zones}
             slots={slots}
-            orders={orders}
+            orders={demoOrders}
             currency={settings.currency}
             cartItems={cartItems}
             onAddToCart={handleAddToCart}
@@ -283,11 +287,11 @@ export default function App() {
             )}
 
             {activeRole === 'kitchen_manager' && (
-              <KitchenDisplay orders={orders} currency={settings.currency} />
+              <KitchenDisplay orders={demoOrders} currency={settings.currency} />
             )}
 
             {activeRole === 'delivery_man' && (
-              <DeliveryRiderPortal orders={orders} currency={settings.currency} />
+              <DeliveryRiderPortal orders={demoOrders} currency={settings.currency} />
             )}
 
             {(activeRole === 'super_admin' ||
@@ -299,7 +303,7 @@ export default function App() {
                 settings={settings}
                 products={products}
                 categories={categories}
-                orders={orders}
+                orders={demoOrders}
                 coupons={coupons}
                 customCakes={customCakes}
                 auditLogs={auditLogs}
@@ -367,9 +371,9 @@ export default function App() {
         </nav>
       )}
 
-      {activeRole !== 'customer' && <div className="mx-auto my-3 w-full max-w-6xl px-5 text-xs text-slate-500">Website content is managed in Google Sheets. These Studio content edits are local demonstrations and are replaced on the next Sheet refresh.</div>}
+      {activeRole !== 'customer' && <div className="mx-auto my-3 w-full max-w-6xl px-5 text-xs text-slate-500">Website content is managed in Google Sheets. These Studio tools are local demonstrations. Manage real orders in the private orders and order_items Sheet tabs. Content edits here are replaced on the next Sheet refresh.</div>}
 
-      <SheetContentPanel isOpen={isSheetContentOpen} onClose={() => setIsSheetContentOpen(false)} endpoint={sheetContent.endpoint} status={sheetContent.status} onRefresh={sheetContent.refresh} onSaveEndpoint={sheetContent.updateEndpoint}/>
+      <SheetContentPanel isOpen={isSheetContentOpen} onClose={() => setIsSheetContentOpen(false)} endpoint={sheetContent.endpoint} status={sheetContent.status} orderSubmissionEnabled={publicData.order_submission_enabled} onRefresh={sheetContent.refresh} onSaveEndpoint={sheetContent.updateEndpoint}/>
       {/* Modals & Slide-outs */}
       <ProductDetailModal
         acceptingOrders={settings.accepting_orders}
@@ -411,6 +415,7 @@ export default function App() {
         currency={settings.currency}
         zones={zones}
         slots={slots}
+        sheetOrderEndpoint={publicData.order_submission_enabled ? sheetContent.endpoint : undefined}
         onOrderSuccess={handleOrderSuccess}
       />
 

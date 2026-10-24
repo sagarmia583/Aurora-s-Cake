@@ -6,10 +6,10 @@ import backendCode from '../../apps-script/Code.gs?raw';
 import seedCode from '../../apps-script/SeedData.gs?raw';
 interface Props {
   isOpen: boolean; onClose: () => void; endpoint: string; status: SheetContentStatus;
-  onRefresh: () => Promise<void>; onSaveEndpoint: (value: string) => void;
+  orderSubmissionEnabled?: boolean; onRefresh: () => Promise<void>; onSaveEndpoint: (value: string) => void;
 }
 export const SheetContentPanel = (props: Props) => props.isOpen ? <SheetContentDialog {...props}/> : null;
-function SheetContentDialog({ onClose, endpoint, status, onRefresh, onSaveEndpoint }: Props) {
+function SheetContentDialog({ onClose, endpoint, status, orderSubmissionEnabled, onRefresh, onSaveEndpoint }: Props) {
   const ref = useCakeDialog(onClose);
   const [url, setUrl] = useState(endpoint);
   const [error, setError] = useState('');
@@ -49,15 +49,16 @@ function SheetContentDialog({ onClose, endpoint, status, onRefresh, onSaveEndpoi
         {status.lastSyncedAt && <p className="text-xs mt-2 text-slate-500">Last loaded: {new Date(status.lastSyncedAt).toLocaleString('en-BD',{timeZone:'Asia/Dhaka'})}</p>}
         {status.error && <p role="status" className="text-xs mt-3 leading-relaxed text-amber-900">{status.error}</p>}
       </div>
+      <div className="mb-6 rounded-xl border border-slate-200 p-4 text-xs leading-relaxed"><strong>{orderSubmissionEnabled ? 'Sheet order submission is enabled' : 'Order submission needs the latest Apps Script code'}</strong><p className="mt-1">{orderSubmissionEnabled ? 'Checkout can save cash-on-delivery orders in the private orders and order_items tabs. Customer details are never included in public content responses.' : 'The content connection is separate from orders. Copy the latest setup code below, run setupSheetDatabase, and redeploy a new version to enable Sheet orders. Until then checkout remains a clearly marked local preview.'}</p></div>
       <form onSubmit={event => { event.preventDefault(); setError(''); try { onSaveEndpoint(url); } catch (e) { setError(e instanceof Error ? e.message : 'Invalid web app URL.'); } }} className="space-y-3">
         <label htmlFor="sheets-endpoint" className="block text-sm font-semibold">Apps Script web app URL</label><input id="sheets-endpoint" type="url" value={url} onChange={event => setUrl(event.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-3 text-xs" required/>
         <div className="flex flex-wrap gap-2"><button type="submit" className="bg-rose-700 text-white rounded-xl px-4 py-2.5 text-xs font-semibold">Save & connect</button><button type="button" onClick={() => void onRefresh()} className="border border-rose-200 rounded-xl px-4 py-2.5 text-xs flex items-center gap-2" disabled={status.state === 'loading'}><RefreshCw size={14}/>Refresh now</button><a href="https://docs.google.com/spreadsheets/d/18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4/edit" target="_blank" rel="noopener noreferrer" className="border border-slate-200 rounded-xl px-4 py-2.5 text-xs flex items-center gap-2">Open your Sheet<ExternalLink size={13}/></a></div>
       </form>
       {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
-      <div className="mt-7 border-t border-slate-100 pt-6"><h3 className="font-bold text-sm text-rose-900">One-time setup</h3><ol className="list-decimal pl-5 mt-3 text-xs leading-7 space-y-2"><li>In your Sheet, open Extensions → Apps Script. Add the supplied setup code without overwriting unrelated project code.</li><li>Run <code>setupSheetDatabase</code> once. It creates missing public content tabs and preserves existing data.</li><li>Deploy a web app using this read-only code: Execute as yourself, access for Anyone. Paste its <code>/exec</code> URL above.</li></ol>
+      <div className="mt-7 border-t border-slate-100 pt-6"><h3 className="font-bold text-sm text-rose-900">One-time setup</h3><ol className="list-decimal pl-5 mt-3 text-xs leading-7 space-y-2"><li>In your Sheet, open Extensions → Apps Script. Add the supplied setup code without overwriting unrelated project code.</li><li>Run <code>setupSheetDatabase</code> once. It creates missing content, orders and order_items tabs and preserves existing data.</li><li>Deploy a web app using the latest code: Execute as yourself, access for Anyone. Paste its <code>/exec</code> URL above.</li></ol>
         <div className="flex flex-wrap gap-2 mt-4"><button onClick={download} className="border border-slate-200 rounded-xl px-4 py-2 text-xs flex items-center gap-2"><Download size={14}/>Download setup code</button><button onClick={() => void copy()} className="border border-slate-200 rounded-xl px-4 py-2 text-xs flex items-center gap-2">{copied ? <Check size={14}/> : <Copy size={14}/>} {copied ? 'Copied' : 'Copy setup code'}</button></div>
       </div>
-      <p className="text-xs text-slate-500 mt-6 leading-relaxed">Edit public business details in settings, text and images in content, and catalogue rows in the related tabs. Visible pages refresh from the Sheet every minute. Orders and customer profiles remain local demos; this endpoint never exposes them.</p>
+      <p className="text-xs text-slate-500 mt-6 leading-relaxed">Edit public business details in settings, text and images in content, and catalogue rows in the related tabs. Visible pages refresh from the Sheet every minute. The orders and order_items tabs are private. Public reads never expose customer details. Real orders require the order-enabled deployment; custom cake requests and Studio workflows remain local previews.</p>
     </div>
   </div>;
 }

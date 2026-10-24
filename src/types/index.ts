@@ -186,6 +186,7 @@ export interface OrderStatusHistoryItem {
 }
 
 export interface Order {
+  persistence?: 'google_sheets' | 'local_demo';
   id: string;
   order_number: string;
   customer_name: string;
