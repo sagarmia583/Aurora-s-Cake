@@ -86,6 +86,9 @@ function doPost(e) {
     if (typeof raw !== 'string' || !raw || raw.length > 50000) auroraReject_('invalid_request','Send a JSON order body under 50 KB.');
     var input;
     try { input = JSON.parse(raw); } catch (_) { auroraReject_('invalid_request','The order body must be valid JSON.'); }
+    // Private operations authenticate every POST; never expose these reads via GET.
+    if (input && input.action === 'get_order_status') return auroraResponse_(auroraCustomerOrderStatus_(input));
+    if (input && /^staff_/.test(String(input.action || ''))) return auroraResponse_(auroraOperationsPost_(input));
     var request = auroraOrderRequest_(input);
     var hash = auroraRequestHash_(request);
     lock = LockService.getScriptLock();
