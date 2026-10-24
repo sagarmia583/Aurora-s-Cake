@@ -1,6 +1,6 @@
 # Aurora’s Cake
 
-A responsive cream-and-blush bakery storefront built with React, TypeScript, Vite and Tailwind CSS.
+A responsive forest-green, pistachio and apricot bakery storefront using locally hosted Roboto, built with React, TypeScript, Vite and Tailwind CSS.
 
 ## Run locally
 

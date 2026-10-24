@@ -52,7 +52,7 @@ const INITIAL_SHOP_SETTINGS: ShopSettings = {
   custom_cake_promo_desc: 'Upload your reference photo, pick custom tiers, flavors, colors, and dedicated text. Our pastry chef team will provide an instant custom quote!',
   custom_cake_promo_btn: 'Submit Custom Cake Request',
   footer_about_text: 'Tangail\'s premier boutique for fresh birthday cakes, wedding tiers, cheesecakes, and custom pastries. Baked fresh with love and 100% natural ingredients.',
-  facebook_url: '',
+  facebook_url: 'https://www.facebook.com/aurorascake26',
   instagram_url: '',
 };
 

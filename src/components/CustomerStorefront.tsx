@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowDown, ArrowRight, ArrowUpRight, CakeSlice, Check, ChevronDown, Flower2, Heart, Leaf, Plus, Truck } from 'lucide-react';
+import { ArrowDown, ArrowRight, ArrowUpRight, CakeSlice, Check, ChevronDown, Flower2, Heart, Leaf, Plus, Truck, Facebook } from 'lucide-react';
 import { Product, Category, ShopSettings, Flavor, Banner, Review } from '../types';
 
 interface CustomerStorefrontProps {
@@ -41,6 +41,7 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
   settings, products, categories, currency, onSelectProduct, onOpenCustomCake,
   onOpenTrackOrder, onOpenProfile, searchQuery,
 }) => {
+  const facebookUrl = 'https://www.facebook.com/aurorascake26';
   const [category, setCategory] = useState('all');
   const [sort, setSort] = useState('featured');
   const [heroIndex, setHeroIndex] = useState(0);
@@ -57,14 +58,14 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
   return <div className="ac-storefront">
     <section className="ac-hero ac-container" aria-labelledby="hero-heading">
       <div className="ac-hero-copy">
-        <span className="ac-eyebrow"><span className="ac-tiny-line" /> A little joy, beautifully baked</span>
-        <h1 id="hero-heading">Life’s sweetest<br />moments start<br />with <em>cake.</em><span className="ac-heading-flower" aria-hidden="true">✳</span></h1>
-        <p>For the big celebrations. The little victories.<br className="ac-desktop-break" /> And all the just-because moments in between.</p>
+        <span className="ac-eyebrow"><span className="ac-tiny-line" /> A little slice of happiness</span>
+        <h1 id="hero-heading">Good days.<br />Great cakes.<br /><em>Made for you.</em><span className="ac-heading-flower" aria-hidden="true">✳</span></h1>
+        <p>Big birthdays, little wins, and all the sweet moments in between. Find a cake that feels like you.</p>
         <div className="ac-hero-actions">
-          <a href="#catalog" className="ac-button">Find your perfect cake <ArrowUpRight size={17} /></a>
+          <a href="#catalog" className="ac-button">Explore our cakes <ArrowUpRight size={17} /></a>
           <button onClick={onOpenCustomCake} className="ac-text-button">Make it your own <ArrowRight size={16} /></button>
         </div>
-        <div className="ac-hero-footnote"><Heart size={15} strokeWidth={1.5} /> A personal touch in every celebration.</div>
+        <div className="ac-hero-footnote"><Heart size={15} strokeWidth={1.5} /> Your flavour. Your message. Your moment.</div>
       </div>
       <div className="ac-hero-visual">
         <div className="ac-hero-backdrop" />
@@ -73,11 +74,11 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
           <div className="ac-hero-image-shade" />
           <div className="ac-hero-image-caption"><span>The celebration collection</span><span>A little slice of lovely.</span></div>
         </div>
-        <div className="ac-love-stamp" aria-hidden="true"><span>MADE FOR</span><Flower2 size={34} strokeWidth={1} /><span>SWEET MOMENTS</span></div>
+        <div className="ac-love-stamp" aria-hidden="true"><span>BAKED FOR</span><Heart size={30} strokeWidth={1.5} /><span>HAPPY DAYS</span></div>
         <span className="ac-hero-sparkle ac-sparkle-one" aria-hidden="true">✧</span>
         <span className="ac-hero-sparkle ac-sparkle-two" aria-hidden="true">✧</span>
         <div className="ac-hero-card">
-          <div><span className="ac-eyebrow">A reason to celebrate</span><strong>{heroProduct?.name || 'Something lovely, just for you'}</strong></div>
+          <div><span className="ac-eyebrow">Make it a celebration</span><strong>{heroProduct?.name || 'Something lovely, just for you'}</strong></div>
           <button aria-label="Show next celebration cake" onClick={() => setHeroIndex(i => (i + 1) % heroPhotos.length)}><ArrowRight size={20} /></button>
         </div>
       </div>
@@ -90,8 +91,20 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
       <span><Truck size={20} strokeWidth={1.2} /> A sweet delivery to your door</span>
     </div></div>
 
+    <section className="ac-occasions ac-container" aria-labelledby="occasion-heading">
+      <div className="ac-occasion-heading"><h2 id="occasion-heading">What are we celebrating?</h2><span>There’s a cake for that.</span></div>
+      <div className="ac-occasion-grid">
+        {[
+          {title:'Birthday wishes',sub:'Make a wish. Make it sweet.',image:'/images/red-velvet.webp',category:'cat-1'},
+          {title:'Love & togetherness',sub:'For your favourite people.',image:'/images/floral-signature.webp',category:'cat-3'},
+          {title:'Chocolate cravings',sub:'A very good kind of extra.',image:'/images/chocolate-fudge.webp',category:'cat-2'},
+          {title:'Just because',sub:'Little treats. Big smiles.',image:'/images/floral-cake.webp',category:'all'},
+        ].map(occasion => <a key={occasion.title} href="#catalog" className="ac-occasion-card" onClick={() => setCategory(occasion.category)}><div><img src={occasion.image} alt="" loading="lazy" width="150" height="150"/></div><h3>{occasion.title}</h3><p>{occasion.sub}</p><span><ArrowUpRight size={16}/></span></a>)}
+      </div>
+    </section>
+
     <section id="catalog" className="ac-catalog ac-container" aria-labelledby="catalog-heading">
-      <div className="ac-section-heading"><div><span className="ac-eyebrow">The cake collection</span><h2 id="catalog-heading">Find your <em>happy cake.</em></h2></div><p>A whole lot of flavour.<br />A little something for everyone.</p></div>
+      <div className="ac-section-heading"><div><span className="ac-eyebrow">The cake collection</span><h2 id="catalog-heading">Meet your next<br /><em>favourite cake.</em></h2></div><p>Six delicious reasons<br />to celebrate today.</p></div>
       <div className="ac-catalog-toolbar">
         <div className="ac-filter-chips" role="group" aria-label="Filter cakes by category">
           <button aria-pressed={category === 'all'} className={category === 'all' ? 'is-active' : ''} onClick={() => setCategory('all')}>All cakes <span>{activeProducts.length}</span></button>
@@ -107,7 +120,7 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
             {product.is_featured && <span className="ac-product-tag">{product.category_id === 'cat-2' ? 'A chocolate love story' : 'The signature collection'}</span>}
             <span className="ac-product-hover">Make it yours <ArrowUpRight size={15}/></span>
           </button>
-          <div className="ac-product-info"><div><span className="ac-product-category">{categoryLabels[categories.find(c => c.id === product.category_id)?.slug || ''] || product.category_name}</span><h3><button onClick={() => onSelectProduct(product)}>{product.name}</button></h3><p>From <strong>{money(startingPrice(product))}</strong><span> / {product.variants.filter(v => v.is_active).sort((a,b) => (a.sale_price ?? a.price) - (b.sale_price ?? b.price))[0]?.name.split(' (')[0] || 'cake'}</span></p></div><button className="ac-add-cake" onClick={() => onSelectProduct(product)} aria-label={`Customize ${product.name}`}><Plus size={20} strokeWidth={1.4} /></button></div>
+          <div className="ac-product-info"><div><span className="ac-product-category">{categoryLabels[categories.find(c => c.id === product.category_id)?.slug || ''] || product.category_name}</span><h3><button onClick={() => onSelectProduct(product)}>{product.name}</button></h3><p className="ac-product-description">{product.description}</p><p>From <strong>{money(startingPrice(product))}</strong><span> / {product.variants.filter(v => v.is_active).sort((a,b) => (a.sale_price ?? a.price) - (b.sale_price ?? b.price))[0]?.name.split(' (')[0] || 'cake'}</span></p></div><button className="ac-add-cake" onClick={() => onSelectProduct(product)} aria-label={`Customize ${product.name}`}><span>Customize</span><ArrowUpRight size={16} strokeWidth={1.8} /></button></div>
         </article>)}
       </div>
       {!filtered.length && <div className="ac-empty"><CakeSlice size={42} strokeWidth={1}/><h3>No cakes found just yet.</h3><p>Try a different search or explore another collection.</p><button className="ac-text-button" onClick={() => setCategory('all')}>Show all categories <ArrowRight size={15}/></button></div>}
@@ -116,16 +129,21 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
 
     <section className="ac-custom-section" aria-labelledby="custom-heading"><div className="ac-custom-inner ac-container">
       <div className="ac-custom-visual"><div className="ac-custom-image"><img src="/images/floral-signature.webp" alt="A celebration cake for a special occasion" loading="lazy" width="800" height="900"/></div><div className="ac-custom-label"><span>YOUR OCCASION.</span><span>Your kind of magic.</span></div><span className="ac-custom-doodle" aria-hidden="true">✳</span></div>
-      <div className="ac-custom-copy"><span className="ac-eyebrow">The custom cake studio</span><h2 id="custom-heading">You dream it.<br />We’ll make it <em>cake.</em></h2><p>A favourite colour. An inside joke. A wildly wonderful idea. Let’s turn the things that make you, you, into a cake worth celebrating.</p><div className="ac-custom-steps"><span><Check size={14}/> Choose your flavours</span><span><Check size={14}/> Add your little details</span><span><Check size={14}/> Make it a moment</span></div><button onClick={onOpenCustomCake} className="ac-button">Create your dream cake <ArrowUpRight size={17}/></button><span className="ac-custom-small">Every lovely idea starts with a conversation.</span></div>
+      <div className="ac-custom-copy"><span className="ac-eyebrow">The custom cake studio</span><h2 id="custom-heading">You dream it.<br />We’ll make it <em>cake.</em></h2><p>A favourite colour. An inside joke. A wildly wonderful idea. Let’s turn the things that make you, you, into a cake worth celebrating.</p><div className="ac-custom-steps"><span><Check size={14}/> Choose your flavours</span><span><Check size={14}/> Add your little details</span><span><Check size={14}/> Make it a moment</span></div><button onClick={onOpenCustomCake} className="ac-button">Create your dream cake <ArrowUpRight size={17}/></button><a href={facebookUrl} target="_blank" rel="noopener noreferrer" className="ac-custom-small">Prefer a chat? Find us on Facebook <ArrowUpRight size={13}/></a></div>
     </div></section>
 
     <section id="our-story" className="ac-story ac-container" aria-labelledby="story-heading">
-      <div className="ac-story-words"><span className="ac-eyebrow">A note from Aurora’s</span><h2 id="story-heading">More than a cake.<br /><em>A way to say you care.</em></h2><p>“Happy birthday.” “I’m proud of you.” “Just because.”<br />Sometimes, the sweetest things are the ones we share.</p><p>Aurora’s Cake is a place for those moments — with a collection of celebration cakes and thoughtful details to make each one feel a little more like you.</p><a href="#catalog" className="ac-text-button">Find something to share <ArrowRight size={16}/></a><span className="ac-story-signature">With love, Aurora’s</span></div>
+      <div className="ac-story-words"><span className="ac-eyebrow">A note from Aurora’s</span><h2 id="story-heading">More than a cake.<br /><em>A way to say you care.</em></h2><p>“Happy birthday.” “I’m proud of you.” “Just because.”<br />Sometimes, the sweetest things are the ones we share.</p><p>Aurora’s Cake is a place for those moments — with a collection of celebration cakes and thoughtful details to make each one feel a little more like you.</p><a href="#catalog" className="ac-text-button">Find something to share <ArrowRight size={16}/></a><span className="ac-story-signature"><Heart size={16}/> With love, Aurora’s</span></div>
       <div className="ac-story-image"><img src="/images/floral-cake.webp" alt="A selection of cupcakes to share" loading="lazy" width="800" height="800"/><div className="ac-story-image-note"><Heart size={16} strokeWidth={1.3}/><span>Little things.<br />Lovely memories.</span></div></div>
     </section>
 
+    <section className="ac-social-section" aria-labelledby="social-heading"><div className="ac-container ac-social-inner">
+      <div className="ac-social-copy"><span className="ac-eyebrow"><Facebook size={16}/> A little more Aurora’s</span><h2 id="social-heading">Let’s talk<br /><em>all things cake.</em></h2><p>Planning something special? Visit our Facebook page for cake ideas, questions, and a conversation about your next celebration.</p><a href={facebookUrl} target="_blank" rel="noopener noreferrer" className="ac-button">Visit Aurora’s Cake <ArrowUpRight size={17}/></a><span className="ac-social-handle">@aurorascake26</span></div>
+      <div className="ac-social-gallery" aria-label="A taste of the cake collection"><img src="/images/chocolate-fudge.webp" alt="Chocolate cake from the preview collection" loading="lazy" width="500" height="500"/><img src="/images/floral-signature.webp" alt="Floral celebration cake from the preview collection" loading="lazy" width="500" height="600"/><img src="/images/floral-cake.webp" alt="Cupcakes from the preview collection" loading="lazy" width="500" height="500"/><span><Heart size={20}/> Life is sweeter together.</span></div>
+    </div></section>
+
     <section className="ac-faq ac-container" aria-labelledby="faq-heading"><div><span className="ac-eyebrow">The little details</span><h2 id="faq-heading">Good things<br /><em>to know.</em></h2><p>A few answers before<br />your first bite.</p></div><div className="ac-faq-list">{faq.map(([question, answer]) => <details key={question}><summary>{question}<Plus size={18} strokeWidth={1.3}/></summary><p>{answer}</p></details>)}</div></section>
 
-    <footer className="ac-footer"><div className="ac-container"><div className="ac-footer-top"><div className="ac-footer-brand"><Flower2 size={32} strokeWidth={1}/><a href="#top">Aurora’s Cake<span>A LITTLE SLICE OF HAPPINESS</span></a></div><p>For moments worth<br /><em>making sweeter.</em></p><a href="#catalog" className="ac-footer-round" aria-label="Explore our cakes"><ArrowUpRight size={28} strokeWidth={1}/></a></div><div className="ac-footer-links"><nav aria-label="Footer"><a href="#catalog">Our cakes</a><button onClick={onOpenCustomCake}>Custom cakes</button><a href="#our-story">Our story</a><button onClick={onOpenTrackOrder}>Track an order</button>{onOpenProfile && <button onClick={onOpenProfile}>My orders</button>}</nav><span>{settings.address.includes('Tangail') ? 'Tangail, Bangladesh' : settings.address}</span></div><div className="ac-footer-bottom"><span>© {new Date().getFullYear()} Aurora’s Cake</span><span>Website preview · Orders stay on your device · No payment collected</span><span>Made for sweet moments ♡</span></div></div></footer>
+    <footer className="ac-footer"><div className="ac-container"><div className="ac-footer-top"><div className="ac-footer-brand"><Flower2 size={32} strokeWidth={1}/><a href="#top">Aurora’s Cake<span>A LITTLE SLICE OF HAPPINESS</span></a></div><p>For moments worth<br /><em>making sweeter.</em></p><a href="#catalog" className="ac-footer-round" aria-label="Explore our cakes"><ArrowUpRight size={28} strokeWidth={1}/></a></div><div className="ac-footer-links"><nav aria-label="Footer"><a href="#catalog">Our cakes</a><button onClick={onOpenCustomCake}>Custom cakes</button><a href="#our-story">Our story</a><a href={facebookUrl} target="_blank" rel="noopener noreferrer">Facebook <ArrowUpRight size={12}/></a><button onClick={onOpenTrackOrder}>Track an order</button>{onOpenProfile && <button onClick={onOpenProfile}>My orders</button>}</nav><span>{settings.address.includes('Tangail') ? 'Tangail, Bangladesh' : settings.address}</span></div><div className="ac-footer-bottom"><span>© {new Date().getFullYear()} Aurora’s Cake</span><span>Website preview · Orders stay on your device · No payment collected</span><span>Made for sweet moments ♡</span></div></div></footer>
   </div>;
 };
