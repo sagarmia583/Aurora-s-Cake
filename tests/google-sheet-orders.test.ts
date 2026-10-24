@@ -61,7 +61,7 @@ function harness(options:{withoutPrivate?:boolean}={}) {
     console:{log:()=>{},error:()=>{}},Date,JSON,Object,Array,String,Math,
     SpreadsheetApp:{openById:()=>book,getActiveSpreadsheet:()=>book},
     PropertiesService:{getScriptProperties:()=>({getProperty:(key:string)=>key==='AURORA_GOOGLE_CLIENT_ID'?'test-client.apps.googleusercontent.com':key==='AURORA_STAFF_USERS'?STAFF_CONFIG:null})},
-    UrlFetchApp:{fetch:(url:string)=>({getResponseCode:()=>200,getContentText:()=>JSON.stringify({aud:'test-client.apps.googleusercontent.com',iss:'https://accounts.google.com',sub:'verified-google-user',exp:Math.floor(Date.now()/1000)+3600,email_verified:'true',email:url.includes('rider_')?'rider@example.com':url.includes('intruder_')?'intruder@example.com':'owner@example.com'})})},
+    UrlFetchApp:{fetch:(url:string)=>({getResponseCode:()=>200,getContentText:()=>JSON.stringify({aud:'test-client.apps.googleusercontent.com',iss:'https://accounts.google.com',sub:url.includes('intruder_')?'other-google-user':'verified-google-user',exp:Math.floor(Date.now()/1000)+3600,email_verified:'true',email:url.includes('rider_')?'rider@example.com':url.includes('intruder_')?'intruder@example.com':'owner@example.com'})})},
     CacheService:{getScriptCache:()=>({get:(key:string)=>key.startsWith('aurora_cod_')?throttles.get(key)||null:null,put:(key:string,value:string)=>{if(key.startsWith('aurora_cod_'))throttles.set(key,value);},remove:()=>{}})},
     LockService:{getScriptLock:()=>({tryLock:()=>{acquired++;return true;},releaseLock:()=>{acquired--;}})},
     Utilities:{DigestAlgorithm:{SHA_256:'sha256'},Charset:{UTF_8:'utf8'},computeDigest:(_algorithm:string,value:string)=>Array.from(createHash('sha256').update(value).digest()),formatDate:(date:Date)=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Dhaka',year:'numeric',month:'2-digit',day:'2-digit'}).format(date),getUuid:()=>Math.random().toString(36).slice(2)},
@@ -70,6 +70,7 @@ function harness(options:{withoutPrivate?:boolean}={}) {
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/Code.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/StaffOperations.gs',import.meta.url),'utf8'),context);
+  vm.runInContext(fs.readFileSync(new URL('../apps-script/CustomerAccounts.gs',import.meta.url),'utf8'),context);
   const post=(payload:unknown)=>JSON.parse(context.doPost({postData:{type:'text/plain',contents:JSON.stringify(payload)}}).content);
   const get=(action:string)=>JSON.parse(context.doGet({parameter:{action}}).content);
   const records=(name:string)=>tables[name].slice(1).map(row=>Object.fromEntries(tables[name][0].map((key,index)=>[String(key),row[index]])));
@@ -252,4 +253,44 @@ test('COD burst protection prevents six new orders per phone but never blocks a 
   assert.equal(h.records('orders').length,5);
   assert.equal(h.post(request({request_id:uuid(1)})).persisted,true);
   assert.equal(h.records('orders').length,5);
+});
+
+test('free Google accounts require a verified token and cannot list unlinked private orders',()=>{
+  const h=harness();const order=h.post(request()).order;
+  assert.equal(h.post({action:'customer_orders'}).code,'unauthorized');
+  assert.equal(h.post({action:'customer_orders',id_token:ADMIN_TOKEN}).orders.length,0);
+  assert.equal(h.post({action:'customer_session',id_token:INTRUDER_TOKEN}).email,'intruder@example.com');
+  assert.equal(h.get('customer_orders').ok,false);
+  assert.equal(h.records('orders').length,1);
+  assert.equal(order.payment_status,'pending');
+});
+test('customer explicitly links original receipt and recovers order from the same verified Google identity',()=>{
+  const h=harness();const original=h.post(request()).order;
+  const claim={action:'customer_claim_order',id_token:ADMIN_TOKEN,order_id:original.id,customer_phone:original.customer_phone};
+  assert.equal(h.post({...claim,customer_phone:'01700000000'}).code,'not_found');
+  assert.equal(h.post(claim).linked,true);
+  assert.equal(h.post(claim).linked,true);
+  const saved=h.post({action:'customer_orders',id_token:ADMIN_TOKEN}).orders;
+  assert.equal(saved.length,1);
+  assert.equal(saved[0].id,original.id);
+  assert.equal(saved[0].delivery_otp,'');
+  assert.equal(saved[0].customer_google_sub,undefined);
+  assert.equal(h.post({action:'customer_orders',id_token:INTRUDER_TOKEN}).orders.length,0);
+  assert.equal(h.post({...claim,id_token:INTRUDER_TOKEN}).code,'already_linked');
+  const retry=h.post(request());
+  assert.equal(retry.persisted,true);
+  assert.equal(retry.order.customer_google_sub,undefined);
+  assert.equal(h.records('orders').length,1);
+});
+test('free Google recovery shows delivery OTP only after the linked order is out for delivery',()=>{
+  const h=harness();const created=h.post(request()).order;
+  assert.equal(h.post({action:'customer_claim_order',id_token:ADMIN_TOKEN,order_id:created.id,customer_phone:created.customer_phone}).ok,true);
+  const update=(operation:string,id_token:string,extra:Record<string,unknown>={})=>h.post({action:'staff_mutate',id_token,operation,order_id:created.id,...extra});
+  for(const op of ['confirm','start_baking','mark_ready']) assert.equal(update(op,ADMIN_TOKEN).ok,true);
+  assert.equal(update('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
+  assert.equal(update('pick_up',RIDER_TOKEN).ok,true);
+  assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
+  const orders=h.post({action:'customer_orders',id_token:ADMIN_TOKEN}).orders;
+  assert.equal(orders[0].delivery_otp,created.delivery_otp);
+  assert.equal(orders[0].status,'out_for_delivery');
 });
