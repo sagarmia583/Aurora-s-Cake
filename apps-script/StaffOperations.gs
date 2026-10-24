@@ -96,7 +96,7 @@ function auroraOperationsOrders_(actor, table) {
 }
 function auroraOperationsPost_(input) {
   var actor = auroraStaffAuthenticate_(input);
-  if (input.action === 'staff_session') return {ok:true,role:actor.role,name:actor.name,email:actor.email,riders:Object.keys(actor.people).filter(function(email){return actor.people[email].role==='delivery_man';}).map(function(email){return {email:email,name:String(actor.people[email].name||email)};})};
+  if (input.action === 'staff_session') return {ok:true,role:actor.role,name:actor.name,email:actor.email,riders:['super_admin','admin','delivery_manager'].indexOf(actor.role)===-1?[]:Object.keys(actor.people).filter(function(email){return actor.people[email].role==='delivery_man';}).map(function(email){return {email:email,name:String(actor.people[email].name||email)};})};
   var book = auroraSpreadsheet_(), table = auroraPrivateTable_(book,'orders');
   if (input.action === 'staff_orders') return {ok:true,orders:auroraOperationsOrders_(actor,table),role:actor.role};
   if (input.action !== 'staff_mutate') auroraReject_('invalid_action','Unknown staff action.');
@@ -117,7 +117,7 @@ function auroraOperationsPost_(input) {
       assign:['ready','assigned'], pick_up:['assigned','picked_up'],
       start_delivery:['picked_up','out_for_delivery'], deliver:['out_for_delivery','delivered']
     };
-    if (!transitions[action] || order.status !== transitions[action][0]) {
+    if (!transitions[action] || (action==='cancel' ? ['pending','confirmed','preparing','ready','assigned'].indexOf(order.status)===-1 : order.status !== transitions[action][0])) {
       auroraReject_('invalid_transition','Order is not at the required stage.');
     }
     if (['pick_up','start_delivery','deliver'].indexOf(action) !== -1 &&
