@@ -335,7 +335,7 @@ test('free admin price updates change authoritative checkout amounts, not browse
   assert.equal(save('product_variants','v1','sale_price','').updated,true);
   assert.equal(save('product_variants','v1','price',950.5).updated,true);
   const fresh=h.post(request());
-  assert.equal(fresh.persisted,true);
+  assert.equal(fresh.persisted,true,JSON.stringify(fresh));
   // Two 950.50 cakes and two 50 add-ons, capped at 120 off, plus 100 delivery.
   assert.equal(fresh.order.total_amount,1981);
   assert.equal(save('settings','accepting_orders','accepting_orders',false).updated,true);
