@@ -136,7 +136,7 @@ function doPost(e) {
  * committed request ID bypass this limiter, so ambiguous writes stay safe. */
 function auroraCheckoutRateLimit_(request) {
   var cache = CacheService.getScriptCache();
-  var digits = request.customer_phone.replace(/\\D/g,'');
+  var digits = request.customer_phone.replace(/\D/g,'');
   var hash = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,digits,Utilities.Charset.UTF_8)
     .map(function(byte){return ('0'+((byte+256)%256).toString(16)).slice(-2);}).join('').slice(0,24);
   var key = 'aurora_cod_phone_'+hash;
