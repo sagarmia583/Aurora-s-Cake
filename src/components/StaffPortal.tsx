@@ -3,6 +3,7 @@ import { X, RefreshCw, ShieldCheck, LockKeyhole, Truck, PackageCheck } from 'luc
 import { checkStaffSession, getStaffOrders, mutateStaffOrder } from '../services/sheetStaffApi';
 import type { StaffOperation, StaffOrder, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { LiveShopEditor } from './LiveShopEditor';
+import { CustomCakeQueue } from './CustomCakeQueue';
 
 type GoogleSdk = {
   initialize: (options: { client_id: string; callback: (response: { credential: string }) => void }) => void;
@@ -200,6 +201,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                   </article>;
                 })}
               </div>
+              {(['super_admin','admin','order_manager'] as string[]).includes(identity.role) && <CustomCakeQueue endpoint={endpoint} token={identity.token} />}
               {(identity.role === 'super_admin' || identity.role === 'admin') && <LiveShopEditor endpoint={endpoint} token={identity.token} onUpdated={() => onCatalogUpdated?.()} />}
             </>
           )}
