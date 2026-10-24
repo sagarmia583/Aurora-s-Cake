@@ -40,7 +40,7 @@ function auroraCustomerSafeReceipt_(order) {
   delete copy.otp_failed_attempts;
   delete copy.otp_locked_until;
   // The rider OTP is only useful when the customer has received the cake.
-  if (copy.status !== 'out_for_delivery') delete copy.delivery_otp;
+  if (copy.status !== 'out_for_delivery') copy.delivery_otp='';
   return copy;
 }
 function auroraCustomerAccountsPost_(input) {
