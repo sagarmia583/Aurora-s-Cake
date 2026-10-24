@@ -10,7 +10,7 @@ interface NavbarProps {
   settings: ShopSettings;
   publicData?: PublicSiteData;
   onOpenSheetSettings?: () => void;
-  onOpenStaffPortal: () => void;
+  onOpenStaffPortal?: () => void;
   isSheetConnected?: boolean;
   activeRole: StaffRole | 'customer';
   onRoleChange: (role: StaffRole | 'customer') => void;
@@ -174,7 +174,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             {searchOpen ? <X size={19} strokeWidth={1.5} /> : <Search size={19} strokeWidth={1.5} />}
             {searchQuery && !searchOpen && <span className="ac-nav-search-dot" />}
           </button>
-          <button type="button" onClick={onOpenStaffPortal} className="ac-nav-staff-link" title="Verified bakery staff sign in">Staff login</button>
+          {onOpenStaffPortal && <button type="button" onClick={onOpenStaffPortal} className="ac-nav-staff-link" title="Verified bakery staff sign in">Staff login</button>}
           <button type="button" className="ac-nav-icon ac-nav-desktop-profile" aria-label="My account and orders" onClick={() => customerAction(onOpenProfile)}><UserRound size={19} strokeWidth={1.5} /></button>
           <button type="button" className="ac-nav-bag" onClick={() => customerAction(onOpenCart)} aria-label={`Open shopping bag, ${cartCount} ${cartCount === 1 ? 'item' : 'items'}`}>
             <ShoppingBag size={19} strokeWidth={1.5} /><span className="ac-nav-bag-label">Bag</span><span className="ac-nav-count">{cartCount}</span>
@@ -195,7 +195,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         {text('nav_story') && <a href="#our-story" onClick={openStorefront}>{text('nav_story')} <ArrowRight size={16} strokeWidth={1.5} /></a>}
         {facebookUrl && text('nav_facebook') && <a href={facebookUrl} target="_blank" rel="noopener noreferrer" aria-label={settings.shop_name + ' on Facebook (opens in a new tab)'} onClick={() => setMobileOpen(false)}>{text('nav_facebook')} <ArrowUpRight size={16} strokeWidth={1.5} /></a>}
         {navigationLinks.map(link => <a key={link.id} href={safeUrl(link.url)} target={/^https?:/i.test(link.url) ? '_blank' : undefined} rel="noopener noreferrer" onClick={() => setMobileOpen(false)}>{link.label}<ArrowUpRight size={16} /></a>)}
-        <button type="button" className="ac-nav-mobile-small" onClick={() => customerAction(onOpenStaffPortal)}>Staff login</button>
+        {onOpenStaffPortal && <button type="button" className="ac-nav-mobile-small" onClick={() => customerAction(onOpenStaffPortal)}>Staff login</button>}
         <button type="button" className="ac-nav-mobile-small" onClick={() => customerAction(onOpenProfile)}>My account &amp; orders</button>
         <button type="button" className="ac-nav-mobile-small" onClick={() => customerAction(onOpenTrackOrder)}>Track an order</button>
       </nav>}
