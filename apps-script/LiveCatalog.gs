@@ -66,19 +66,22 @@ function auroraCatalogPost_(input) {
   if (!lock.tryLock(10000)) auroraReject_('busy','Another shop update is in progress.');
   try {
     var book=auroraSpreadsheet_();
-    var records=auroraRows_(book,tableName);
+    var sheet=book.getSheetByName(tableName);
+    if (!sheet) auroraReject_('not_found','Catalogue table missing.');
+    var headers=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0]
+      .map(function(value){return String(value).trim().toLowerCase();});
     var key=tableName==='settings'?'key':'id';
-    var rows=records.map(function(row,index){return {value:String(row[key]||''),row:index+2};})
-      .filter(function(row){return row.value===recordId;});
+    var keyIndex=headers.indexOf(key), fieldIndex=headers.indexOf(field);
+    if (keyIndex<0||fieldIndex<0||headers.lastIndexOf(key)!==keyIndex||
+        headers.lastIndexOf(field)!==fieldIndex) auroraReject_('invalid_sheet','Missing or duplicate expected column.');
+    var ids=sheet.getLastRow()>1 ?
+      sheet.getRange(2,keyIndex+1,sheet.getLastRow()-1,1).getValues() : [];
+    var rows=[];
+    ids.forEach(function(cell,index){if (String(cell[0]||'').trim()===recordId) rows.push(index+2);});
     if (rows.length!==1 || (tableName==='settings'&&recordId!==field)) {
       auroraReject_('not_found','Shop field or catalogue item was not found.');
     }
-    var sheet=book.getSheetByName(tableName);
-    var headers=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0]
-      .map(function(value){return String(value).trim().toLowerCase();});
-    var index=headers.indexOf(field);
-    if (index<0||headers.lastIndexOf(field)!==index) auroraReject_('invalid_sheet','Missing or duplicate expected field.');
-    sheet.getRange(rows[0].row,index+1,1,1).setValues([[auroraSheetCell_(value)]]);
+    sheet.getRange(rows[0],fieldIndex+1,1,1).setValues([[auroraSheetCell_(value)]]);
     CacheService.getScriptCache().remove(auroraCacheKey_());
     return {ok:true,updated:true};
   } finally {lock.releaseLock();}
