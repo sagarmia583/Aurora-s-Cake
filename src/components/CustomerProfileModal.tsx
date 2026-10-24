@@ -70,8 +70,8 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
     if (isOpen) {
       setIsFetchingOrders(true);
       try {
-        const fetched = mockDb.getOrders();
-        setUserOrders(fetched && fetched.length > 0 ? fetched : orders);
+        // App owns the merged verified receipt list; local demo orders must never mask it.
+        setUserOrders(orders);
       } catch {
         setUserOrders(orders);
       } finally {
