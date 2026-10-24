@@ -69,13 +69,16 @@ function auroraPrivateFindRow_(table, orderId) {
   return 0;
 }
 function auroraPrivateSaveReceipt_(table,row,order) {
-  // Write the canonical receipt first: interruption cannot leave a false paid state.
-  var receiptColumn = table.headers.indexOf('receipt_json')+1;
-  table.sheet.getRange(row,receiptColumn,1,1).setValues([[auroraSheetCell_(JSON.stringify(order))]]);
-  [['status',order.status],['payment_status',order.payment_status],['updated_at',order.updated_at]].forEach(function(entry) {
-    var col = table.headers.indexOf(entry[0])+1;
-    if (col) table.sheet.getRange(row,col,1,1).setValues([[entry[1]]]);
+  // Single spreadsheet row write keeps status, payment and receipt JSON in sync.
+  // Preserve any extra private columns added by the shop owner.
+  var values = table.sheet.getRange(row,1,1,table.headers.length).getValues()[0];
+  [['receipt_json',JSON.stringify(order)],['status',order.status],
+   ['payment_status',order.payment_status],['updated_at',order.updated_at]].forEach(function(entry) {
+    var col = table.headers.indexOf(entry[0]);
+    if (col < 0) throw new Error('Missing private order column: '+entry[0]);
+    values[col] = auroraSheetCell_(entry[1]);
   });
+  table.sheet.getRange(row,1,1,values.length).setValues([values]);
 }
 function auroraOperationsOrders_(actor, table) {
   var list = [];
