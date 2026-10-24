@@ -23,7 +23,8 @@ npm run build
 - Cake size, flavour, add-ons, dedication, quantity and live pricing
 - Persistent cart, cash-on-delivery Sheet orders when enabled, local preview checkout, coupons, receipts and reorder
 - Custom design requests and a local customer profile
-- Existing studio, kitchen, rider and optional Supabase tools, accessible from Studio
+- Verified Google staff sign-in for live COD order confirmation, kitchen status, rider assignment, and OTP/COD delivery
+- Developer-only mock Studio and optional legacy Supabase tools (not production order management)
 
 ## Google Sheets content
 The public website can load its business identity, contact information, links, images, text, catalogue, sizes, add-ons, delivery options and FAQs through the configured Apps Script endpoint. Open **Studio → Google Sheets content** for connection status, manual refresh and setup code.
@@ -34,11 +35,15 @@ Edit business details in settings; marketing copy and section images in content;
 
 Public GET responses expose only allowlisted website content and never include private order/customer records. The separate create_order POST validates current Sheet options and prices, accepts cash on delivery, and stores an order plus item rows in private orders/order_items tabs. A stable request ID makes uncertain retries idempotent. The client shows success only after a confirmed persisted receipt.
 
-Copy the latest code from Studio or apps-script, run setupSheetDatabase, then deploy a new version. Until the endpoint advertises order_submission_enabled, checkout remains an explicit local preview. A fresh order-enabled response activates Sheet checkout. Receipts are cached on the ordering device; this is not a public order-list or live tracking API.
+Copy the latest code from Studio or apps-script, run setupSheetDatabase, then deploy a new version. Until the endpoint advertises order_submission_enabled, checkout remains an explicit local preview. A fresh order-enabled response activates Sheet checkout. Receipts are cached on the ordering device. Once the new StaffOperations.gs is deployed, staff orders stay private and customer receipt tracking polls a narrow POST status endpoint by the original receipt ID and checkout phone.
+
+## Production staff operations
+
+Use the **Staff login** link. Deploy the latest `apps-script/StaffOperations.gs` together with `Code.gs`, configure verified staff Google accounts, and set the site's public OAuth client ID. Full instructions and end-to-end validation: [Live Operations Setup](docs/LIVE_OPERATIONS_SETUP.md). This is **not** automatically deployed just because GitHub is updated.
 
 ## Preview data
 
-Custom requests and Studio workflows use the local mock database. Studio role switches are demonstration controls and exclude real Sheet receipts. Manage real order rows in Google Sheets; confirmation and delivery updates do not automatically sync to the saved customer receipt. No online payment is collected. Configure authenticated staff workflows and a payment integration before offering those features.
+Custom requests and Studio workflows use the local mock database. Studio role switches are developer-only demonstration controls and exclude real Sheet receipts. The authenticated Staff Portal reads/writes real private Sheet orders; its updates can refresh the customer's original device-held receipt during tracking. No verified customer phone-login or cross-device receipt recovery is provided yet. No online payment is collected. Configure authenticated staff workflows and a payment integration before offering those features.
 
 The former SweetDelight branding and placeholder contact links have been removed from the rebuilt storefront. Stored data from a previous version in the same browser may still use its old catalogue or settings. Fresh browsers start with the Aurora catalogue and an empty order history.
 
