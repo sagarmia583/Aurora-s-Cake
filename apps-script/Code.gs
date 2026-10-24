@@ -105,7 +105,7 @@ function doPost(e) {
       var receipt = JSON.parse(String(previous[0].receipt_json));
       if (!receipt || !receipt.id || !Array.isArray(receipt.items) || receipt.id !== String(previous[0].id)) throw new Error('Incomplete committed receipt.');
       auroraRepairOrderItems_(itemTable,receipt);
-      return auroraResponse_({success:true,persisted:true,order:receipt});
+      return auroraResponse_({success:true,persisted:true,order:auroraCheckoutReceiptSafe_(receipt)});
     }
     var order = auroraBuildOrder_(book,request);
     auroraCheckoutRateLimit_(request);
@@ -135,6 +135,13 @@ function doPost(e) {
 
 /** Best-effort burst protection, inside the existing ScriptLock. Retries of a
  * committed request ID bypass this limiter, so ambiguous writes stay safe. */
+function auroraCheckoutReceiptSafe_(value) {
+  var receipt = JSON.parse(JSON.stringify(value));
+  delete receipt.customer_google_sub;
+  delete receipt.otp_failed_attempts;
+  delete receipt.otp_locked_until;
+  return receipt;
+}
 function auroraCheckoutRateLimit_(request) {
   var cache = CacheService.getScriptCache();
   var digits = request.customer_phone.replace(/\D/g,'');
