@@ -763,9 +763,9 @@ test('authenticated Admin uploads a picture to a dedicated private folder, and p
  const upload=h.post({action:'staff_image_upload',id_token:ADMIN_TOKEN,base64:png.toString('base64'),mime_type:'image/png'});
  assert.equal(upload.ok,true,JSON.stringify(upload));
  assert.equal(upload.mime_type,'image/png');
- assert.match(upload.url,/^\/api\/images\/bakery_public_img_/);
+ assert.match(upload.url,/^\/api\/image\?id=bakery_public_img_/);
  assert.equal(properties.get('AURORA_PUBLIC_IMAGE_FOLDER_ID'),folderId);
- const fileId=upload.url.slice('/api/images/'.length);
+ const fileId=upload.url.slice('/api/image?id='.length);
  const response=JSON.parse(h.context.doGet({parameter:{action:'public_image',id:fileId}}).content);
  assert.equal(response.ok,true);
  assert.equal(response.base64,png.toString('base64'));
