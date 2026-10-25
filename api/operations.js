@@ -8,7 +8,7 @@
  */
 import relay from '../netlify/functions/operations.mjs';
 
-const MAX_REQUEST_BYTES = 9MAX_REQUEST_BYTES;
+const MAX_REQUEST_BYTES = 950000;
 const fail=(res, status, message)=>{
   res.statusCode=status;
   res.setHeader('Content-Type','application/json; charset=utf-8');
