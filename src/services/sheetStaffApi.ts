@@ -37,7 +37,7 @@ function objectValue(value: unknown): value is Record<string, unknown> {
 export async function privatePost(endpoint: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const url = resolveSheetsPostEndpoint(endpoint);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
+  const timeout = setTimeout(() => controller.abort(), body.action==='staff_image_upload'?28000:20000);
   try {
     const response = await fetch(url, {
       method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -163,4 +163,11 @@ export async function mutateCmsTable(endpoint:string,token:string,table:CmsTable
   values:Record<string,string|number|boolean>,recordId?:string,key?:string):Promise<void>{
   await privatePost(endpoint,{action:'staff_cms_'+action,...staffCredential(token),table,
     ...(recordId?{record_id:recordId}:{}),...(key?{key}:{}),values});
+}
+
+export async function uploadCmsImage(endpoint:string,token:string,base64:string):Promise<string> {
+  const data=await privatePost(endpoint,{action:'staff_image_upload',...staffCredential(token),mime_type:'image/jpeg',base64});
+  if(typeof data.url!=='string'||!/^\/api\/images\/[A-Za-z0-9_-]{12,150}$/.test(data.url))
+    throw new Error('Image backend returned an invalid public URL.');
+  return data.url;
 }
