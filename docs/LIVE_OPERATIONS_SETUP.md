@@ -34,7 +34,14 @@ not exposed through the role selector in production.
    ```text
    VITE_GOOGLE_OAUTH_CLIENT_ID = <same public Web Client ID>
    VITE_GOOGLE_SHEETS_URL = <current /exec Apps Script URL>
+   # On Netlify Free only, optional for same-origin browser POST reliability:
+   VITE_SHEETS_POST_PROXY = /api/operations
    ```
+
+   If using the optional Netlify relay, also set the **Netlify server-side** environment variable
+   `AURORA_SCRIPT_POST_URL` to the same trusted Google Script `/exec` URL.
+   Deployments to Vercel/local without Netlify Functions should leave
+   `VITE_SHEETS_POST_PROXY` empty.
 
    Then **rebuild/redeploy the website**. The Google OAuth client ID is public;
    Script Properties remain private.
@@ -114,6 +121,7 @@ not exposed through the role selector in production.
   usage limit. You must keep the site on the Free plan; do not enable paid upgrades
   or add-ons. See [Netlify pricing](https://www.netlify.com/pricing/) and
   [Free credit limits](https://docs.netlify.com/manage/accounts-and-billing/billing/billing-for-credit-based-plans/credit-based-pricing-plans/).
+- **Same-origin fallback:** The optional `netlify/functions/operations.mjs` route forwards only allowlisted private POST actions to the fixed HTTPS Google Script URL. It can avoid Apps Script browser CORS/redirect issues, but it consumes Netlify Free function credits; this still requires a real-browser deployment test and does not bypass Apps Script authorization.
 - **Backend:** Google Apps Script + Sheets uses the shop owner's own Google account,
   not Supabase paid compute or a paid hosted server. Google's published consumer
   quotas include **20,000 URL Fetch calls/day**, **6 min per execution**, and
