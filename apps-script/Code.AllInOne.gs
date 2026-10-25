@@ -1,10 +1,11 @@
 /**
- * Aurora's Cake — ONE complete Google Apps Script Code.gs (9 modules).
- * Private Google Drive image uploads, Super Admin, Employees, Phone customers,
- * public CMS, orders, custom cake requests. Back up the live Sheet.
- * Paste this entire file as the only .gs file, run setupSheetDatabase() and
- * setupAuroraImagesOnce() once as owner, then Deploy a NEW Web App version.
- * Image folder stays private; read-only images pass via Vercel /api/image.
+ * AURORA'S CAKE — COMPLETE ONE-FILE GOOGLE APPS SCRIPT BACKEND
+ * Public Store/COD, Staff/Delivery, Phone Customers, Google Account Recovery,
+ * CMS, Private Images, Catalog, Custom Cakes and Seed setup.
+ * PERFORMANCE: Customer/Rider live status uses narrow Sheet reads.
+ * BACK UP live Sheet; replace existing Code.gs completely; run
+ * setupSheetDatabase() and setupAuroraImagesOnce() if not already done.
+ * Deploy → Manage deployments → Edit → New version → Deploy.
  */
 
 /* ==== BEGIN apps-script/Code.gs ==== */
@@ -1541,6 +1542,38 @@ function auroraPrivateSaveReceipt_(table,row,order) {
   });
   table.sheet.getRange(row,1,1,values.length).setValues([values]);
 }
+/**
+ * Fast read-only order lookup. Reading 20+ columns and JSON for every order on
+ * each customer poll can delay OTP display significantly as Sheets grow.
+ * These helpers read only the ID column and the selected receipt JSON cell.
+ * Header validation remains mandatory; operations always use the owner Sheet.
+ */
+function auroraFastOrderTable_(book) {
+  var sheet=book.getSheetByName('orders');
+  if(!sheet||sheet.getLastRow()<1)auroraReject_('not_ready','The private orders Sheet is not initialized.');
+  var width=sheet.getLastColumn(),last=sheet.getLastRow();
+  if(width>100||last>50001)auroraReject_('limit','Private order Sheet exceeds supported size.');
+  var headers=sheet.getRange(1,1,1,width).getValues()[0].map(function(value){return String(value).trim().toLowerCase();});
+  ['id','receipt_json','status','payment_status','updated_at'].forEach(function(key){
+    if(headers.indexOf(key)<0||headers.indexOf(key)!==headers.lastIndexOf(key))
+      auroraReject_('invalid_sheet','Missing or duplicate orders column: '+key);
+  });
+  return {sheet:sheet,headers:headers,rows:[]};
+}
+function auroraFastReceipt_(table,rowNumber){
+  var index=table.headers.indexOf('receipt_json')+1;
+  var value=table.sheet.getRange(rowNumber,index,1,1).getValues()[0][0];
+  var order;
+  try{order=JSON.parse(String(value||''));}catch(_){auroraReject_('not_found','Order receipt not found.');}
+  if(!order||typeof order.id!=='string')auroraReject_('not_found','Invalid order receipt.');
+  return order;
+}
+function auroraFastOrderList_(table){
+  var last=table.sheet.getLastRow();
+  if(last<2)return [];
+  var index=table.headers.indexOf('receipt_json')+1;
+  return table.sheet.getRange(2,index,last-1,1).getValues().map(function(values){return {receipt_json:values[0]};});
+}
 function auroraOperationsOrders_(actor, table) {
   var list = [];
   table.rows.forEach(function(row) {
@@ -1590,8 +1623,8 @@ function auroraOperationsPost_(input) {
     }
     return summary;
   }
-  var book = auroraSpreadsheet_(), table = auroraPrivateTable_(book,'orders');
-  if (input.action === 'staff_orders') return {ok:true,orders:auroraOperationsOrders_(actor,table),role:actor.role};
+  var book = auroraSpreadsheet_(), table = auroraFastOrderTable_(book);
+  if (input.action === 'staff_orders') return {ok:true,orders:auroraOperationsOrders_(actor,{rows:auroraFastOrderList_(table)}),role:actor.role};
   if (input.action !== 'staff_mutate') auroraReject_('invalid_action','Unknown staff action.');
   var action = String(input.operation || '');
   if (!auroraStaffCan_(actor,action)) auroraReject_('forbidden','Your role cannot perform this operation.');
@@ -1599,11 +1632,11 @@ function auroraOperationsPost_(input) {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) auroraReject_('busy','Another order update is in progress. Retry.');
   try {
-    table = auroraPrivateTable_(book,'orders');
+    table = auroraFastOrderTable_(book);
     var rowNumber = auroraPrivateFindRow_(table,orderId);
     if (!rowNumber) auroraReject_('not_found','Order not found.');
-    var record = table.rows.filter(function(row){return String(row.id) === orderId;})[0];
-    var order = JSON.parse(String(record.receipt_json));
+    var order = auroraFastReceipt_(table,rowNumber);
+    if(String(order.id)!==orderId)auroraReject_('not_found','Order ID and receipt do not match.');
     var transitions = {
       confirm:['pending','confirmed'], cancel:['pending','cancelled'],
       start_baking:['confirmed','preparing'], mark_ready:['preparing','ready'],
@@ -1679,26 +1712,35 @@ function auroraCustomerOrderStatus_(input) {
   var orderId = auroraOrderText_(input.order_id,'Order reference',10,150);
   if (!/^ord_[0-9a-f]{8}-[0-9a-f-]{27,}$/.test(orderId)) auroraReject_('not_found','Order reference is invalid.');
   var digits = auroraOrderText_(input.customer_phone,'Phone',7,30).replace(/\D/g,'');
-  var table = auroraPrivateTable_(auroraSpreadsheet_(),'orders');
-  var record = table.rows.filter(function(row){return String(row.id)===orderId;})[0];
-  if (!record || String(record.customer_phone||'').replace(/\D/g,'')!==digits) auroraReject_('not_found','Order reference and phone do not match.');
-  var order = JSON.parse(String(record.receipt_json));
+  var table = auroraFastOrderTable_(auroraSpreadsheet_());
+  var rowNumber=auroraPrivateFindRow_(table,orderId);
+  if (!rowNumber) auroraReject_('not_found','Order reference not found.');
+  var order=auroraFastReceipt_(table,rowNumber);
+  if (String(order.id)!==orderId || String(order.customer_phone||'').replace(/\D/g,'')!==digits)
+    auroraReject_('not_found','Order reference and phone do not match.');
   var hasCapability = typeof input.customer_access_token === 'string' &&
     order.customer_access_token &&
     input.customer_access_token === order.customer_access_token;
+  // A phone/password account proves ownership only if this exact order has
+  // already been linked to that account using the original receipt capability.
+  var hasPhoneOwner=false;
+  if(!hasCapability && input.auth_token && order.customer_account_id){
+    var customer=auroraAccountAuthenticate_('customer',input.auth_token);
+    hasPhoneOwner=String(customer.id)===String(order.customer_account_id);
+  }
   var hasGoogleOwner = false;
-  if (!hasCapability && input.id_token && order.customer_google_sub) {
+  if (!hasCapability && !hasPhoneOwner && input.id_token && order.customer_google_sub) {
     hasGoogleOwner = auroraCustomerIdentity_(input).sub === order.customer_google_sub;
   }
   // Legacy orders predate customer capabilities and may still support
   // limited phone/reference lookup, but NEVER return an OTP on that basis.
-  if (!hasCapability && !hasGoogleOwner && order.customer_access_token) {
+  if (!hasCapability && !hasPhoneOwner && !hasGoogleOwner && order.customer_access_token) {
     auroraReject_('forbidden','A valid receipt access key or linked Google login is required.');
   }
   var result={ok:true,order_id:order.id,status:order.status,updated_at:order.updated_at,
     history:Array.isArray(order.history) ? order.history.slice(-20) : [],rider_name:order.rider_name||'',
     payment_status:order.payment_status,cod_collected:order.cod_collected};
-  if ((hasCapability || hasGoogleOwner) && order.status==='out_for_delivery') {
+  if ((hasCapability || hasPhoneOwner || hasGoogleOwner) && order.status==='out_for_delivery') {
     result.delivery_otp=order.delivery_otp;
   }
   return result;
