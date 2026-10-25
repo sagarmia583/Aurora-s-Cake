@@ -22,6 +22,10 @@ interface OrderTrackingModalProps {
   currency: string;
   onReorder?: (order: Order) => void;
   onSelectedOrderChange?: (orderId: string) => void;
+  syncing?: boolean;
+  syncError?: string;
+  checkedAt?: string;
+  onRefresh?: () => void;
 }
 
 const STAGES: { status: OrderStatus; label: string; icon: string; desc: string }[] = [
@@ -46,6 +50,10 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
   currency,
   onReorder,
   onSelectedOrderChange,
+  syncing=false,
+  syncError='',
+  checkedAt='',
+  onRefresh,
 }) => {
   const [selectedOrderId, setSelectedOrderId] = useState(currentOrderId || orders[0]?.id);
   useEffect(() => {
@@ -119,7 +127,22 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
 
         {/* Content */}
         <div className="overflow-y-auto p-6 space-y-6 flex-1">
-          <p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">{selectedOrder.persistence === 'google_sheets' ? 'Your order was saved to Aurora’s Cake’s Google Sheet. This device keeps a copy of the receipt. Updates appear here when the bakery staff portal is configured and reachable; otherwise this device displays the last saved status. No online payment was collected.' : 'These are demo orders saved on this device. Status changes do not represent a real bakery delivery or payment.'}</p>
+          {selectedOrder.persistence==='google_sheets'?
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-emerald-50 p-3 border border-emerald-100">
+              <div>
+                <p className="text-xs font-semibold text-emerald-900">Live delivery status {syncing?'· Checking…':'· '+(checkedAt?'Checked '+checkedAt:'Not checked yet')}</p>
+                <p className="text-xs text-slate-600">Delivery progress refreshes automatically while this page is open.</p>
+              </div>
+              {onRefresh&&<button type="button" onClick={onRefresh} disabled={syncing}
+                className="rounded-xl bg-white border border-emerald-200 px-3 py-2 text-xs font-semibold flex gap-2 items-center disabled:opacity-50">
+                <RotateCcw size={14}/> {syncing?'Updating…':'Refresh now'}
+              </button>}
+            </div>
+            :<p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">This is a demo order saved on this device, not a real bakery delivery.</p>}
+          {!!syncError && selectedOrder.persistence==='google_sheets'&&
+            <p role="alert" className="text-xs rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950">
+              Live delivery status could not be refreshed: {syncError}. Showing the last confirmed status.
+            </p>}
           {selectedOrder.status === 'cancelled' && <p role="status" className="text-sm font-semibold text-red-700">This order was cancelled.</p>}
           {/* Order Selector Tab if multiple */}
           {orders.length > 1 && (
@@ -140,7 +163,12 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
             </div>
           )}
 
-          {/* Delivery OTP Security Card */}
+          {/* Only the original receipt holder or linked account sees the code after dispatch. */}
+          {selectedOrder.persistence==='google_sheets'&&selectedOrder.status!=='out_for_delivery'
+            &&selectedOrder.status!=='delivered'&&selectedOrder.status!=='cancelled'&&
+            <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+              <Key size={16} className="inline mr-2"/>Your delivery code will appear here automatically when your rider starts delivery. Do not share it before receiving your order.
+            </p>}
           {(selectedOrder.persistence !== 'google_sheets' || selectedOrder.status === 'out_for_delivery') && (
           <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
