@@ -1,14 +1,14 @@
 /**
- * AURORA'S CAKE — ALL-IN-ONE APPS SCRIPT (8 source modules, one Code.gs)
- * Real Orders/COD, Google Owner, Password Staff, Phone Customers,
- * Website CMS Create/Edit/Archive, marketing, content and custom cakes.
- * Back up your existing Sheet. Replace the prior Code.gs completely.
- * Run setupSheetDatabase() for missing private headers without clearing
- * existing non-empty tabs. Deploy → New Web App Version afterward.
- * Private order/payment/customer credentials cannot be altered through CMS.
+ * AURORA'S CAKE — ALL-IN-ONE APPS SCRIPT (9 modules in one Code.gs)
+ * Owner Gmail, Staff passwords, Customer phone accounts/secure history,
+ * complete live CMS and authenticated Google Drive image uploads.
+ * BACK UP SHEET; replace the old Code.gs completely. Run setupSheetDatabase()
+ * preserving existing data, then Deploy → Manage deployments → New version.
+ * Customer account closure retains COD ledger; CMS archives public records.
+ * Google Drive private image folder created when Admin uploads the first photo.
  */
 
-/* ==== BEGIN apps-script/Code.gs ==== */
+/* ===== BEGIN apps-script/Code.gs ===== */
 /**
  * Aurora public content and private cash-on-delivery order API.
  * Public GET reads only explicit public tables. Private POST accepts create_order only; no private list/read API.
@@ -57,6 +57,10 @@ function doGet(e) {
     return auroraResponse_({ok:false,error:'Invalid callback.'});
   }
   var action = params.action || 'public';
+  if(action==='public_image') {
+    try {return auroraResponse_(auroraPublicImage_(params.id||''));}
+    catch(error){return auroraResponse_({ok:false,error:'Image unavailable.'});}
+  }
   if (action !== 'public' && action !== 'health') {
     return auroraResponse_({ok:false,error:'Only the public and health read actions are available.'}, callback);
   }
@@ -98,14 +102,18 @@ function doPost(e) {
   var locked = false;
   try {
     var raw = e && e.postData && e.postData.contents;
-    if (typeof raw !== 'string' || !raw || raw.length > 50000) auroraReject_('invalid_request','Send a JSON order body under 50 KB.');
+    if (typeof raw !== 'string' || !raw || raw.length > 950000) auroraReject_('invalid_request','Request is too large.');
+    // Only the authenticated image-upload route can exceed normal 50 KB JSON.
+    if(raw.length>50000&&!/"action"\s*:\s*"staff_image_upload"/.test(raw.slice(0,500)))
+      auroraReject_('invalid_request','The order body must be under 50 KB.');
     var input;
     try { input = JSON.parse(raw); } catch (_) { auroraReject_('invalid_request','The order body must be valid JSON.'); }
+    if(input&&input.action==='staff_image_upload')return auroraResponse_(auroraImageUpload_(input));
     // Private operations authenticate every POST; never expose these reads via GET.
     // All credential/private account routes use POST; never exposed via public GET.
     if(input && /^(staff_password_login|staff_password_logout|staff_account_create|staff_account_set_active|staff_account_reset_password)$/.test(String(input.action||'')))
       return auroraResponse_(auroraAccountStaffPost_(input));
-    if(input && /^customer_phone_(signup|login|session|logout|orders|profile|claim)$/.test(String(input.action||'')))
+    if(input && /^customer_phone_(signup|login|session|logout|orders|profile|claim|password|close)$/.test(String(input.action||'')))
       return auroraResponse_(auroraAccountCustomerPost_(input));
     if (input && (input.action === 'create_custom_cake' || input.action === 'get_custom_cake_status' || input.action === 'staff_custom_cakes' || input.action === 'staff_custom_quote')) return auroraResponse_(auroraCustomCakePost_(input));
     if (input && input.action === 'get_order_status') return auroraResponse_(auroraCustomerOrderStatus_(input));
@@ -554,9 +562,9 @@ function auroraSeedRows_(name,seed) {
   var alias = {product_addons:'addons',delivery_zones:'zones',delivery_slots:'slots'};
   return seed[alias[name] || name] || [];
 }
-/* ==== END apps-script/Code.gs ==== */
+/* ===== END apps-script/Code.gs ===== */
 
-/* ==== BEGIN apps-script/SeedData.gs ==== */
+/* ===== BEGIN apps-script/SeedData.gs ===== */
 var AURORA_SEED_DATA = {
   "schema_version": 1,
   "settings": {
@@ -1388,9 +1396,9 @@ var AURORA_SEED_DATA = {
   ],
   "reviews": []
 };
-/* ==== END apps-script/SeedData.gs ==== */
+/* ===== END apps-script/SeedData.gs ===== */
 
-/* ==== BEGIN apps-script/StaffOperations.gs ==== */
+/* ===== BEGIN apps-script/StaffOperations.gs ===== */
 /**
  * Authenticated bakery operations for the existing private Google Sheet COD orders.
  * Install alongside Code.gs. All private operations use POST, and each staff
@@ -1696,9 +1704,9 @@ function auroraCustomerOrderStatus_(input) {
   }
   return result;
 }
-/* ==== END apps-script/StaffOperations.gs ==== */
+/* ===== END apps-script/StaffOperations.gs ===== */
 
-/* ==== BEGIN apps-script/AccountAuth.gs ==== */
+/* ===== BEGIN apps-script/AccountAuth.gs ===== */
 /**
  * Private, free Google-Sheets account system.
  * Staff: owner verifies with Google; employees use username + password.
@@ -1887,6 +1895,39 @@ function auroraAccountCustomerPost_(input) {
   var person=auroraAccountAuthenticate_('customer',input.auth_token);
   if(action==='customer_phone_session')return {ok:true,profile:auroraAccountSafeCustomer_(person)};
   if(action==='customer_phone_logout'){auroraAccountSignOut_('customer',input.auth_token);return {ok:true};}
+  if(action==='customer_phone_password'||action==='customer_phone_close'){
+    var oldPassword=String(input.current_password||'');
+    if(oldPassword.length<10||auroraAccountHash_(oldPassword,String(person.password_salt))!==person.password_hash)
+      auroraReject_('invalid_credentials','Current password was not accepted.');
+    var accountLock=LockService.getScriptLock();
+    if(!accountLock.tryLock(10000))auroraReject_('busy','Another account update is in progress.');
+    try{
+      var accounts=auroraPrivateTable_(auroraSpreadsheet_(),'customer_accounts');
+      var current=auroraAccountValue_(accounts,person.id);
+      if(!current||!(current.active===true||String(current.active).toLowerCase()==='true'))
+        auroraReject_('unauthorized','Your account is no longer active.');
+      if(auroraAccountHash_(oldPassword,String(current.password_salt))!==current.password_hash)
+        auroraReject_('invalid_credentials','Current password was not accepted.');
+      if(action==='customer_phone_close'){
+        current.active=false;
+        current.name='Closed account';current.email='';current.address='';
+        current.updated_at=new Date().toISOString();
+        auroraAccountSave_(accounts,current);
+        auroraAccountRevokeAll_('customer',current.id);
+        // Financial records/receipts remain unchanged for COD reconciliation.
+        return {ok:true,closed:true};
+      }
+      var freshPassword=auroraAccountPassword_(input.new_password);
+      if(freshPassword===oldPassword)auroraReject_('invalid_password','Choose a new password.');
+      var salt=auroraAccountToken_();
+      current.password_salt=salt;
+      current.password_hash=auroraAccountHash_(freshPassword,salt);
+      current.updated_at=new Date().toISOString();
+      auroraAccountSave_(accounts,current);
+      auroraAccountRevokeAll_('customer',current.id);
+      return {ok:true,auth_token:auroraAccountStart_('customer',current.id)};
+    }finally{accountLock.releaseLock();}
+  }
   if(action==='customer_phone_profile'){
     var n=auroraOrderText_(input.name,'Name',2,100);
     var address=auroraOptionalText_(input.address,'Address',300);
@@ -1933,9 +1974,9 @@ function auroraAccountCustomerPost_(input) {
   }
   auroraReject_('invalid_action','Unknown customer phone account action.');
 }
-/* ==== END apps-script/AccountAuth.gs ==== */
+/* ===== END apps-script/AccountAuth.gs ===== */
 
-/* ==== BEGIN apps-script/CustomerAccounts.gs ==== */
+/* ===== BEGIN apps-script/CustomerAccounts.gs ===== */
 /**
  * Optional FREE Google customer accounts; no SMS gateway and no email-sending API.
  * Guest COD remains possible. A customer holding an original confirmed receipt
@@ -2011,9 +2052,9 @@ function auroraCustomerAccountsPost_(input) {
   }
   auroraReject_('invalid_action','Unsupported customer account action.');
 }
-/* ==== END apps-script/CustomerAccounts.gs ==== */
+/* ===== END apps-script/CustomerAccounts.gs ===== */
 
-/* ==== BEGIN apps-script/LiveCatalog.gs ==== */
+/* ===== BEGIN apps-script/LiveCatalog.gs ===== */
 /**
  * Free authenticated live catalogue operations for the original public Sheets.
  * Deliberately limited to allowlisted fields. Staff cannot edit arbitrary cells
@@ -2103,9 +2144,9 @@ function auroraCatalogPost_(input) {
     return {ok:true,updated:true};
   } finally {lock.releaseLock();}
 }
-/* ==== END apps-script/LiveCatalog.gs ==== */
+/* ===== END apps-script/LiveCatalog.gs ===== */
 
-/* ==== BEGIN apps-script/PublicCms.gs ==== */
+/* ===== BEGIN apps-script/PublicCms.gs ===== */
 /**
  * Private website CMS. Never exposes private orders or account tables.
  * All changes are validated server-side against PUBLIC_TABLE_SCHEMAS.
@@ -2156,7 +2197,7 @@ function auroraCmsValidate_(name,field,value){
   }
   var str=auroraCmsString_(value,5000);
   if(AURORA_CMS_URL_FIELDS_.indexOf(field)!==-1||/(_url|_image)$/.test(field)){
-    if(str&&!/^https:\/\/[^\s<>"']+$/i.test(str)&&!/^\/images\/[a-zA-Z0-9_./-]+$/.test(str))
+    if(str&&!/^https:\/\/[^\s<>"']+$/i.test(str)&&!/^\/images\/[a-zA-Z0-9_./-]+$/.test(str)&&!/^\/api\/images\/[A-Za-z0-9_-]{12,150}$/.test(str))
       auroraReject_('invalid_url','Images and links must be HTTPS or an existing /images/ path.');
   }
   if(field==='color_hex'&&str&&!/^#[0-9a-f]{6}$/i.test(str))auroraReject_('invalid_color','Use a six-digit hex color.');
@@ -2318,9 +2359,72 @@ function auroraCmsPost_(input){
     return {ok:true,operation:action==='staff_cms_delete'?'archived':action==='staff_cms_create'?'created':'updated'};
   }finally{lock.releaseLock();}
 }
-/* ==== END apps-script/PublicCms.gs ==== */
+/* ===== END apps-script/PublicCms.gs ===== */
 
-/* ==== BEGIN apps-script/CustomCakeRequests.gs ==== */
+/* ===== BEGIN apps-script/PublicImages.gs ===== */
+/**
+ * Free private Google Drive storage for small public bakery images.
+ * The Web App runs as owner. Only authenticated Admin uploads.
+ * Public GET is restricted to files in this dedicated generated folder.
+ * Raw Google Drive file links and unrelated Drive files are never exposed.
+ */
+var AURORA_IMAGE_MAX_BYTES_=650000;
+var AURORA_IMAGE_FOLDER_PROP_='AURORA_PUBLIC_IMAGE_FOLDER_ID';
+function auroraImageFolder_(create){
+  var props=PropertiesService.getScriptProperties(),id=props.getProperty(AURORA_IMAGE_FOLDER_PROP_);
+  if(id){
+    var existing=DriveApp.getFolderById(id);
+    if(existing.isTrashed())auroraReject_('not_ready','Image folder has been deleted.');
+    return existing;
+  }
+  if(!create)auroraReject_('not_found','Public bakery images have not been initialized.');
+  var folder=DriveApp.createFolder('AurorasCake_Web_Images_'+Utilities.getUuid());
+  props.setProperty(AURORA_IMAGE_FOLDER_PROP_,folder.getId());
+  return folder;
+}
+function auroraImageMime_(bytes){
+  if(bytes.length>3&&bytes[0]===255&&bytes[1]===216&&bytes[2]===255)return 'image/jpeg';
+  if(bytes.length>8&&bytes.slice(0,8).join(',')==='137,80,78,71,13,10,26,10')return 'image/png';
+  if(bytes.length>12&&String.fromCharCode.apply(null,bytes.slice(0,4))==='RIFF'&&
+    String.fromCharCode.apply(null,bytes.slice(8,12))==='WEBP')return 'image/webp';
+  auroraReject_('invalid_image','Only genuine JPEG, PNG or WebP images are supported.');
+}
+function auroraImageUpload_(input){
+  var actor=auroraStaffAuthenticate_(input);
+  if(actor.role!=='super_admin'&&actor.role!=='admin')auroraReject_('forbidden','Only the shop administrator can upload public images.');
+  if(typeof input.base64!=='string'||!/^([A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(input.base64)||
+      input.base64.length>Math.ceil(AURORA_IMAGE_MAX_BYTES_*4/3)+8)
+    auroraReject_('invalid_image','Please resize or compress the image (max 650 KB).');
+  var bytes=Utilities.base64Decode(input.base64);
+  if(bytes.length===0||bytes.length>AURORA_IMAGE_MAX_BYTES_)auroraReject_('invalid_image','Image is too large.');
+  // Apps Script base64Decode returns signed bytes; normalize for magic detection.
+  var positive=bytes.map(function(b){return (b+256)%256;});
+  var mime=auroraImageMime_(positive);
+  if(input.mime_type&&input.mime_type!==mime)auroraReject_('invalid_image','Image file content does not match its type.');
+  var extension=mime==='image/jpeg'?'jpg':mime==='image/png'?'png':'webp';
+  var cache=CacheService.getScriptCache(),key='aurora_image_hour_'+auroraAccountDigest_(actor.email).slice(0,20);
+  var count=Number(cache.get(key)||0);
+  if(count>=20)auroraReject_('rate_limited','Image upload limit reached. Try again later.');
+  cache.put(key,String(count+1),3600);
+  var folder=auroraImageFolder_(true);
+  var file=folder.createFile(Utilities.newBlob(bytes,mime,'aurora_'+Utilities.getUuid()+'.'+extension));
+  return {ok:true,url:'/api/images/'+file.getId(),mime_type:mime,bytes:bytes.length};
+}
+function auroraPublicImage_(id){
+  if(!/^[A-Za-z0-9_-]{12,150}$/.test(String(id||'')))auroraReject_('not_found','Unknown image.');
+  var folder=auroraImageFolder_(false),file=DriveApp.getFileById(id);
+  if(file.isTrashed()||!['image/jpeg','image/png','image/webp'].includes(file.getMimeType()))
+    auroraReject_('not_found','Image not found.');
+  var parents=file.getParents(),owned=false;
+  while(parents.hasNext()){if(parents.next().getId()===folder.getId()){owned=true;break;}}
+  if(!owned)auroraReject_('not_found','Image not found.');
+  if(file.getSize()>AURORA_IMAGE_MAX_BYTES_)auroraReject_('too_large','Image exceeds the public delivery limit.');
+  var raw=file.getBlob().getBytes();
+  return {ok:true,mime_type:file.getMimeType(),base64:Utilities.base64Encode(raw)};
+}
+/* ===== END apps-script/PublicImages.gs ===== */
+
+/* ===== BEGIN apps-script/CustomCakeRequests.gs ===== */
 /**
  * Free custom-cake quote requests. Public create/status and authenticated
  * staff queue share a private Google Sheet tab, never included in public GET.
@@ -2453,4 +2557,4 @@ function auroraCustomCakePost_(input) {
   }
   auroraReject_('invalid_action','Invalid custom cake action.');
 }
-/* ==== END apps-script/CustomCakeRequests.gs ==== */
+/* ===== END apps-script/CustomCakeRequests.gs ===== */
