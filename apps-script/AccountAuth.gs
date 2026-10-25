@@ -231,8 +231,8 @@ function auroraAccountCustomerPost_(input) {
     return {ok:true,profile:auroraAccountSafeCustomer_(person)};
   }
   if(action==='customer_phone_orders') {
-    var t=auroraPrivateTable_(auroraSpreadsheet_(),'orders'),results=[];
-    t.rows.forEach(function(row){
+    var t=auroraFastOrderTable_(auroraSpreadsheet_()),results=[];
+    auroraFastOrderList_(t).forEach(function(row){
       var order;try{order=JSON.parse(String(row.receipt_json||''));}catch(_){return;}
       if(order&&order.customer_account_id===person.id)results.push(auroraCustomerSafeReceipt_(order));
     });
