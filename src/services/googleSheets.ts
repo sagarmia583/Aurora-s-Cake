@@ -237,6 +237,14 @@ export function normalizePublicSiteData(input: unknown, defaults: PublicSiteData
 /** Optional same-origin free Netlify relay; only one fixed path is accepted.
  * Backend URL stays pinned to the validated Google Apps Script deployment.
  */
+/** Same-origin Vercel Preview requests need the site's access cookie, if protected.
+ * Direct requests to Google Apps Script must never carry browser credentials.
+ * The Vercel relay does NOT forward browser cookies to Google.
+ */
+export function sheetsPostCredentials(resolvedUrl: string): RequestCredentials {
+  return resolvedUrl === '/api/operations' ? 'same-origin' : 'omit';
+}
+
 export function resolveSheetsPostEndpoint(endpoint: string): string {
   const direct=validateGoogleSheetsEndpoint(endpoint).href;
   const relay=(import.meta.env?.VITE_SHEETS_POST_PROXY as string|undefined)?.trim();
