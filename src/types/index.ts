@@ -205,6 +205,8 @@ export interface Order {
   payment_method: PaymentMethod;
   payment_status: PaymentStatus;
   delivery_otp: string;
+  /** Kept only on the original receipt and in the private sheet; never shown to staff. */
+  customer_access_token?: string;
   rider_id?: string;
   rider_name?: string;
   cod_amount: number;
