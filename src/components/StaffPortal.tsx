@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, RefreshCw, ShieldCheck, LockKeyhole, Truck, PackageCheck } from 'lucide-react';
-import { checkStaffSession, getStaffOrders, mutateStaffOrder } from '../services/sheetStaffApi';
+import { checkStaffSession, getStaffOrders, mutateStaffOrder, signInStaffPassword, createStaffAccount } from '../services/sheetStaffApi';
 import type { StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
 import { LiveShopEditor } from './LiveShopEditor';
@@ -45,6 +45,10 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const oauthClientId = getAuroraGoogleClientId();
   const signinRef = useRef<HTMLDivElement>(null);
   const [identity, setIdentity] = useState<(StaffSession & { token: string }) | null>(null);
+  const [username,setUsername]=useState('');
+  const [password,setPassword]=useState('');
+  const [newStaff,setNewStaff]=useState({name:'',username:'',password:'',role:'kitchen_manager' as StaffRoleName});
+  const [creatingStaff,setCreatingStaff]=useState(false);
   const [fedcmButton, setFedcmButton] = useState(true);
   const [googleUiError, setGoogleUiError] = useState('');
   const [orders, setOrders] = useState<StaffOrder[]>([]);
@@ -104,6 +108,48 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     return () => { active = false; script?.removeEventListener('load', render); script?.removeEventListener('error', scriptError); };
   }, [isOpen, identity, oauthClientId, fedcmButton, signIn]);
 
+  const passwordSignIn=async(e:React.FormEvent)=>{
+    e.preventDefault();if(loading)return;setLoading(true);setError('');
+    try{
+      const token=await signInStaffPassword(endpoint,username,password);
+      const profile=await checkStaffSession(endpoint,token);
+      setIdentity({...profile,token});
+      setStaffProfiles(profile.staff_profiles??[]);
+      setPassword('');
+      setRiderEmail(profile.riders[0]?.email||'');
+    }catch(caught){setError(caught instanceof Error?caught.message:'Staff sign-in failed.');}
+    finally{setLoading(false);}
+  };
+  const createEmployee=async(e:React.FormEvent)=>{
+    e.preventDefault();if(!identity||identity.role!=='super_admin')return;
+    setCreatingStaff(true);setError('');
+    try {
+      await createStaffAccount(endpoint,identity.token,newStaff.name,newStaff.username,newStaff.password,newStaff.role);
+      setNewStaff({name:'',username:'',password:'',role:'kitchen_manager'});
+      const result=await checkStaffSession(endpoint,identity.token);
+      setStaffProfiles(result.staff_profiles??[]);
+    }catch(caught){setError(caught instanceof Error?caught.message:'Staff account could not be created.');}
+    finally{setCreatingStaff(false);}
+  };
+  useEffect(()=>{
+    if(!isOpen||identity)return;
+    let token='';try{token=sessionStorage.getItem('aurora_staff_session_v1')||'';}catch{}
+    if(!token)return;
+    let active=true;
+    checkStaffSession(endpoint,token).then(profile=>{
+      if(!active)return;
+      setIdentity({...profile,token});
+      setStaffProfiles(profile.staff_profiles??[]);
+      setRiderEmail(profile.riders[0]?.email||'');
+    }).catch(()=>{try{sessionStorage.removeItem('aurora_staff_session_v1');}catch{}});
+    return()=>{active=false;};
+  },[isOpen,identity,endpoint]);
+  useEffect(()=>{
+    try{
+      if(identity && /^[a-f0-9-]{72}$/i.test(identity.token))sessionStorage.setItem('aurora_staff_session_v1',identity.token);
+    }catch{}
+  },[identity]);
+  
   const refresh = useCallback(async () => {
     if (!identity) return;
     try {
@@ -172,7 +218,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
               <LockKeyhole className="mx-auto text-emerald-700" size={44} />
               <h3 className="text-xl font-bold">Verified staff sign-in</h3>
               <p className="text-sm text-slate-600">Use your approved Google account. Your access level and delivery assignments are checked on the server.</p>
-              <div ref={signinRef} className="flex justify-center min-h-12" />
+              <p className="text-xs text-slate-500">Super Admin only: Google Sign-In</p>
+                            <div ref={signinRef} className="flex justify-center min-h-12" />
               <button type="button" onClick={() => { setGoogleUiError(''); setFedcmButton(current => !current); }} className="text-sm underline text-emerald-800">
                 {fedcmButton ? 'Google button not opening? Try classic popup mode' : 'Try browser-managed Google sign-in instead'}
               </button>
@@ -182,7 +229,20 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                 <p>Current origin: <code className="break-all font-mono">{typeof window !== 'undefined' ? window.location.origin : ''}</code></p>
                 <p>After adding it, reload this page. Also allow Google sign-in popups, and use an account listed as a Test User if OAuth is in Testing mode.</p>
               </div>
-              {loading && <p role="status">Verifying your Google account…</p>}
+              <div className="border-t border-slate-200 pt-5 text-left">
+                <h4 className="font-bold text-slate-800 text-center mb-3">Employee Login</h4>
+                <p className="text-center text-xs text-slate-500 mb-3">Kitchen, Rider, Manager and Accountant use the username and password created by Super Admin.</p>
+                <form onSubmit={passwordSignIn} className="space-y-3">
+                  <input value={username} onChange={e=>setUsername(e.target.value)} required autoComplete="username"
+                    placeholder="Employee username" aria-label="Employee username" className="w-full rounded-xl border p-3" />
+                  <input value={password} onChange={e=>setPassword(e.target.value)} required type="password" autoComplete="current-password"
+                    placeholder="Password" aria-label="Employee password" className="w-full rounded-xl border p-3" />
+                  <button disabled={loading} className="w-full bg-emerald-800 text-white font-semibold rounded-xl p-3 disabled:opacity-50" type="submit">
+                    {loading?'Signing in…':'Sign in as Staff'}
+                  </button>
+                </form>
+              </div>
+              {loading && <p role="status">Verifying your account…</p>}
             </div>
           ) : (
             <>
@@ -191,7 +251,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                 <div className="flex gap-2 items-center">
                   <span className="text-xs text-slate-500">Last refreshed {updatedAt || '—'}</span>
                   <button type="button" onClick={() => void refresh()} className="flex items-center gap-2 rounded-xl bg-white border border-slate-200 px-3 py-2 text-sm"><RefreshCw size={15} /> Refresh</button>
-                  <button type="button" onClick={() => { setIdentity(null); setOrders([]); setStaffProfiles([]); setError(''); }} className="rounded-xl px-3 py-2 border bg-white text-sm">Sign out</button>
+                  <button type="button" onClick={() => { setIdentity(null); setOrders([]); setStaffProfiles([]); setError('');try{sessionStorage.removeItem('aurora_staff_session_v1');}catch{} }} className="rounded-xl px-3 py-2 border bg-white text-sm">Sign out</button>
                 </div>
               </div>
               {identity.role === 'super_admin' && (
@@ -209,9 +269,9 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                   {staffProfiles.length ? (
                     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                       {staffProfiles.map(person => (
-                        <article key={person.email} className="rounded-xl border border-slate-200 p-3 min-w-0">
+                        <article key={person.username||person.email} className="rounded-xl border border-slate-200 p-3 min-w-0">
                           <strong className="block break-words text-slate-900">{person.name}</strong>
-                          <p className="text-sm break-all text-slate-600">{person.email}</p>
+                          <p className="text-sm break-all text-slate-600">{person.username ? '@'+person.username : person.email}</p>
                           <span className="inline-block mt-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-900">
                             {person.role.replaceAll('_', ' ')}
                           </span>
@@ -221,10 +281,28 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                     </div>
                   ) : <p className="text-sm text-amber-800">This Apps Script deployment has not returned the staff directory yet. Install the newest all-in-one Code.gs and deploy a new version.</p>}
                   <p className="text-xs text-slate-500">
-                    To add staff, open Apps Script → Project Settings → Script Properties → AURORA_STAFF_USERS.
-                    Keep the existing owner entry and add each employee's real Gmail and role. After saving, refresh profiles.
-                    Each person signs in separately with their own Google account; a Super Admin cannot impersonate another profile.
+                    New employees sign in with the username and initial password you create below.
+                    Keep the owner Google account private. Passwords cannot be viewed again after creation.
+                    Older Google-allowlisted staff can still sign in until removed from the Script Property.
                   </p>
+                  <form onSubmit={createEmployee} className="border-t pt-4 grid sm:grid-cols-2 gap-3 text-sm">
+                    <h4 className="font-bold sm:col-span-2">Create new employee login</h4>
+                    <input required aria-label="New staff name" placeholder="Staff full name" value={newStaff.name}
+                      onChange={e=>setNewStaff(v=>({...v,name:e.target.value}))} className="border rounded-lg p-2"/>
+                    <input required aria-label="New staff username" placeholder="Username, e.g. rider01" value={newStaff.username}
+                      onChange={e=>setNewStaff(v=>({...v,username:e.target.value}))} className="border rounded-lg p-2"/>
+                    <input required type="password" minLength={10} aria-label="New staff password" placeholder="Password (10+ characters)"
+                      value={newStaff.password} onChange={e=>setNewStaff(v=>({...v,password:e.target.value}))} className="border rounded-lg p-2"/>
+                    <select aria-label="New staff role" value={newStaff.role} onChange={e=>setNewStaff(v=>({...v,role:e.target.value as StaffRoleName}))} className="border rounded-lg p-2">
+                      {(['admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'] as StaffRoleName[]).map(role=>(
+                        <option key={role} value={role}>{role.replaceAll('_',' ')}</option>
+                      ))}
+                    </select>
+                    <button type="submit" disabled={creatingStaff} className="sm:col-span-2 rounded-xl bg-emerald-800 text-white font-semibold p-3 disabled:opacity-50">
+                      {creatingStaff?'Creating…':'Create staff account'}
+                    </button>
+                    <p className="text-xs sm:col-span-2 text-slate-500">Share the initial password privately with the employee. Staff credentials are never emailed automatically.</p>
+                  </form>
                 </section>
               )}
               <p className="text-sm text-slate-600">Showing up to 100 recent authorized orders. Status updates are written to the same private Sheet used by Customer checkout.</p>
