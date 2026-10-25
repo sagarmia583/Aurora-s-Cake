@@ -1,0 +1,10 @@
+# Netlify Free deployment: security headers for customer and staff pages.
+# Build settings remain managed by the connected Netlify site.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=()"
+    Strict-Transport-Security = "max-age=15552000"
