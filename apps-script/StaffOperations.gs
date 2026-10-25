@@ -162,7 +162,23 @@ function auroraOperationsOrders_(actor, table) {
 }
 function auroraOperationsPost_(input) {
   var actor = auroraStaffAuthenticate_(input);
-  if (input.action === 'staff_session') return {ok:true,role:actor.role,name:actor.name,email:actor.email,riders:['super_admin','admin','delivery_manager'].indexOf(actor.role)===-1?[]:Object.keys(actor.people).filter(function(email){return actor.people[email].role==='delivery_man';}).map(function(email){return {email:email,name:String(actor.people[email].name||email)};})};
+  if (input.action === 'staff_session') {
+    var summary={ok:true,role:actor.role,name:actor.name,email:actor.email,
+      riders:['super_admin','admin','delivery_manager'].indexOf(actor.role)===-1?[]:
+        Object.keys(actor.people).filter(function(email){
+          return actor.people[email] && actor.people[email].role==='delivery_man';
+        }).map(function(email){return {email:email,name:String(actor.people[email].name||email).slice(0,100)};})};
+    // Directory is private; expose only to the verified super_admin, never via GET.
+    if(actor.role==='super_admin'){
+      summary.staff_profiles=Object.keys(actor.people).filter(function(email){
+        var person=actor.people[email];
+        return person && AURORA_STAFF_ROLES_.indexOf(person.role)!==-1 &&
+          /^[^\s@]+@[^\s@]+\\.[^\s@]+$/.test(email);
+      }).map(function(email){return {email:email,name:String(actor.people[email].name||email).slice(0,100),role:actor.people[email].role};})
+        .sort(function(a,b){return a.role==='super_admin'?-1:b.role==='super_admin'?1:a.name.localeCompare(b.name);}).slice(0,200);
+    }
+    return summary;
+  }
   var book = auroraSpreadsheet_(), table = auroraPrivateTable_(book,'orders');
   if (input.action === 'staff_orders') return {ok:true,orders:auroraOperationsOrders_(actor,table),role:actor.role};
   if (input.action !== 'staff_mutate') auroraReject_('invalid_action','Unknown staff action.');
