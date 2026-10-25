@@ -5,7 +5,7 @@ import { verifyCustomerGoogle, linkCustomerReceipt, recoverCustomerReceipts } fr
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
 
 type GoogleSdk = {
-  initialize: (options: { client_id: string; callback: (result:{credential?:string})=>void }) => void;
+  initialize: (options: { client_id: string; callback: (result:{credential?:string})=>void; ux_mode?:'popup'; use_fedcm_for_button?:boolean;auto_select?:boolean }) => void;
   renderButton: (element:HTMLElement, options:{theme:string;size:string;text:string}) => void;
 };
 const sdk=():GoogleSdk|undefined=>
@@ -24,6 +24,8 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
   const clientId=getAuroraGoogleClientId();
   const loginRef=useRef<HTMLDivElement>(null);
   const [account,setAccount]=useState<{email:string;name:string;token:string}|null>(null);
+  const [fedcmButton,setFedcmButton]=useState(true);
+  const [googleUiError,setGoogleUiError]=useState('');
   const [linked,setLinked]=useState<Order[]>([]);
   const [error,setError]=useState('');
   const [busy,setBusy]=useState(false);
@@ -46,8 +48,12 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
       if(!active||!loginRef.current||!sdk())return;
       loginRef.current.replaceChildren();
       const id=sdk()!;
-      id.initialize({client_id:clientId,callback:r=>{if(r.credential)void signIn(r.credential);}});
-      id.renderButton(loginRef.current,{theme:'outline',size:'large',text:'signin_with'});
+      try{
+        id.initialize({client_id:clientId,ux_mode:'popup',use_fedcm_for_button:fedcmButton,auto_select:false,
+          callback:r=>{if(r.credential)void signIn(r.credential);else setGoogleUiError('Google did not return a login credential. Check the authorized origin.');}});
+        id.renderButton(loginRef.current,{theme:'outline',size:'large',text:'signin_with'});
+        setGoogleUiError('');
+      }catch{setGoogleUiError('Google Sign-In could not initialize. Disable browser extensions and reload.');}
     };
     let script=document.getElementById('aurora-google-identity') as HTMLScriptElement|null;
     if(!script){
@@ -56,10 +62,12 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
       script.src='https://accounts.google.com/gsi/client';
       script.async=true;document.head.appendChild(script);
     }
+    const scriptError=()=>{if(active)setGoogleUiError('Google Sign-In script was blocked. Check browser privacy settings and reload.');};
     script.addEventListener('load',render);
+    script.addEventListener('error',scriptError);
     render();
-    return ()=>{active=false;script?.removeEventListener('load',render);};
-  },[open,account,clientId,signIn]);
+    return ()=>{active=false;script?.removeEventListener('load',render);script?.removeEventListener('error',scriptError);};
+  },[open,account,clientId,fedcmButton,signIn]);
 
   const refresh=async()=>{
     if(!account)return;
@@ -97,6 +105,11 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
         :!account?<div className="space-y-4 text-center">
           <p className="text-sm text-slate-700">Sign in to recover receipts that you previously linked to this Google account. A phone number alone does not prove ownership without SMS verification.</p>
           <div ref={loginRef} className="min-h-12 flex justify-center"/>
+          <button type="button" className="text-xs underline text-emerald-800" onClick={()=>{setGoogleUiError('');setFedcmButton(v=>!v);}}>
+            {fedcmButton?'Google button not working? Try classic popup mode':'Try browser-managed Google sign-in instead'}
+          </button>
+          <p className="text-xs text-slate-500 break-all">Google OAuth origin: {typeof window !== 'undefined'?window.location.origin:''}</p>
+          {googleUiError&&<p role="alert" className="rounded-lg p-3 bg-red-50 text-sm text-red-800">{googleUiError}</p>
         </div>:<>
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div><p className="font-bold">{account.name}</p><p className="text-sm text-slate-500">{account.email}</p></div>
