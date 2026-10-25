@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, RefreshCw, ShieldCheck, LockKeyhole, Truck, PackageCheck } from 'lucide-react';
-import { checkStaffSession, getStaffOrders, mutateStaffOrder, signInStaffPassword, createStaffAccount } from '../services/sheetStaffApi';
+import { checkStaffSession, getStaffOrders, mutateStaffOrder, signInStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword } from '../services/sheetStaffApi';
 import type { StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
 import { LiveShopEditor } from './LiveShopEditor';
@@ -49,6 +49,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [password,setPassword]=useState('');
   const [newStaff,setNewStaff]=useState({name:'',username:'',password:'',role:'kitchen_manager' as StaffRoleName});
   const [creatingStaff,setCreatingStaff]=useState(false);
+  const [resetFor,setResetFor]=useState('');
+  const [resetPassword,setResetPassword]=useState('');
   const [fedcmButton, setFedcmButton] = useState(true);
   const [googleUiError, setGoogleUiError] = useState('');
   const [orders, setOrders] = useState<StaffOrder[]>([]);
@@ -169,6 +171,27 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     return () => window.clearInterval(interval);
   }, [isOpen, identity, refresh]);
 
+  const toggleStaff=async(username:string,active:boolean)=>{
+    if(!identity||identity.role!=='super_admin'||!window.confirm(active?'Enable this staff account?':'Disable this staff account and revoke its sessions?'))return;
+    setRefreshingStaff(true);setError('');
+    try{
+      await changeStaffStatus(endpoint,identity.token,username,active);
+      const profile=await checkStaffSession(endpoint,identity.token);
+      setStaffProfiles(profile.staff_profiles??[]);
+    }catch(caught){setError(caught instanceof Error?caught.message:'Staff status could not be updated.');}
+    finally{setRefreshingStaff(false);}
+  };
+  const resetEmployeePassword=async(event:React.FormEvent)=>{
+    event.preventDefault();
+    if(!identity||identity.role!=='super_admin'||!resetFor)return;
+    setRefreshingStaff(true);setError('');
+    try{
+      await resetStaffPassword(endpoint,identity.token,resetFor,resetPassword);
+      setResetFor('');setResetPassword('');
+    }catch(caught){setError(caught instanceof Error?caught.message:'Could not reset employee password.');}
+    finally{setRefreshingStaff(false);}
+  };
+
   const refreshStaffProfiles = useCallback(async () => {
     if (!identity || identity.role !== 'super_admin') return;
     setRefreshingStaff(true);
@@ -276,6 +299,15 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                             {person.role.replaceAll('_', ' ')}
                           </span>
                           {person.email === identity.email && <span className="ml-2 text-xs text-slate-500">You</span>}
+                          {person.username && (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button type="button" disabled={refreshingStaff} onClick={()=>void toggleStaff(person.username!,person.active===false)}
+                                className="text-xs underline text-emerald-800 disabled:opacity-50">
+                                {person.active===false?'Enable account':'Disable account'}
+                              </button>
+                              <button type="button" onClick={()=>{setResetFor(person.username!);setResetPassword('');}} className="text-xs underline text-slate-700">Reset password</button>
+                            </div>
+                          )}
                         </article>
                       ))}
                     </div>
@@ -285,6 +317,16 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                     Keep the owner Google account private. Passwords cannot be viewed again after creation.
                     Older Google-allowlisted staff can still sign in until removed from the Script Property.
                   </p>
+                  {resetFor && (
+                    <form onSubmit={resetEmployeePassword} className="border rounded-xl p-3 flex flex-wrap items-center gap-2">
+                      <label className="text-sm font-medium">New password for @{resetFor}</label>
+                      <input type="password" required minLength={10} autoComplete="new-password" value={resetPassword}
+                        onChange={e=>setResetPassword(e.target.value)} placeholder="10+ characters" aria-label="New staff account password"
+                        className="border rounded-lg p-2 flex-1 min-w-40"/>
+                      <button disabled={refreshingStaff} type="submit" className="bg-emerald-800 text-white p-2 rounded-xl">Save & revoke sessions</button>
+                      <button type="button" onClick={()=>{setResetFor('');setResetPassword('');}} className="border p-2 rounded-xl">Cancel</button>
+                    </form>
+                  )}
                   <form onSubmit={createEmployee} className="border-t pt-4 grid sm:grid-cols-2 gap-3 text-sm">
                     <h4 className="font-bold sm:col-span-2">Create new employee login</h4>
                     <input required aria-label="New staff name" placeholder="Staff full name" value={newStaff.name}
