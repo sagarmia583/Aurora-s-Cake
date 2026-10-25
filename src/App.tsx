@@ -25,7 +25,7 @@ import { mockDb } from './services/mockDatabase';
 import { supabaseDataService } from './services/supabaseDataService';
 import { useGoogleSheetContent } from './hooks/useGoogleSheetContent';
 import { SheetContentPanel } from './components/SheetContentPanel';
-import { loadConfirmedSheetOrders, rememberConfirmedSheetOrder } from './services/googleSheetOrders';
+import { loadConfirmedSheetOrders, rememberConfirmedSheetOrder, removeConfirmedSheetOrdersById } from './services/googleSheetOrders';
 import { fetchCustomerOrderStatus } from './services/sheetStaffApi';
 import { reconcilePublicCart, reorderFromPublicOrder } from './services/reconcilePublicCart';
 import { 
@@ -54,6 +54,7 @@ export default function App() {
   const [isStaffPortalOpen, setIsStaffPortalOpen] = useState(false);
   const [isCustomerAccountOpen, setIsCustomerAccountOpen] = useState(false);
   const [customerGoogleToken, setCustomerGoogleToken] = useState('');
+  const [restoredSessionOrderIds, setRestoredSessionOrderIds] = useState<string[]>([]);
   // Dual Experience: Responsive Website vs Mobile App
   const [viewMode, setViewMode] = useState<ViewMode>('web');
 
@@ -413,7 +414,7 @@ export default function App() {
       {activeRole !== 'customer' && <div className="mx-auto my-3 w-full max-w-6xl px-5 text-xs text-slate-500">Website content is managed in Google Sheets. These Studio tools are local demonstrations. Manage real orders in the private orders and order_items Sheet tabs. Content edits here are replaced on the next Sheet refresh.</div>}
 
       <Suspense fallback={null}><StaffPortal isOpen={isStaffPortalOpen} onClose={() => setIsStaffPortalOpen(false)} endpoint={sheetContent.endpoint} onCatalogUpdated={() => { void sheetContent.refresh(); }} /></Suspense>
-      <Suspense fallback={null}><CustomerAccountPortal open={isCustomerAccountOpen} onClose={() => setIsCustomerAccountOpen(false)} endpoint={sheetContent.endpoint} localReceipts={orders.filter(o => o.persistence === 'google_sheets')} onIdentityToken={setCustomerGoogleToken} onRecover={recovered => { recovered.forEach(rememberConfirmedSheetOrder); setOrders(previous => { const byId = new Map(previous.map(o => [o.id,o])); recovered.forEach(o => byId.set(o.id,o)); return Array.from(byId.values()); }); }} /></Suspense>
+      <Suspense fallback={null}><CustomerAccountPortal open={isCustomerAccountOpen} onClose={() => setIsCustomerAccountOpen(false)} endpoint={sheetContent.endpoint} localReceipts={orders.filter(o => o.persistence === 'google_sheets')} onIdentityToken={setCustomerGoogleToken} onSignOut={() => { removeConfirmedSheetOrdersById(restoredSessionOrderIds); setOrders(previous => previous.filter(order => !restoredSessionOrderIds.includes(order.id))); setRestoredSessionOrderIds([]); }} onRecover={recovered => { const existing = new Set(loadConfirmedSheetOrders().map(order => order.id)); setRestoredSessionOrderIds(previous => [...new Set([...previous, ...recovered.filter(order => !existing.has(order.id)).map(order => order.id)])]); recovered.forEach(rememberConfirmedSheetOrder); setOrders(previous => { const byId = new Map(previous.map(o => [o.id,o])); recovered.forEach(o => byId.set(o.id,o)); return Array.from(byId.values()); }); }} /></Suspense>
       <SheetContentPanel isOpen={isSheetContentOpen} onClose={() => setIsSheetContentOpen(false)} endpoint={sheetContent.endpoint} status={sheetContent.status} orderSubmissionEnabled={publicData.order_submission_enabled} onRefresh={sheetContent.refresh} onSaveEndpoint={sheetContent.updateEndpoint}/>
       {/* Modals & Slide-outs */}
       <ProductDetailModal
