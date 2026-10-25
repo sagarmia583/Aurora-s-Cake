@@ -1,22 +1,13 @@
 /**
  * AURORA'S CAKE — ALL-IN-ONE GOOGLE APPS SCRIPT
- * Source: repository sagarmia583/Aurora-s-Cake, branch fix/secure-demo-roles-and-delivery-20261024.
- * This file embeds Code.gs + SeedData.gs + StaffOperations.gs +
- * CustomerAccounts.gs + LiveCatalog.gs + CustomCakeRequests.gs.
- *
- * INSTALL: Create a NEW empty Apps Script project (or remove old script files)
- * and paste THIS COMPLETE FILE as Code.gs. Do not install the separate files
- * alongside it: duplicate function names may conflict.
- *
- * Set Script Properties AURORA_GOOGLE_CLIENT_ID and AURORA_STAFF_USERS.
- * Review AURORA_SPREADSHEET_ID and run setupSheetDatabase() only after backing
- * up an existing sheet. Deploy as Web App, Execute as: Me.
- * Public guest COD requires public Web App access but private tables remain
- * inaccessible through GET; staff operations enforce Google identity per POST.
- *
- * ALL-IN-ONE GENERATED: do not hand-edit generated sections independently.
+ * This embeds the six original Apps Script modules. Paste into one Code.gs.
+ * Do NOT leave the same modules in the Apps Script project alongside it.
+ * The public Google OAuth Web Client ID is preconfigured, but staff email
+ * authorization still requires private Script Property AURORA_STAFF_USERS.
+ * Never paste/upload an OAuth client secret or credentials JSON here.
+ * Review AURORA_SPREADSHEET_ID, back up the Sheet before setup, and deploy
+ * a NEW Web App version with owner authorization.
  */
-
 
 /* ===== BEGIN apps-script/Code.gs ===== */
 /**
@@ -556,7 +547,6 @@ function auroraSeedRows_(name,seed) {
   return seed[alias[name] || name] || [];
 }
 /* ===== END apps-script/Code.gs ===== */
-
 
 /* ===== BEGIN apps-script/SeedData.gs ===== */
 var AURORA_SEED_DATA = {
@@ -1392,7 +1382,6 @@ var AURORA_SEED_DATA = {
 };
 /* ===== END apps-script/SeedData.gs ===== */
 
-
 /* ===== BEGIN apps-script/StaffOperations.gs ===== */
 /**
  * Authenticated bakery operations for the existing private Google Sheet COD orders.
@@ -1405,10 +1394,11 @@ var AURORA_SEED_DATA = {
  * {"owner@example.com":{"role":"super_admin","name":"Owner"},
  *  "rider@example.com":{"role":"delivery_man","name":"Rider"}}
  */
+var AURORA_PUBLIC_GOOGLE_CLIENT_ID = "246617121730-fssfp59nlinltkfq0rccuud74rfpccum.apps.googleusercontent.com";
 var AURORA_STAFF_ROLES_ = ['super_admin','admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'];
 function auroraStaffConfig_() {
   var props = PropertiesService.getScriptProperties();
-  var clientId = String(props.getProperty('AURORA_GOOGLE_CLIENT_ID') || '').trim();
+  var clientId = String(props.getProperty('AURORA_GOOGLE_CLIENT_ID') || AURORA_PUBLIC_GOOGLE_CLIENT_ID).trim();
   var raw = String(props.getProperty('AURORA_STAFF_USERS') || '{}');
   var people = JSON.parse(raw);
   if (!clientId || !people || typeof people !== 'object' || Array.isArray(people)) {
@@ -1644,7 +1634,6 @@ function auroraCustomerOrderStatus_(input) {
 }
 /* ===== END apps-script/StaffOperations.gs ===== */
 
-
 /* ===== BEGIN apps-script/CustomerAccounts.gs ===== */
 /**
  * Optional FREE Google customer accounts; no SMS gateway and no email-sending API.
@@ -1655,7 +1644,7 @@ function auroraCustomerOrderStatus_(input) {
  * Requires Code.gs and StaffOperations.gs (private receipt save helper).
  */
 function auroraCustomerIdentity_(input) {
-  var clientId=String(PropertiesService.getScriptProperties().getProperty('AURORA_GOOGLE_CLIENT_ID')||'').trim();
+  var clientId=String(PropertiesService.getScriptProperties().getProperty('AURORA_GOOGLE_CLIENT_ID')||AURORA_PUBLIC_GOOGLE_CLIENT_ID).trim();
   var claims=auroraVerifiedGoogleClaims_(input && input.id_token,clientId);
   return {sub:claims.sub,email:String(claims.email||'').toLowerCase(),
     name:String(claims.name||claims.email||'Customer').slice(0,100)};
@@ -1722,7 +1711,6 @@ function auroraCustomerAccountsPost_(input) {
   auroraReject_('invalid_action','Unsupported customer account action.');
 }
 /* ===== END apps-script/CustomerAccounts.gs ===== */
-
 
 /* ===== BEGIN apps-script/LiveCatalog.gs ===== */
 /**
@@ -1815,7 +1803,6 @@ function auroraCatalogPost_(input) {
   } finally {lock.releaseLock();}
 }
 /* ===== END apps-script/LiveCatalog.gs ===== */
-
 
 /* ===== BEGIN apps-script/CustomCakeRequests.gs ===== */
 /**
@@ -1951,4 +1938,3 @@ function auroraCustomCakePost_(input) {
   auroraReject_('invalid_action','Invalid custom cake action.');
 }
 /* ===== END apps-script/CustomCakeRequests.gs ===== */
-
