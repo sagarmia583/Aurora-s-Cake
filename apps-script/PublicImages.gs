@@ -52,7 +52,7 @@ function auroraImageUpload_(input){
   cache.put(key,String(count+1),3600);
   var folder=auroraImageFolder_(true);
   var file=folder.createFile(Utilities.newBlob(bytes,mime,'aurora_'+Utilities.getUuid()+'.'+extension));
-  return {ok:true,url:'/api/images/'+file.getId(),mime_type:mime,bytes:bytes.length};
+  return {ok:true,url:'/api/image?id='+file.getId(),mime_type:mime,bytes:bytes.length};
 }
 function auroraPublicImage_(id){
   if(!/^[A-Za-z0-9_-]{12,150}$/.test(String(id||'')))auroraReject_('not_found','Unknown image.');
