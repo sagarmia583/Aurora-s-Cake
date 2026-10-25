@@ -7,7 +7,7 @@ import { LiveShopEditor } from './LiveShopEditor';
 import { CustomCakeQueue } from './CustomCakeQueue';
 
 type GoogleSdk = {
-  initialize: (options: { client_id: string; callback: (response: { credential: string }) => void }) => void;
+  initialize: (options: { client_id: string; callback: (response: { credential?: string }) => void; ux_mode?: 'popup'; use_fedcm_for_button?: boolean; auto_select?: boolean }) => void;
   renderButton: (element: HTMLElement, options: { theme: string; size: string; text: string }) => void;
 };
 const googleSdk = (): GoogleSdk | undefined =>
@@ -45,6 +45,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const oauthClientId = getAuroraGoogleClientId();
   const signinRef = useRef<HTMLDivElement>(null);
   const [identity, setIdentity] = useState<(StaffSession & { token: string }) | null>(null);
+  const [fedcmButton, setFedcmButton] = useState(true);
+  const [googleUiError, setGoogleUiError] = useState('');
   const [orders, setOrders] = useState<StaffOrder[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -72,8 +74,17 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       if (!active || !signinRef.current || !googleSdk()) return;
       signinRef.current.replaceChildren();
       const sdk = googleSdk()!;
-      sdk.initialize({ client_id: oauthClientId, callback: response => { if (response.credential) void signIn(response.credential); } });
-      sdk.renderButton(signinRef.current, { theme: 'outline', size: 'large', text: 'signin_with' });
+      try {
+        sdk.initialize({ client_id: oauthClientId, ux_mode: 'popup', use_fedcm_for_button: fedcmButton, auto_select: false,
+          callback: response => {
+            if (response.credential) void signIn(response.credential);
+            else setGoogleUiError('Google did not return a login credential. Check the authorized origin and try again.');
+          } });
+        sdk.renderButton(signinRef.current, { theme: 'outline', size: 'large', text: 'signin_with' });
+        setGoogleUiError('');
+      } catch {
+        setGoogleUiError('Google Sign-In could not initialize. Disable browser extensions for this page and reload.');
+      }
     };
     let script = document.getElementById('aurora-google-identity') as HTMLScriptElement | null;
     if (!script) {
@@ -83,10 +94,12 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       script.async = true;
       document.head.appendChild(script);
     }
+    const scriptError = () => { if (active) setGoogleUiError('Google Sign-In script was blocked. Check your ad blocker, network, or browser security settings.'); };
     script.addEventListener('load', render);
+    script.addEventListener('error', scriptError);
     render();
-    return () => { active = false; script?.removeEventListener('load', render); };
-  }, [isOpen, identity, oauthClientId, signIn]);
+    return () => { active = false; script?.removeEventListener('load', render); script?.removeEventListener('error', scriptError); };
+  }, [isOpen, identity, oauthClientId, fedcmButton, signIn]);
 
   const refresh = useCallback(async () => {
     if (!identity) return;
@@ -145,6 +158,10 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
               <h3 className="text-xl font-bold">Verified staff sign-in</h3>
               <p className="text-sm text-slate-600">Use your approved Google account. Your access level and delivery assignments are checked on the server.</p>
               <div ref={signinRef} className="flex justify-center min-h-12" />
+              <button type="button" onClick={() => { setGoogleUiError(''); setFedcmButton(current => !current); }} className="text-sm underline text-emerald-800">
+                {fedcmButton ? 'Google button not opening? Try classic popup mode' : 'Try browser-managed Google sign-in instead'}
+              </button>
+              {googleUiError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{googleUiError}</p>
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-left text-xs text-amber-950 space-y-2">
                 <p><strong>Google button not responding?</strong> The site origin must be listed under the Google Web OAuth client's <strong>Authorized JavaScript origins</strong>. Each Vercel Preview hostname is different from Production.</p>
                 <p>Current origin: <code className="break-all font-mono">{typeof window !== 'undefined' ? window.location.origin : ''}</code></p>
