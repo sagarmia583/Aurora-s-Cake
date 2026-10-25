@@ -1,0 +1,1954 @@
+/**
+ * AURORA'S CAKE — ALL-IN-ONE GOOGLE APPS SCRIPT
+ * Source: repository sagarmia583/Aurora-s-Cake, branch fix/secure-demo-roles-and-delivery-20261024.
+ * This file embeds Code.gs + SeedData.gs + StaffOperations.gs +
+ * CustomerAccounts.gs + LiveCatalog.gs + CustomCakeRequests.gs.
+ *
+ * INSTALL: Create a NEW empty Apps Script project (or remove old script files)
+ * and paste THIS COMPLETE FILE as Code.gs. Do not install the separate files
+ * alongside it: duplicate function names may conflict.
+ *
+ * Set Script Properties AURORA_GOOGLE_CLIENT_ID and AURORA_STAFF_USERS.
+ * Review AURORA_SPREADSHEET_ID and run setupSheetDatabase() only after backing
+ * up an existing sheet. Deploy as Web App, Execute as: Me.
+ * Public guest COD requires public Web App access but private tables remain
+ * inaccessible through GET; staff operations enforce Google identity per POST.
+ *
+ * ALL-IN-ONE GENERATED: do not hand-edit generated sections independently.
+ */
+
+
+/* ===== BEGIN apps-script/Code.gs ===== */
+/**
+ * Aurora public content and private cash-on-delivery order API.
+ * Public GET reads only explicit public tables. Private POST accepts create_order only; no private list/read API.
+ */
+// Leave blank when this script is bound to the intended Sheet through Extensions > Apps Script.
+var AURORA_SPREADSHEET_ID = '18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4';
+var AURORA_SCHEMA_VERSION = 1;
+var PUBLIC_TABLE_SCHEMAS = {
+  settings: ['key','value'],
+  content: ['key','value'],
+  hero_slides: ['id','product_id','title','subtitle','image_url','image_alt','sort_order','is_active'],
+  highlights: ['id','section','title','description','image_url','image_alt','icon','category_id','sort_order','is_active'],
+  faqs: ['id','question','answer','sort_order','is_active'],
+  links: ['id','label','url','location','sort_order','is_active'],
+  categories: ['id','name','slug','description','image_url','sort_order','is_active'],
+  products: ['id','category_id','name','slug','description','base_price','sale_price','image_url','gallery_images','is_featured','is_active','rating','review_count','allowed_flavor_ids','allowed_addon_ids'],
+  product_variants: ['id','product_id','name','weight_grams','price','sale_price','is_active'],
+  flavors: ['id','name','color_hex','is_active'],
+  product_addons: ['id','name','price','image_url','is_active'],
+  banners: ['id','title','subtitle','image_url','button_text','button_link','is_active'],
+  delivery_zones: ['id','name','delivery_fee','estimated_time','is_active'],
+  delivery_slots: ['id','slot_label','is_active'],
+  coupons: ['id','code','discount_type','discount_value','min_order_amount','max_discount_amount','is_active','usage_count'],
+  reviews: ['id','product_id','product_name','customer_name','rating','comment','status','created_at']
+};
+var PUBLIC_SETTINGS_KEYS = ["id","shop_name","logo_url","phone","whatsapp","email","address","opening_time","closing_time","currency","accepting_orders","delivery_enabled","website_title","website_description","top_announcement_text","hero_tagline","hero_title","hero_subtitle","hero_cta_text","trust_badge_1_title","trust_badge_1_desc","trust_badge_2_title","trust_badge_2_desc","trust_badge_3_title","trust_badge_3_desc","trust_badge_4_title","trust_badge_4_desc","custom_cake_promo_tag","custom_cake_promo_title","custom_cake_promo_desc","custom_cake_promo_btn","footer_about_text","facebook_url","instagram_url","profile_image_url","brand_tagline","facebook_handle","mobile_subtitle","youtube_url","tiktok_url","website_url"];
+var PUBLIC_CONTENT_KEYS = ["hero_eyebrow","hero_title","hero_description","hero_cta","hero_secondary_cta","hero_note","hero_image_label","hero_image_caption","hero_stamp_top","hero_stamp_bottom","hero_card_label","occasions_title","occasions_subtitle","catalog_eyebrow","catalog_title","catalog_description","catalog_sort_featured","catalog_note","catalog_from_label","catalog_customize_label","catalog_featured_badge","catalog_empty_title","catalog_empty_description","catalog_price_low","catalog_price_high","catalog_all_label","catalog_reset_label","catalog_results_label","custom_eyebrow","custom_title","custom_description","custom_cta","custom_image_url","custom_image_alt","custom_image_label","custom_image_caption","custom_chat_label","story_eyebrow","story_title","story_description","story_cta","story_signature","story_image_url","story_image_alt","story_image_note","social_eyebrow","social_title","social_description","social_cta","social_handle","social_image_note","faq_eyebrow","faq_title","faq_description","footer_tagline","footer_about","footer_copyright_note","footer_preview_note","footer_contact_label","nav_cakes","nav_custom","nav_story","nav_search_placeholder","nav_facebook","brand_tagline"];
+
+function auroraConfiguredId_() {
+  return PropertiesService.getScriptProperties().getProperty('AURORA_SPREADSHEET_ID') || AURORA_SPREADSHEET_ID || '';
+}
+function auroraSpreadsheet_() {
+  var id = auroraConfiguredId_();
+  var book = id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
+  if (!book) throw new Error('Bind the script to the intended Sheet or set AURORA_SPREADSHEET_ID in Script Properties.');
+  return book;
+}
+function auroraCacheKey_() {
+  return 'aurora_public_v1_orders_'  + (auroraConfiguredId_() || 'bound');
+}
+
+function doGet(e) {
+  var params = e && e.parameter ? e.parameter : {};
+  var callback = params.callback || '';
+  if (callback && !/^auroraSheets_[a-zA-Z0-9_]+$/.test(callback)) {
+    return auroraResponse_({ok:false,error:'Invalid callback.'});
+  }
+  var action = params.action || 'public';
+  if (action !== 'public' && action !== 'health') {
+    return auroraResponse_({ok:false,error:'Only the public and health read actions are available.'}, callback);
+  }
+  try {
+    if (action === 'health') {
+      return auroraResponse_({ok:true,schema_version:AURORA_SCHEMA_VERSION,service:'aurora_public_content'}, callback);
+    }
+    var cache = CacheService.getScriptCache();
+    var cacheKey = auroraCacheKey_();
+    var cached = cache.get(cacheKey);
+    var payload;
+    if (cached) {
+      payload = JSON.parse(cached);
+    } else {
+      payload = {ok:true,schema_version:AURORA_SCHEMA_VERSION,generated_at:new Date().toISOString(),data:auroraPublicData_()};
+      var serialized = JSON.stringify(payload);
+      if (serialized.length < 90000) cache.put(cacheKey, serialized, 20);
+    }
+    return auroraResponse_(payload, callback);
+  } catch (error) {
+    // Do not expose exception text, file metadata or stack traces to public visitors.
+    console.error(error && error.stack ? error.stack : error);
+    return auroraResponse_({ok:false,error:'Public content is not ready. Run setupSheetDatabase in the Apps Script editor and check the public table headers.'}, callback);
+  }
+}
+
+var PRIVATE_ORDER_SCHEMAS = {
+  orders: ['id','order_number','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','delivery_address','delivery_zone_id','delivery_zone_name','delivery_fee','delivery_slot','delivery_date','status','subtotal','discount_amount','total_amount','coupon_code','order_note','payment_method','payment_status','receipt_json'],
+  order_items: ['id','order_id','product_id','product_name','variant_id','variant_name','flavor_id','flavor_name','writing_message','unit_price','quantity','addons_json','subtotal'],
+  custom_cake_requests: ['id','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','cake_type','approx_size','flavor','color_theme','writing_text','instructions','reference_image_url','status','estimated_price','quoted_price','receipt_json']
+};
+
+// This handler creates a private COD receipt. GET never calls these functions.
+function doPost(e) {
+  var lock;
+  var locked = false;
+  try {
+    var raw = e && e.postData && e.postData.contents;
+    if (typeof raw !== 'string' || !raw || raw.length > 50000) auroraReject_('invalid_request','Send a JSON order body under 50 KB.');
+    var input;
+    try { input = JSON.parse(raw); } catch (_) { auroraReject_('invalid_request','The order body must be valid JSON.'); }
+    // Private operations authenticate every POST; never expose these reads via GET.
+    if (input && (input.action === 'create_custom_cake' || input.action === 'get_custom_cake_status' || input.action === 'staff_custom_cakes' || input.action === 'staff_custom_quote')) return auroraResponse_(auroraCustomCakePost_(input));
+    if (input && input.action === 'get_order_status') return auroraResponse_(auroraCustomerOrderStatus_(input));
+    if (input && (input.action==='staff_catalog'||input.action==='staff_catalog_update')) return auroraResponse_(auroraCatalogPost_(input));
+    if (input && /^staff_/.test(String(input.action || ''))) return auroraResponse_(auroraOperationsPost_(input));
+    if (input && /^customer_(session|orders|claim_order)$/.test(String(input.action || ''))) return auroraResponse_(auroraCustomerAccountsPost_(input));
+    var request = auroraOrderRequest_(input);
+    var hash = auroraRequestHash_(request);
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(10000)) return auroraResponse_({ok:false,success:false,code:'busy',error:'Order confirmation is still pending. Retry with the same request ID.'});
+    locked = true;
+    var book = auroraSpreadsheet_();
+    var orders = auroraPrivateTable_(book,'orders');
+    var itemTable = auroraPrivateTable_(book,'order_items');
+    var previous = orders.rows.filter(function(row) { return String(row.request_id) === request.request_id; });
+    if (previous.length > 1) throw new Error('Duplicate private request IDs.');
+    if (previous.length) {
+      if (String(previous[0].request_hash) !== hash) auroraReject_('idempotency_conflict','This request ID already belongs to another order.');
+      var receipt = JSON.parse(String(previous[0].receipt_json));
+      if (!receipt || !receipt.id || !Array.isArray(receipt.items) || receipt.id !== String(previous[0].id)) throw new Error('Incomplete committed receipt.');
+      auroraRepairOrderItems_(itemTable,receipt);
+      return auroraResponse_({success:true,persisted:true,order:auroraCheckoutReceiptSafe_(receipt)});
+    }
+    if (!request.checkout_proof) auroraReject_('upgrade_required','Refresh the website before placing a new order.');
+    var order = auroraBuildOrder_(book,request);
+    auroraCheckoutRateLimit_(request);
+    var receiptJson = JSON.stringify(order);
+    if (receiptJson.length > 45000) auroraReject_('order_too_large','This order is too large. Reduce the number of lines or options.');
+    // The complete receipt is the commit record. A retry repairs any interrupted item index.
+    auroraAppendPrivate_(orders,{
+      id:order.id,order_number:order.order_number,request_id:request.request_id,request_hash:hash,
+      created_at:order.created_at,updated_at:order.updated_at,customer_name:order.customer_name,
+      customer_phone:order.customer_phone,delivery_address:order.delivery_address,
+      delivery_zone_id:order.delivery_zone.id,delivery_zone_name:order.delivery_zone.name,
+      delivery_fee:order.delivery_fee,delivery_slot:order.delivery_slot,delivery_date:order.delivery_date,
+      status:order.status,subtotal:order.subtotal,discount_amount:order.discount_amount,total_amount:order.total_amount,
+      coupon_code:order.coupon_code || '',order_note:order.order_note || '',payment_method:'cod',payment_status:'pending',receipt_json:receiptJson
+    });
+    auroraRepairOrderItems_(itemTable,order);
+    return auroraResponse_({success:true,persisted:true,order:auroraCheckoutReceiptSafe_(order)});
+  } catch (error) {
+    if (error && error.auroraValidation) return auroraResponse_({ok:false,success:false,persisted:false,code:error.code,error:error.message});
+    console.error(error && error.stack ? error.stack : error);
+    // A write may already have committed. Never tell the client this outcome is definitely unpersisted.
+    return auroraResponse_({ok:false,success:false,code:'submission_uncertain',error:'Order confirmation is unavailable. Retry with the same request ID; do not create a new request.'});
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+}
+
+/** Best-effort burst protection, inside the existing ScriptLock. Retries of a
+ * committed request ID bypass this limiter, so ambiguous writes stay safe. */
+/**
+ * A private per-order bearer capability is supplied ONCE with the confirmed
+ * checkout receipt. It is not derived from phone, order ID or customer name.
+ * Two independently issued platform UUIDs form a 244-bit-string namespace.
+ * Google Apps Script does not expose a documented CSPRNG API, so keep the
+ * supported service and operational security limitations in documentation.
+ */
+function auroraNewCustomerCapability_() {
+  return String(Utilities.getUuid()).toLowerCase() + String(Utilities.getUuid()).toLowerCase();
+}
+function auroraCheckoutReceiptSafe_(value) {
+  var receipt = JSON.parse(JSON.stringify(value));
+  receipt.delivery_otp = '';
+  delete receipt.otp_failed_attempts;
+  delete receipt.otp_locked_until;
+  delete receipt.customer_google_sub;
+  delete receipt.otp_failed_attempts;
+  delete receipt.otp_locked_until;
+  return receipt;
+}
+function auroraCheckoutRateLimit_(request) {
+  var cache = CacheService.getScriptCache();
+  var digits = request.customer_phone.replace(/\D/g,'');
+  var hash = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,digits,Utilities.Charset.UTF_8)
+    .map(function(byte){return ('0'+((byte+256)%256).toString(16)).slice(-2);}).join('').slice(0,24);
+  var key = 'aurora_cod_phone_'+hash;
+  var globalKey = 'aurora_cod_global_10m';
+  var attemptKey = 'aurora_cod_attempt_'+request.request_id;
+  // A network/Sheet failure before the receipt commit must not count the same
+  // request ID again on a safety-preserving retry.
+  if (cache.get(attemptKey)) return;
+  var phoneCount = Number(cache.get(key)||0);
+  var globalCount = Number(cache.get(globalKey)||0);
+  if (phoneCount >= 5 || globalCount >= 120) {
+    auroraReject_('order_rate_limited','Too many new orders in a short period. Please contact the bakery to arrange your order.');
+  }
+  cache.put(key,String(phoneCount+1),600);
+  cache.put(globalKey,String(globalCount+1),600);
+  cache.put(attemptKey,'1',600);
+}
+function auroraReject_(code,message) {
+  var error = new Error(message); error.auroraValidation = true; error.code = code; throw error;
+}
+function auroraOrderText_(value,label,min,max) {
+  if (typeof value !== 'string') auroraReject_('invalid_request',label + ' must be text.');
+  var result = value.trim();
+  if (result.length < min || result.length > max || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(result)) auroraReject_('invalid_request',label + ' has an invalid length or characters.');
+  return result;
+}
+function auroraOptionalText_(value,label,max) {
+  return value === undefined || value === null ? '' : auroraOrderText_(value,label,0,max);
+}
+function auroraOrderRequest_(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input) || input.action !== 'create_order') auroraReject_('invalid_action','Only create_order is accepted by POST.');
+  var requestId = auroraOrderText_(input.request_id,'Request ID',36,36).toLowerCase();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(requestId)) auroraReject_('invalid_request','Request ID must be a UUID.');
+  var phone = auroraOrderText_(input.customer_phone,'Phone',7,30);
+  var digits = phone.replace(/\D/g,'');
+  if (!/^\+?[0-9 ()-]+$/.test(phone) || digits.length < 7 || digits.length > 15) auroraReject_('invalid_phone','Enter a valid phone number as text.');
+  if (input.payment_method !== 'cod') auroraReject_('unsupported_payment','Only cash on delivery is currently supported.');
+  if (input.expected_total !== undefined && (typeof input.expected_total !== 'number' || !isFinite(input.expected_total) || input.expected_total < 0 || input.expected_total > 10000000)) auroraReject_('invalid_request','Expected total must be a non-negative number.');
+  var date = auroraOrderText_(input.delivery_date,'Delivery date',10,10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(Date.parse(date + 'T00:00:00Z')) || new Date(date + 'T00:00:00Z').toISOString().slice(0,10) !== date) auroraReject_('invalid_date','Use a valid YYYY-MM-DD delivery date.');
+  if (!Array.isArray(input.cart_items) || input.cart_items.length < 1 || input.cart_items.length > 25) auroraReject_('invalid_cart','An order must contain 1 to 25 cake lines.');
+  var lines = input.cart_items.map(function(line) {
+    if (!line || typeof line !== 'object' || Array.isArray(line)) auroraReject_('invalid_cart','Invalid cake line.');
+    if (typeof line.quantity !== 'number' || !isFinite(line.quantity) || Math.floor(line.quantity) !== line.quantity || line.quantity < 1 || line.quantity > 50) auroraReject_('invalid_quantity','Cake quantity must be an integer from 1 to 50.');
+    if (!Array.isArray(line.addon_ids) || line.addon_ids.length > 20) auroraReject_('invalid_cart','Add-on IDs must be a list of at most 20 options.');
+    var addonIds = line.addon_ids.map(function(id) { return auroraOrderText_(id,'Add-on ID',1,100); }).sort();
+    if (addonIds.some(function(id,index) { return index > 0 && id === addonIds[index-1]; })) auroraReject_('invalid_cart','Duplicate add-on selections are not allowed.');
+    return {
+      product_id:auroraOrderText_(line.product_id,'Product ID',1,100),
+      variant_id:auroraOrderText_(line.variant_id,'Variant ID',1,100),
+      flavor_id:auroraOptionalText_(line.flavor_id,'Flavour ID',100),addon_ids:addonIds,
+      writing_message:auroraOptionalText_(line.writing_message,'Cake message',200),quantity:line.quantity
+    };
+  });
+  var normalized = {
+    action:'create_order',request_id:requestId,customer_name:auroraOrderText_(input.customer_name,'Customer name',2,100),
+    customer_phone:phone,delivery_address:auroraOrderText_(input.delivery_address,'Delivery address',5,1000),
+    delivery_zone_id:auroraOrderText_(input.delivery_zone_id,'Delivery zone',1,100),
+    delivery_slot:auroraOrderText_(input.delivery_slot,'Delivery slot',1,100),delivery_date:date,cart_items:lines,
+    coupon_code:auroraOptionalText_(input.coupon_code,'Coupon code',60).toUpperCase(),
+    order_note:auroraOptionalText_(input.order_note,'Order note',1000),payment_method:'cod',expected_total:input.expected_total
+  };
+  if (input.checkout_proof !== undefined) {
+    var proof=auroraOrderText_(input.checkout_proof,'Checkout security proof',72,72).toLowerCase();
+    if(!/^(?:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}){2}$/.test(proof)) {
+      auroraReject_('invalid_request','Refresh your checkout page and try again.');
+    }
+    normalized.checkout_proof=proof;
+  }
+  return normalized;
+}
+function auroraRequestHash_(request) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,JSON.stringify(request),Utilities.Charset.UTF_8).map(function(byte) { return ('0' + ((byte + 256) % 256).toString(16)).slice(-2); }).join('');
+}
+function auroraMoney_(value,label) {
+  if ((typeof value !== 'number' && typeof value !== 'string') || value === '' || String(value).trim() === '' || !isFinite(Number(value)) || Number(value) < 0 || Number(value) > 10000000) throw new Error('Invalid current Sheet amount: ' + label);
+  return Math.round(Number(value) * 100) / 100;
+}
+function auroraMoneyRound_(value) { return Math.round(value * 100) / 100; }
+function auroraIndex_(rows,label) {
+  var index = Object.create(null);
+  rows.forEach(function(row) {
+    var id = String(row.id || '').trim();
+    if (!id || Object.prototype.hasOwnProperty.call(index,id)) throw new Error('Invalid or duplicate Sheet ID: ' + label);
+    index[id] = row;
+  });
+  return index;
+}
+function auroraCurrent_(index,id,label) {
+  var row = index[id];
+  if (!row || !auroraActive_(row.is_active)) auroraReject_('unavailable_selection',label + ' is no longer available. Refresh the cake selection.');
+  return row;
+}
+function auroraBuildOrder_(book,request) {
+  var settings = auroraPairs_(auroraRows_(book,'settings'),PUBLIC_SETTINGS_KEYS);
+  if (!auroraActive_(settings.accepting_orders)) auroraReject_('shop_closed','The shop is not accepting orders right now.');
+  if (!auroraActive_(settings.delivery_enabled)) auroraReject_('delivery_unavailable','Delivery is currently unavailable.');
+  var today = Utilities.formatDate(new Date(),'Asia/Dhaka','yyyy-MM-dd');
+  if (request.delivery_date < today) auroraReject_('invalid_date','Delivery date cannot be in the past.');
+  var products = auroraIndex_(auroraRows_(book,'products'),'products');
+  var variants = auroraIndex_(auroraRows_(book,'product_variants'),'product_variants');
+  var flavors = auroraIndex_(auroraRows_(book,'flavors'),'flavors');
+  var addons = auroraIndex_(auroraRows_(book,'product_addons'),'product_addons');
+  var zones = auroraIndex_(auroraRows_(book,'delivery_zones'),'delivery_zones');
+  var slots = auroraRows_(book,'delivery_slots').filter(function(row) { return auroraActive_(row.is_active) && String(row.slot_label) === request.delivery_slot; });
+  if (slots.length !== 1) auroraReject_('unavailable_selection','Choose a currently available delivery time.');
+  var zone = auroraCurrent_(zones,request.delivery_zone_id,'Delivery area');
+  var orderId = 'ord_' + request.request_id;
+  var items = request.cart_items.map(function(line,index) {
+    var product = auroraCurrent_(products,line.product_id,'Cake');
+    var variant = auroraCurrent_(variants,line.variant_id,'Cake size');
+    if (String(variant.product_id) !== line.product_id) auroraReject_('unavailable_selection','The selected size does not belong to this cake.');
+    var allowedFlavors = auroraList_(product.allowed_flavor_ids,false).map(String);
+    var allowedAddons = auroraList_(product.allowed_addon_ids,false).map(String);
+    var flavor;
+    if (line.flavor_id) {
+      if (allowedFlavors.indexOf(line.flavor_id) === -1) auroraReject_('unavailable_selection','The selected flavour is not allowed for this cake.');
+      flavor = auroraCurrent_(flavors,line.flavor_id,'Flavour');
+    } else if (allowedFlavors.some(function(id) { return flavors[id] && auroraActive_(flavors[id].is_active); })) {
+      auroraReject_('unavailable_selection','Choose an available flavour for this cake.');
+    }
+    var basePrice = auroraMoney_(variant.sale_price === '' || variant.sale_price === undefined || variant.sale_price === null ? variant.price : variant.sale_price,'variant price');
+    var selectedAddons = line.addon_ids.map(function(id) {
+      if (allowedAddons.indexOf(id) === -1) auroraReject_('unavailable_selection','The selected add-on is not allowed for this cake.');
+      var addon = auroraCurrent_(addons,id,'Add-on');
+      var price = auroraMoney_(addon.price,'add-on price');
+      return {addon_id:id,addon_name:String(addon.name || ''),unit_price:price,quantity:line.quantity,subtotal:auroraMoneyRound_(price * line.quantity)};
+    });
+    var addonUnit = selectedAddons.reduce(function(sum,addon) { return sum + addon.unit_price; },0);
+    return {
+      id:'item_' + request.request_id + '_' + index,order_id:orderId,product_id:line.product_id,product_name:String(product.name || ''),
+      variant_id:line.variant_id,variant_name:String(variant.name || ''),flavor_id:line.flavor_id,flavor_name:flavor ? String(flavor.name || '') : '',
+      writing_message:line.writing_message,unit_price:basePrice,quantity:line.quantity,addons:selectedAddons,
+      subtotal:auroraMoneyRound_((basePrice + addonUnit) * line.quantity)
+    };
+  });
+  var subtotal = auroraMoneyRound_(items.reduce(function(sum,item) { return sum + item.subtotal; },0));
+  var deliveryFee = auroraMoney_(zone.delivery_fee,'delivery fee');
+  var discount = 0;
+  if (request.coupon_code) {
+    var coupons = auroraRows_(book,'coupons').filter(function(row) { return String(row.code).trim().toUpperCase() === request.coupon_code && auroraActive_(row.is_active); });
+    if (coupons.length !== 1) auroraReject_('invalid_coupon','This coupon is not available.');
+    var coupon = coupons[0];
+    if (subtotal < auroraMoney_(coupon.min_order_amount,'coupon minimum')) auroraReject_('invalid_coupon','The order does not meet this coupon minimum.');
+    var couponValue = auroraMoney_(coupon.discount_value,'coupon discount');
+    if (coupon.discount_type === 'percentage' && couponValue <= 100) discount = subtotal * couponValue / 100;
+    else if (coupon.discount_type === 'fixed') discount = couponValue;
+    else throw new Error('Invalid current Sheet coupon type/value.');
+    if (coupon.max_discount_amount !== '' && coupon.max_discount_amount !== null && coupon.max_discount_amount !== undefined) discount = Math.min(discount,auroraMoney_(coupon.max_discount_amount,'coupon maximum'));
+    discount = auroraMoneyRound_(Math.min(subtotal,discount));
+  }
+  var total = auroraMoneyRound_(subtotal - discount + deliveryFee);
+  if (subtotal > 10000000 || total > 10000000) auroraReject_('order_too_large','The order amount exceeds the supported limit.');
+  if (request.expected_total !== undefined && Math.abs(request.expected_total - total) > 0.0100000001) auroraReject_('price_changed','Prices or delivery charges changed. Refresh your bag and review the total before placing the order.');
+  var now = new Date().toISOString();
+  return {
+    persistence:'google_sheets',id:orderId,order_number:'AC-' + today.replace(/-/g,'') + '-' + request.request_id.replace(/-/g,'').toUpperCase(),
+    customer_name:request.customer_name,customer_phone:request.customer_phone,delivery_address:request.delivery_address,
+    delivery_zone:{id:String(zone.id),name:String(zone.name || ''),delivery_fee:deliveryFee,estimated_time:String(zone.estimated_time || ''),is_active:true},
+    delivery_slot:request.delivery_slot,delivery_date:request.delivery_date,status:'pending',subtotal:subtotal,delivery_fee:deliveryFee,
+    discount_amount:discount,total_amount:total,coupon_code:request.coupon_code,order_note:request.order_note,payment_method:'cod',payment_status:'pending',
+    delivery_otp:'',customer_access_token:auroraNewCustomerCapability_(),cod_amount:total,cod_collected:false,created_at:now,updated_at:now,items:items,
+    history:[{id:'history_' + request.request_id,status:'pending',notes:'Order received in Google Sheets',created_at:now,actor_name:'Customer'}]
+  };
+}
+function auroraPrivateTable_(book,name) {
+  var required = PRIVATE_ORDER_SCHEMAS[name];
+  if (!required) throw new Error('Unknown private table.');
+  var sheet = book.getSheetByName(name);
+  if (!sheet || sheet.getLastRow() < 1) throw new Error('Run setupSheetDatabase to create private order headers.');
+  var count = sheet.getLastRow(); var width = sheet.getLastColumn();
+  if (count > 50001 || width > 100) throw new Error('Private order table exceeds supported size.');
+  var values = sheet.getRange(1,1,count,width).getValues();
+  var headers = values.shift().map(function(value) { return String(value).trim().toLowerCase(); });
+  if (required.some(function(key) { return headers.indexOf(key) === -1 || headers.indexOf(key) !== headers.lastIndexOf(key); })) throw new Error('Invalid private order headers.');
+  var rows = values.filter(function(row) { return row.some(function(value) { return value !== '' && value !== null; }); }).map(function(row) {
+    var result = Object.create(null); required.forEach(function(key) { result[key] = row[headers.indexOf(key)]; }); return result;
+  });
+  return {sheet:sheet,headers:headers,rows:rows};
+}
+function auroraSheetCell_(value) {
+  if (value === undefined || value === null) return '';
+  return typeof value === 'string' && /^[=+\-@]/.test(value) ? "'" + value : value;
+}
+function auroraAppendPrivate_(table,record) {
+  var values = table.headers.map(function(key) { return auroraSheetCell_(record[key]); });
+  table.sheet.getRange(table.sheet.getLastRow()+1,1,1,values.length).setValues([values]);
+  table.rows.push(record);
+}
+function auroraRepairOrderItems_(table,order) {
+  var ids = Object.create(null);
+  table.rows.forEach(function(row) { if (ids[String(row.id)]) throw new Error('Duplicate private item ID.'); ids[String(row.id)] = true; });
+  order.items.forEach(function(item) {
+    if (ids[item.id]) return;
+    auroraAppendPrivate_(table,{
+      id:item.id,order_id:order.id,product_id:item.product_id,product_name:item.product_name,variant_id:item.variant_id,variant_name:item.variant_name,
+      flavor_id:item.flavor_id || '',flavor_name:item.flavor_name || '',writing_message:item.writing_message || '',unit_price:item.unit_price,
+      quantity:item.quantity,addons_json:JSON.stringify(item.addons || []),subtotal:item.subtotal
+    });
+    ids[item.id] = true;
+  });
+}
+
+function auroraResponse_(payload, callback) {
+  var json = JSON.stringify(payload).replace(/</g,'\\u003c').replace(/>/g,'\\u003e').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');
+  if (callback) return ContentService.createTextOutput(callback + '(' + json + ');').setMimeType(ContentService.MimeType.JAVASCRIPT);
+  return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
+}
+
+function auroraActive_(value) {
+  if (value === undefined || value === null || value === '') return true;
+  var normalized = String(value).toLowerCase().trim();
+  if (value === true || value === 1 || ['true','yes','1','on'].indexOf(normalized) !== -1) return true;
+  if (value === false || value === 0 || ['false','no','0','off'].indexOf(normalized) !== -1) return false;
+  throw new Error('Active flags must be TRUE or FALSE.');
+}
+
+function auroraRows_(book, name) {
+  var columns = PUBLIC_TABLE_SCHEMAS[name];
+  if (!columns) throw new Error('Table is not public.');
+  var sheet = book.getSheetByName(name);
+  if (!sheet) {
+    if (name === 'settings' || name === 'products') throw new Error('Required public table missing: ' + name);
+    return [];
+  }
+  var rowCount = sheet.getLastRow();
+  var colCount = sheet.getLastColumn();
+  if (rowCount < 2 || colCount < 1) return [];
+  if (rowCount > 5001 || colCount > 100) throw new Error('Public table exceeds supported size.');
+  var values = sheet.getRange(1,1,rowCount,colCount).getValues();
+  var headers = values.shift().map(function(value) { return String(value).trim().toLowerCase(); });
+  if (headers.indexOf(name === 'settings' || name === 'content' ? 'key' : 'id') === -1) throw new Error('Invalid table headers: ' + name);
+  return values.filter(function(row) { return row.some(function(value) { return value !== '' && value !== null; }); }).map(function(row) {
+    var record = Object.create(null);
+    columns.forEach(function(column) {
+      var index = headers.indexOf(column);
+      if (index >= 0) {
+        var value = row[index];
+        record[column] = value instanceof Date ? value.toISOString() : value;
+      }
+    });
+    return record;
+  });
+}
+
+function auroraPairs_(rows, allowedKeys) {
+  var result = Object.create(null);
+  rows.forEach(function(row) {
+    var key = String(row.key || '').trim();
+    if (allowedKeys.indexOf(key) === -1) return;
+    result[key] = row.value === null || row.value === undefined ? '' : row.value;
+  });
+  return result;
+}
+
+function auroraList_(value, isUrlList) {
+  if (Array.isArray(value)) return value;
+  if (value === undefined || value === null || value === '') return [];
+  var input = String(value).trim();
+  if (input.charAt(0) === '[') {
+    var parsed = JSON.parse(input);
+    if (!Array.isArray(parsed)) throw new Error('Invalid list cell.');
+    return parsed;
+  }
+  return input.split(isUrlList ? /\n/ : /[,\n]/).map(function(item) { return item.trim(); }).filter(Boolean);
+}
+
+function auroraPublicData_() {
+  var book = auroraSpreadsheet_();
+  var settings = auroraPairs_(auroraRows_(book,'settings'),PUBLIC_SETTINGS_KEYS);
+  ['accepting_orders','delivery_enabled'].forEach(function(key) { if (Object.prototype.hasOwnProperty.call(settings,key)) settings[key] = auroraActive_(settings[key]); });
+  var content = auroraPairs_(auroraRows_(book,'content'),PUBLIC_CONTENT_KEYS);
+  var active = function(name) { return auroraRows_(book,name).filter(function(row) { return auroraActive_(row.is_active); }); };
+  var variants = active('product_variants');
+  var categories = active('categories');
+  var products = active('products').map(function(product) {
+    product.variants = variants.filter(function(variant) { return String(variant.product_id) === String(product.id); });
+    product.gallery_images = auroraList_(product.gallery_images,true);
+    product.allowed_flavor_ids = auroraList_(product.allowed_flavor_ids,false);
+    product.allowed_addon_ids = auroraList_(product.allowed_addon_ids,false);
+    var category = categories.filter(function(item) { return String(item.id) === String(product.category_id); })[0];
+    product.category_name = category ? category.name : '';
+    return product;
+  });
+  return {
+    schema_version: AURORA_SCHEMA_VERSION,
+    order_submission_enabled: true,
+    settings: settings,
+    content: content,
+    hero_slides: active('hero_slides'),
+    highlights: active('highlights'),
+    faqs: active('faqs'),
+    links: active('links'),
+    categories: categories,
+    products: products,
+    flavors: active('flavors'),
+    addons: active('product_addons'),
+    banners: active('banners'),
+    zones: active('delivery_zones'),
+    slots: active('delivery_slots'),
+    coupons: active('coupons'),
+    reviews: auroraRows_(book,'reviews').filter(function(review) { return review.status === 'approved'; })
+  };
+}
+
+/**
+ * Run manually in the Apps Script editor as the Sheet owner.
+ * Creates/initializes only missing or completely empty public tabs and private order headers.
+ * Does not overwrite existing rows, clear sheets, change sharing or submit an order.
+ */
+function setupSheetDatabase() {
+  var book = auroraSpreadsheet_();
+  var seed = typeof AURORA_SEED_DATA !== 'undefined' ? AURORA_SEED_DATA : {};
+  var report = [];
+  Object.keys(PUBLIC_TABLE_SCHEMAS).forEach(function(name) {
+    var columns = PUBLIC_TABLE_SCHEMAS[name];
+    var sheet = book.getSheetByName(name);
+    var created = !sheet;
+    if (!sheet) sheet = book.insertSheet(name);
+    if (sheet.getLastRow() !== 0) {
+      report.push(name + ': existing data preserved');
+      return;
+    }
+    var rows = auroraSeedRows_(name,seed);
+    var values = [columns].concat(rows.map(function(row) {
+      return columns.map(function(column) {
+        var value = row[column];
+        if (value === undefined || value === null) return '';
+        if (Array.isArray(value) || typeof value === 'object') return JSON.stringify(value);
+        // A value intended as text must never become a spreadsheet formula.
+        if (typeof value === 'string' && /^[=+\-@]/.test(value)) return "'" + value;
+        return value;
+      });
+    }));
+    if (name === 'settings' || name === 'content') sheet.getRange(1,2,sheet.getMaxRows(),1).setNumberFormat('@');
+    sheet.getRange(1,1,values.length,columns.length).setValues(values);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1,1,1,columns.length).setBackground('#174B3B').setFontColor('#FFFFFF').setFontWeight('bold');
+    sheet.setColumnWidths(1,columns.length,150);
+    if (name === 'settings' || name === 'content') {
+      sheet.setColumnWidth(1,260);
+      sheet.setColumnWidth(2,620);
+      if (values.length > 1) sheet.getRange(2,2,values.length-1,1).setWrap(true);
+    }
+    report.push(name + ': ' + (created ? 'created' : 'initialized') + ', ' + rows.length + ' starter rows');
+  });
+  Object.keys(PRIVATE_ORDER_SCHEMAS).forEach(function(name) {
+    var sheet = book.getSheetByName(name);
+    if (!sheet) sheet = book.insertSheet(name);
+    if (sheet.getLastRow() !== 0) { report.push(name + ': existing private data preserved'); return; }
+    var columns = PRIVATE_ORDER_SCHEMAS[name];
+    sheet.getRange(1,1,1,columns.length).setValues([columns]);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1,1,1,columns.length).setBackground('#174B3B').setFontColor('#FFFFFF').setFontWeight('bold');
+    sheet.setColumnWidths(1,columns.length,160);
+    report.push(name + ': private headers created; no customer starter rows');
+  });
+  CacheService.getScriptCache().remove(auroraCacheKey_());
+  console.log(report.join('\n'));
+  return report.join('\n');
+}
+
+function auroraSeedRows_(name,seed) {
+  if (name === 'settings' || name === 'content') {
+    var source = seed[name] || {};
+    var allowed = name === 'settings' ? PUBLIC_SETTINGS_KEYS : PUBLIC_CONTENT_KEYS;
+    return Object.keys(source).filter(function(key) { return allowed.indexOf(key) !== -1; }).map(function(key) { return {key:key,value:source[key]}; });
+  }
+  if (name === 'product_variants') return (seed.products || []).reduce(function(all,product) { return all.concat(product.variants || []); },[]);
+  var alias = {product_addons:'addons',delivery_zones:'zones',delivery_slots:'slots'};
+  return seed[alias[name] || name] || [];
+}
+/* ===== END apps-script/Code.gs ===== */
+
+
+/* ===== BEGIN apps-script/SeedData.gs ===== */
+var AURORA_SEED_DATA = {
+  "schema_version": 1,
+  "settings": {
+    "id": "setting-1",
+    "shop_name": "Aurora’s Cake",
+    "logo_url": "",
+    "phone": "",
+    "whatsapp": "",
+    "email": "",
+    "address": "Tangail, Bangladesh",
+    "opening_time": "",
+    "closing_time": "",
+    "currency": "৳",
+    "accepting_orders": true,
+    "delivery_enabled": true,
+    "website_title": "Aurora’s Cake — A Little Slice of Happiness",
+    "website_description": "Discover celebration cakes and thoughtful details at Aurora’s Cake.",
+    "top_announcement_text": "A little cake. A lot of happiness.",
+    "facebook_url": "https://www.facebook.com/aurorascake26",
+    "instagram_url": "",
+    "profile_image_url": "",
+    "mobile_subtitle": "A little slice of happiness",
+    "youtube_url": "",
+    "tiktok_url": "",
+    "website_url": ""
+  },
+  "content": {
+    "hero_eyebrow": "A little slice of happiness",
+    "hero_title": "Good days.\nGreat cakes.\nMade for you.",
+    "hero_description": "Big birthdays, little wins, and all the sweet moments in between. Find a cake that feels like you.",
+    "hero_cta": "Explore our cakes",
+    "hero_secondary_cta": "Make it your own",
+    "hero_note": "Your flavour. Your message. Your moment.",
+    "hero_image_label": "The celebration collection",
+    "hero_image_caption": "A little slice of lovely.",
+    "hero_stamp_top": "BAKED FOR",
+    "hero_stamp_bottom": "HAPPY DAYS",
+    "hero_card_label": "Make it a celebration",
+    "occasions_title": "What are we celebrating?",
+    "occasions_subtitle": "There’s a cake for that.",
+    "catalog_eyebrow": "The cake collection",
+    "catalog_title": "Meet your next\nfavourite cake.",
+    "catalog_description": "Delicious reasons\nto celebrate today.",
+    "catalog_sort_featured": "Our favourites",
+    "catalog_note": "A little note: please share any allergies or dietary needs in your order notes.",
+    "catalog_from_label": "From",
+    "catalog_customize_label": "Customize",
+    "catalog_featured_badge": "The signature collection",
+    "catalog_empty_title": "No cakes found just yet.",
+    "catalog_empty_description": "Try a different search or explore another collection.",
+    "catalog_price_low": "Price: low to high",
+    "catalog_price_high": "Price: high to low",
+    "catalog_all_label": "All cakes",
+    "catalog_reset_label": "Show all categories",
+    "catalog_results_label": "cakes to discover",
+    "custom_eyebrow": "The custom cake studio",
+    "custom_title": "You dream it.\nWe’ll make it cake.",
+    "custom_description": "A favourite colour. An inside joke. A wildly wonderful idea. Let’s turn the things that make you, you, into a cake worth celebrating.",
+    "custom_cta": "Create your dream cake",
+    "custom_image_url": "/images/floral-signature.webp",
+    "custom_image_alt": "A celebration cake for a special occasion",
+    "custom_image_label": "YOUR OCCASION.",
+    "custom_image_caption": "Your kind of magic.",
+    "custom_chat_label": "Prefer a chat? Find us on Facebook",
+    "story_eyebrow": "A note from Aurora’s",
+    "story_title": "More than a cake.\nA way to say you care.",
+    "story_description": "“Happy birthday.” “I’m proud of you.” “Just because.”\nSometimes, the sweetest things are the ones we share.\n\nAurora’s Cake is a place for those moments — with a collection of celebration cakes and thoughtful details to make each one feel a little more like you.",
+    "story_cta": "Find something to share",
+    "story_signature": "With love, Aurora’s",
+    "story_image_url": "/images/floral-cake.webp",
+    "story_image_alt": "A selection of cupcakes to share",
+    "story_image_note": "Little things.\nLovely memories.",
+    "social_eyebrow": "A little more Aurora’s",
+    "social_title": "Let’s talk\nall things cake.",
+    "social_description": "Planning something special? Visit our Facebook page for cake ideas, questions, and a conversation about your next celebration.",
+    "social_cta": "Visit Aurora’s Cake",
+    "social_handle": "@aurorascake26",
+    "social_image_note": "Life is sweeter together.",
+    "faq_eyebrow": "The little details",
+    "faq_title": "Good things\nto know.",
+    "faq_description": "A few answers before\nyour first bite.",
+    "footer_tagline": "A LITTLE SLICE OF HAPPINESS",
+    "footer_about": "For moments worth\nmaking sweeter.",
+    "footer_copyright_note": "Made for sweet moments ♡",
+    "footer_preview_note": "Website preview · Orders stay on your device · No payment collected",
+    "footer_contact_label": "Get in touch",
+    "nav_cakes": "Our cakes",
+    "nav_custom": "Custom cakes",
+    "nav_story": "Our story",
+    "nav_search_placeholder": "Find your next favourite cake…",
+    "nav_facebook": "Facebook",
+    "brand_tagline": "Little moments. Lovely cakes."
+  },
+  "hero_slides": [
+    {
+      "id": "slide-1",
+      "product_id": "prod-5",
+      "title": "Elysian Floral Pastels Anniversary Cake",
+      "subtitle": "The celebration collection",
+      "image_url": "/images/floral-signature.webp",
+      "image_alt": "Elysian Floral Pastels Anniversary Cake",
+      "sort_order": 1,
+      "is_active": true
+    },
+    {
+      "id": "slide-2",
+      "product_id": "prod-2",
+      "title": "Royale Red Velvet Cream Cheese",
+      "subtitle": "The celebration collection",
+      "image_url": "/images/red-velvet.webp",
+      "image_alt": "Royale Red Velvet Cream Cheese",
+      "sort_order": 2,
+      "is_active": true
+    },
+    {
+      "id": "slide-3",
+      "product_id": "prod-1",
+      "title": "Belgian Triple Chocolate Fudge",
+      "subtitle": "The celebration collection",
+      "image_url": "/images/chocolate-fudge.webp",
+      "image_alt": "Belgian Triple Chocolate Fudge",
+      "sort_order": 3,
+      "is_active": true
+    }
+  ],
+  "highlights": [
+    {
+      "id": "promise-1",
+      "section": "promise",
+      "title": "Thoughtfully crafted cakes",
+      "description": "",
+      "icon": "cake",
+      "sort_order": 1,
+      "is_active": true
+    },
+    {
+      "id": "promise-2",
+      "section": "promise",
+      "title": "Made personal, by you",
+      "description": "",
+      "icon": "flower",
+      "sort_order": 2,
+      "is_active": true
+    },
+    {
+      "id": "promise-3",
+      "section": "promise",
+      "title": "A sweet delivery to your door",
+      "description": "",
+      "icon": "truck",
+      "sort_order": 3,
+      "is_active": true
+    },
+    {
+      "id": "occasion-1",
+      "section": "occasion",
+      "title": "Birthday wishes",
+      "description": "Make a wish. Make it sweet.",
+      "image_url": "/images/red-velvet.webp",
+      "image_alt": "Birthday cake",
+      "category_id": "cat-1",
+      "sort_order": 1,
+      "is_active": true
+    },
+    {
+      "id": "occasion-2",
+      "section": "occasion",
+      "title": "Love & togetherness",
+      "description": "For your favourite people.",
+      "image_url": "/images/floral-signature.webp",
+      "image_alt": "Anniversary cake",
+      "category_id": "cat-3",
+      "sort_order": 2,
+      "is_active": true
+    },
+    {
+      "id": "occasion-3",
+      "section": "occasion",
+      "title": "Chocolate cravings",
+      "description": "A very good kind of extra.",
+      "image_url": "/images/chocolate-fudge.webp",
+      "image_alt": "Chocolate cake",
+      "category_id": "cat-2",
+      "sort_order": 3,
+      "is_active": true
+    },
+    {
+      "id": "occasion-4",
+      "section": "occasion",
+      "title": "Just because",
+      "description": "Little treats. Big smiles.",
+      "image_url": "/images/floral-cake.webp",
+      "image_alt": "Cupcakes",
+      "category_id": "all",
+      "sort_order": 4,
+      "is_active": true
+    },
+    {
+      "id": "step-1",
+      "section": "custom_step",
+      "title": "Choose your flavours",
+      "description": "",
+      "icon": "check",
+      "sort_order": 1,
+      "is_active": true
+    },
+    {
+      "id": "step-2",
+      "section": "custom_step",
+      "title": "Add your little details",
+      "description": "",
+      "icon": "check",
+      "sort_order": 2,
+      "is_active": true
+    },
+    {
+      "id": "step-3",
+      "section": "custom_step",
+      "title": "Make it a moment",
+      "description": "",
+      "icon": "check",
+      "sort_order": 3,
+      "is_active": true
+    },
+    {
+      "id": "social-1",
+      "section": "social_gallery",
+      "title": "Cake collection",
+      "description": "",
+      "image_url": "/images/chocolate-fudge.webp",
+      "image_alt": "Cake from the preview collection",
+      "sort_order": 1,
+      "is_active": true
+    },
+    {
+      "id": "social-2",
+      "section": "social_gallery",
+      "title": "Cake collection",
+      "description": "",
+      "image_url": "/images/floral-signature.webp",
+      "image_alt": "Cake from the preview collection",
+      "sort_order": 2,
+      "is_active": true
+    },
+    {
+      "id": "social-3",
+      "section": "social_gallery",
+      "title": "Cake collection",
+      "description": "",
+      "image_url": "/images/floral-cake.webp",
+      "image_alt": "Cake from the preview collection",
+      "sort_order": 3,
+      "is_active": true
+    }
+  ],
+  "faqs": [
+    {
+      "id": "faq-1",
+      "question": "Can I make a cake my own?",
+      "answer": "Choose your cake size and flavour, add a personal message, then finish with candles, a topper or a little extra. Each cake page shows the available options.",
+      "sort_order": 1,
+      "is_active": true
+    },
+    {
+      "id": "faq-2",
+      "question": "How do custom cakes work?",
+      "answer": "Open our custom cake studio, tell us the occasion, flavours and colours you have in mind, and add a reference image link if you have one. You can review an estimate before saving your request.",
+      "sort_order": 2,
+      "is_active": true
+    },
+    {
+      "id": "faq-3",
+      "question": "Where can I see delivery options?",
+      "answer": "The checkout shows the available delivery zones, delivery fees, dates and time slots. Select your zone to see the total before placing an order.",
+      "sort_order": 3,
+      "is_active": true
+    },
+    {
+      "id": "faq-4",
+      "question": "Can I place a real order on this website?",
+      "answer": "When checkout offers cash on delivery to Aurora's Cake, a confirmed saved receipt means your order has reached our Google Sheet. Contact us to confirm availability and delivery. No online payment is collected. If checkout is labelled a demo, it stays on this device. Discuss custom cake requests with us on Facebook.",
+      "sort_order": 4,
+      "is_active": true
+    }
+  ],
+  "links": [
+    {
+      "id": "facebook",
+      "label": "Facebook",
+      "url": "https://www.facebook.com/aurorascake26",
+      "location": "social",
+      "sort_order": 1,
+      "is_active": true
+    }
+  ],
+  "products": [
+    {
+      "id": "prod-1",
+      "category_id": "cat-2",
+      "category_name": "Chocolate Temptations",
+      "name": "Belgian Triple Chocolate Fudge",
+      "slug": "belgian-triple-chocolate-fudge",
+      "description": "Layers of moist chocolate sponge smothered with velvety 70% dark Belgian ganache, chocolate crisps, and golden dusted cocoa nibs.",
+      "base_price": 1250,
+      "sale_price": 1150,
+      "image_url": "/images/chocolate-fudge.webp",
+      "gallery_images": [
+        "/images/chocolate-fudge.webp",
+        "/images/black-forest.webp"
+      ],
+      "is_featured": true,
+      "is_active": true,
+      "rating": 0,
+      "review_count": 0,
+      "variants": [
+        {
+          "id": "var-1-1",
+          "product_id": "prod-1",
+          "name": "500g (Serves 4)",
+          "weight_grams": 500,
+          "price": 680,
+          "is_active": true
+        },
+        {
+          "id": "var-1-2",
+          "product_id": "prod-1",
+          "name": "1kg (Serves 8-10)",
+          "weight_grams": 1000,
+          "price": 1250,
+          "sale_price": 1150,
+          "is_active": true
+        },
+        {
+          "id": "var-1-3",
+          "product_id": "prod-1",
+          "name": "1.5kg (Serves 12-14)",
+          "weight_grams": 1500,
+          "price": 1750,
+          "is_active": true
+        },
+        {
+          "id": "var-1-4",
+          "product_id": "prod-1",
+          "name": "2kg (Serves 18-20)",
+          "weight_grams": 2000,
+          "price": 2300,
+          "is_active": true
+        }
+      ],
+      "allowed_flavor_ids": [
+        "flav-1",
+        "flav-5",
+        "flav-6"
+      ],
+      "allowed_addon_ids": [
+        "addon-1",
+        "addon-2",
+        "addon-3",
+        "addon-4",
+        "addon-5"
+      ]
+    },
+    {
+      "id": "prod-2",
+      "category_id": "cat-1",
+      "category_name": "Birthday Specials",
+      "name": "Royale Red Velvet Cream Cheese",
+      "slug": "royale-red-velvet-cream-cheese",
+      "description": "Classic crimson cocoa crumb layered with authentic Philadelphia cream cheese frosting and white chocolate curls.",
+      "base_price": 1350,
+      "image_url": "/images/red-velvet.webp",
+      "gallery_images": [
+        "/images/red-velvet.webp"
+      ],
+      "is_featured": true,
+      "is_active": true,
+      "rating": 0,
+      "review_count": 0,
+      "variants": [
+        {
+          "id": "var-2-1",
+          "product_id": "prod-2",
+          "name": "500g (Serves 4)",
+          "weight_grams": 500,
+          "price": 720,
+          "is_active": true
+        },
+        {
+          "id": "var-2-2",
+          "product_id": "prod-2",
+          "name": "1kg (Serves 8-10)",
+          "weight_grams": 1000,
+          "price": 1350,
+          "is_active": true
+        },
+        {
+          "id": "var-2-3",
+          "product_id": "prod-2",
+          "name": "1.5kg (Serves 12-14)",
+          "weight_grams": 1500,
+          "price": 1950,
+          "is_active": true
+        },
+        {
+          "id": "var-2-4",
+          "product_id": "prod-2",
+          "name": "2kg (Serves 18-20)",
+          "weight_grams": 2000,
+          "price": 2500,
+          "is_active": true
+        }
+      ],
+      "allowed_flavor_ids": [
+        "flav-3",
+        "flav-2"
+      ],
+      "allowed_addon_ids": [
+        "addon-1",
+        "addon-2",
+        "addon-3",
+        "addon-4"
+      ]
+    },
+    {
+      "id": "prod-3",
+      "category_id": "cat-2",
+      "category_name": "Chocolate Temptations",
+      "name": "Black Forest Royale Amarena",
+      "slug": "black-forest-royale-amarena",
+      "description": "Traditional German Black Forest loaded with Italian dark cherries, fresh whipped cream, and shaved chocolate shards.",
+      "base_price": 1100,
+      "image_url": "/images/black-forest.webp",
+      "gallery_images": [
+        "/images/black-forest.webp"
+      ],
+      "is_featured": false,
+      "is_active": true,
+      "rating": 0,
+      "review_count": 0,
+      "variants": [
+        {
+          "id": "var-3-1",
+          "product_id": "prod-3",
+          "name": "500g (Serves 4)",
+          "weight_grams": 500,
+          "price": 620,
+          "is_active": true
+        },
+        {
+          "id": "var-3-2",
+          "product_id": "prod-3",
+          "name": "1kg (Serves 8-10)",
+          "weight_grams": 1000,
+          "price": 1100,
+          "is_active": true
+        },
+        {
+          "id": "var-3-3",
+          "product_id": "prod-3",
+          "name": "2kg (Serves 18-20)",
+          "weight_grams": 2000,
+          "price": 2100,
+          "is_active": true
+        }
+      ],
+      "allowed_flavor_ids": [
+        "flav-4",
+        "flav-1"
+      ],
+      "allowed_addon_ids": [
+        "addon-1",
+        "addon-2",
+        "addon-3"
+      ]
+    },
+    {
+      "id": "prod-4",
+      "category_id": "cat-4",
+      "category_name": "Cheesecakes & Berries",
+      "name": "Lotus Biscoff Salted Caramel Cheesecake",
+      "slug": "lotus-biscoff-cheesecake",
+      "description": "Crushed Biscoff cookie crust, silky baked cheesecake filling infused with cookie butter swirl, topped with caramelized drizzle.",
+      "base_price": 1450,
+      "sale_price": 1350,
+      "image_url": "/images/cheesecake.webp",
+      "gallery_images": [
+        "/images/cheesecake.webp"
+      ],
+      "is_featured": true,
+      "is_active": true,
+      "rating": 0,
+      "review_count": 0,
+      "variants": [
+        {
+          "id": "var-4-1",
+          "product_id": "prod-4",
+          "name": "500g (Serves 4)",
+          "weight_grams": 500,
+          "price": 780,
+          "is_active": true
+        },
+        {
+          "id": "var-4-2",
+          "product_id": "prod-4",
+          "name": "1kg (Serves 8-10)",
+          "weight_grams": 1000,
+          "price": 1450,
+          "sale_price": 1350,
+          "is_active": true
+        },
+        {
+          "id": "var-4-3",
+          "product_id": "prod-4",
+          "name": "2kg (Serves 18-20)",
+          "weight_grams": 2000,
+          "price": 2700,
+          "is_active": true
+        }
+      ],
+      "allowed_flavor_ids": [
+        "flav-5",
+        "flav-6"
+      ],
+      "allowed_addon_ids": [
+        "addon-1",
+        "addon-2",
+        "addon-3",
+        "addon-5"
+      ]
+    },
+    {
+      "id": "prod-5",
+      "category_id": "cat-3",
+      "category_name": "Wedding & Anniversary",
+      "name": "Elysian Floral Pastels Anniversary Cake",
+      "slug": "elysian-floral-pastels",
+      "description": "Two-tier ivory butter sponge with natural raspberry compote, handcrafted edible wafer florals, and 24K edible gold leaves.",
+      "base_price": 2600,
+      "image_url": "/images/floral-signature.webp",
+      "gallery_images": [
+        "/images/floral-signature.webp"
+      ],
+      "is_featured": true,
+      "is_active": true,
+      "rating": 0,
+      "review_count": 0,
+      "variants": [
+        {
+          "id": "var-5-1",
+          "product_id": "prod-5",
+          "name": "1.5kg Two-Tier (Serves 14)",
+          "weight_grams": 1500,
+          "price": 2600,
+          "is_active": true
+        },
+        {
+          "id": "var-5-2",
+          "product_id": "prod-5",
+          "name": "2.5kg Two-Tier (Serves 25)",
+          "weight_grams": 2500,
+          "price": 3950,
+          "is_active": true
+        }
+      ],
+      "allowed_flavor_ids": [
+        "flav-2",
+        "flav-3"
+      ],
+      "allowed_addon_ids": [
+        "addon-1",
+        "addon-2",
+        "addon-3",
+        "addon-4"
+      ]
+    },
+    {
+      "id": "prod-6",
+      "category_id": "cat-5",
+      "category_name": "Cupcakes & Pastries",
+      "name": "Artisan Assorted Cupcake Box (6 Pcs)",
+      "slug": "artisan-cupcake-box-6pcs",
+      "description": "Six signature swirls: Red Velvet, Dark Cocoa, Pistachio Rose, Salted Caramel, Blueberry Cream, and Vanilla Gold.",
+      "base_price": 650,
+      "image_url": "/images/cupcakes.webp",
+      "gallery_images": [
+        "/images/cupcakes.webp"
+      ],
+      "is_featured": false,
+      "is_active": true,
+      "rating": 0,
+      "review_count": 0,
+      "variants": [
+        {
+          "id": "var-6-1",
+          "product_id": "prod-6",
+          "name": "Standard 6-Box",
+          "weight_grams": 450,
+          "price": 650,
+          "is_active": true
+        },
+        {
+          "id": "var-6-2",
+          "product_id": "prod-6",
+          "name": "Deluxe 12-Box",
+          "weight_grams": 900,
+          "price": 1200,
+          "is_active": true
+        }
+      ],
+      "allowed_flavor_ids": [
+        "flav-1",
+        "flav-2",
+        "flav-3"
+      ],
+      "allowed_addon_ids": [
+        "addon-1",
+        "addon-3"
+      ]
+    }
+  ],
+  "categories": [
+    {
+      "id": "cat-1",
+      "name": "Birthday cakes",
+      "slug": "birthday-cakes",
+      "description": "Festive handcrafted celebration cakes made with rich Bavarian cream",
+      "image_url": "/images/floral-signature.webp",
+      "sort_order": 1,
+      "is_active": true
+    },
+    {
+      "id": "cat-2",
+      "name": "Chocolate",
+      "slug": "chocolate-cakes",
+      "description": "Decadent imported 70% Belgian dark chocolate truffles and ganache",
+      "image_url": "https://images.unsplash.com/photo-1606890737304-57a1ca8a5b62?w=600&auto=format&fit=crop&q=80",
+      "sort_order": 2,
+      "is_active": true
+    },
+    {
+      "id": "cat-3",
+      "name": "Wedding & anniversary",
+      "slug": "wedding-anniversary",
+      "description": "Multi-tiered romantic masterpieces with sugar florals and gold leaf accents",
+      "image_url": "/images/floral-signature.webp",
+      "sort_order": 3,
+      "is_active": true
+    },
+    {
+      "id": "cat-4",
+      "name": "Cheesecakes",
+      "slug": "cheesecakes",
+      "description": "Slow-baked New York style and fresh strawberry mousse cheesecakes",
+      "image_url": "/images/cheesecake.webp",
+      "sort_order": 4,
+      "is_active": true
+    },
+    {
+      "id": "cat-5",
+      "name": "Cupcakes",
+      "slug": "cupcakes-pastries",
+      "description": "Bite-sized happiness boxes perfect for gifts and tea parties",
+      "image_url": "/images/cupcakes.webp",
+      "sort_order": 5,
+      "is_active": true
+    }
+  ],
+  "flavors": [
+    {
+      "id": "flav-1",
+      "name": "Belgian Dark Truffle",
+      "color_hex": "#3e2723",
+      "is_active": true
+    },
+    {
+      "id": "flav-2",
+      "name": "Velvet Madagascar Vanilla",
+      "color_hex": "#fff9c4",
+      "is_active": true
+    },
+    {
+      "id": "flav-3",
+      "name": "Signature Red Velvet",
+      "color_hex": "#b71c1c",
+      "is_active": true
+    },
+    {
+      "id": "flav-4",
+      "name": "Black Forest Royale",
+      "color_hex": "#880e4f",
+      "is_active": true
+    },
+    {
+      "id": "flav-5",
+      "name": "Lotus Biscoff Crunch",
+      "color_hex": "#d7ccc8",
+      "is_active": true
+    },
+    {
+      "id": "flav-6",
+      "name": "Salted Caramel Praline",
+      "color_hex": "#ffb74d",
+      "is_active": true
+    }
+  ],
+  "addons": [
+    {
+      "id": "addon-1",
+      "name": "Sparkler Candle Set (Pack of 4)",
+      "price": 120,
+      "is_active": true
+    },
+    {
+      "id": "addon-2",
+      "name": "Golden Acrylic \"Happy Birthday\" Topper",
+      "price": 180,
+      "is_active": true
+    },
+    {
+      "id": "addon-3",
+      "name": "Handwritten Calligraphy Card",
+      "price": 80,
+      "is_active": true
+    },
+    {
+      "id": "addon-4",
+      "name": "Fresh Red Roses Mini Bouquet",
+      "price": 350,
+      "is_active": true
+    },
+    {
+      "id": "addon-5",
+      "name": "Ferrero Rocher Box (4 pcs)",
+      "price": 420,
+      "is_active": true
+    }
+  ],
+  "banners": [
+    {
+      "id": "ban-1",
+      "title": "Make every moment a little sweeter",
+      "subtitle": "Explore celebration cakes and the little details that make them yours.",
+      "image_url": "/images/floral-signature.webp",
+      "button_text": "Explore cakes",
+      "button_link": "#catalog",
+      "is_active": true
+    }
+  ],
+  "zones": [
+    {
+      "id": "zone-1",
+      "name": "Tangail Town (Main City Area)",
+      "delivery_fee": 60,
+      "estimated_time": "1-2 Hours Express",
+      "is_active": true
+    },
+    {
+      "id": "zone-2",
+      "name": "Nearby Suburbs & Akur Takur",
+      "delivery_fee": 100,
+      "estimated_time": "2-3 Hours",
+      "is_active": true
+    },
+    {
+      "id": "zone-3",
+      "name": "Outside Town / Cantonment / Bypass",
+      "delivery_fee": 150,
+      "estimated_time": "3-4 Hours",
+      "is_active": true
+    }
+  ],
+  "slots": [
+    {
+      "id": "slot-1",
+      "slot_label": "10:00 AM - 12:00 PM (Morning Slot)",
+      "is_active": true
+    },
+    {
+      "id": "slot-2",
+      "slot_label": "12:00 PM - 02:00 PM (Lunch Slot)",
+      "is_active": true
+    },
+    {
+      "id": "slot-3",
+      "slot_label": "02:00 PM - 04:00 PM (Afternoon Slot)",
+      "is_active": true
+    },
+    {
+      "id": "slot-4",
+      "slot_label": "04:00 PM - 06:00 PM (Evening Teatime)",
+      "is_active": true
+    },
+    {
+      "id": "slot-5",
+      "slot_label": "06:00 PM - 08:30 PM (Celebration Dinner)",
+      "is_active": true
+    }
+  ],
+  "coupons": [
+    {
+      "id": "coup-1",
+      "code": "WELCOME100",
+      "discount_type": "fixed",
+      "discount_value": 100,
+      "min_order_amount": 800,
+      "is_active": true,
+      "usage_count": 14
+    },
+    {
+      "id": "coup-2",
+      "code": "BIRTHDAY10",
+      "discount_type": "percentage",
+      "discount_value": 10,
+      "min_order_amount": 1000,
+      "max_discount_amount": 300,
+      "is_active": true,
+      "usage_count": 28
+    },
+    {
+      "id": "coup-3",
+      "code": "SWEETDELIGHT",
+      "discount_type": "percentage",
+      "discount_value": 15,
+      "min_order_amount": 1500,
+      "max_discount_amount": 500,
+      "is_active": true,
+      "usage_count": 9
+    }
+  ],
+  "reviews": []
+};
+/* ===== END apps-script/SeedData.gs ===== */
+
+
+/* ===== BEGIN apps-script/StaffOperations.gs ===== */
+/**
+ * Authenticated bakery operations for the existing private Google Sheet COD orders.
+ * Install alongside Code.gs. All private operations use POST, and each staff
+ * request verifies a Google ID token against a private email-role allowlist.
+ *
+ * Script Properties:
+ * AURORA_GOOGLE_CLIENT_ID: Google OAuth Web Client ID (public)
+ * AURORA_STAFF_USERS: JSON map, e.g.
+ * {"owner@example.com":{"role":"super_admin","name":"Owner"},
+ *  "rider@example.com":{"role":"delivery_man","name":"Rider"}}
+ */
+var AURORA_STAFF_ROLES_ = ['super_admin','admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'];
+function auroraStaffConfig_() {
+  var props = PropertiesService.getScriptProperties();
+  var clientId = String(props.getProperty('AURORA_GOOGLE_CLIENT_ID') || '').trim();
+  var raw = String(props.getProperty('AURORA_STAFF_USERS') || '{}');
+  var people = JSON.parse(raw);
+  if (!clientId || !people || typeof people !== 'object' || Array.isArray(people)) {
+    auroraReject_('staff_not_configured','Staff login is not configured.');
+  }
+  return {clientId:clientId,people:people};
+}
+/**
+ * Server-side Google token verification with a short-lived ScriptCache to avoid
+ * exceeding free URL Fetch quotas for active staff/rider polling.
+ * Google's tokeninfo service validates the Google-issued token. This avoids
+ * implementing homemade JWT cryptography inside Apps Script.
+ * Permissions are NEVER cached; the staff allowlist is checked on each request.
+ */
+function auroraVerifiedGoogleClaims_(idToken,clientId) {
+  if (typeof idToken !== 'string' || idToken.length < 100 || idToken.length > 6000 ||
+      !/^[a-zA-Z0-9_.-]+$/.test(idToken)) auroraReject_('unauthorized','Sign in with your Google account.');
+  if (!clientId) auroraReject_('account_not_configured','Google account verification is not configured.');
+  var fingerprint = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,idToken,Utilities.Charset.UTF_8)
+    .map(function(byte){return ('0'+((byte+256)%256).toString(16)).slice(-2);}).join('');
+  var cache=CacheService.getScriptCache(), key='aurora_auth_'+fingerprint, claims;
+  var previous=cache.get(key);
+  if (previous) { try { claims=JSON.parse(previous); } catch (_) { claims=null; } }
+  if (!claims) {
+    try {
+      var response=UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token='+encodeURIComponent(idToken),{
+        method:'get',muteHttpExceptions:true,followRedirects:false
+      });
+      if(response.getResponseCode()!==200)auroraReject_('unauthorized','Your Google sign-in has expired or is invalid.');
+      claims=JSON.parse(response.getContentText());
+    } catch (error) {
+      if(error&&error.auroraValidation)throw error;
+      auroraReject_('unauthorized','Unable to verify Google sign-in.');
+    }
+  }
+  var now=Math.floor(Date.now()/1000), expiry=Number(claims.exp);
+  if(claims.aud!==clientId ||
+     ['accounts.google.com','https://accounts.google.com'].indexOf(claims.iss)===-1 ||
+     !(claims.email_verified===true||claims.email_verified==='true')||
+     typeof claims.sub!=='string'||!claims.sub||
+     typeof claims.email!=='string'||!claims.email||
+     !Number.isFinite(expiry)||expiry<=now) {
+    auroraReject_('unauthorized','Google sign-in did not pass identity validation.');
+  }
+  var ttl=Math.min(300,Math.floor(expiry-now)-30);
+  if(!previous&&ttl>0){
+    cache.put(key,JSON.stringify({aud:claims.aud,iss:claims.iss,
+      email_verified:claims.email_verified,sub:claims.sub,email:claims.email,
+      name:claims.name||'',exp:claims.exp}),ttl);
+  }
+  return claims;
+}
+function auroraStaffAuthenticate_(input) {
+  var config=auroraStaffConfig_();
+  var decoded=auroraVerifiedGoogleClaims_(input && input.id_token,config.clientId);
+  var email=String(decoded.email).trim().toLowerCase();
+  if (!Object.prototype.hasOwnProperty.call(config.people,email)) {
+    auroraReject_('forbidden','This Google account is not authorized to access bakery operations.');
+  }
+  var person=config.people[email];
+  if (!person || AURORA_STAFF_ROLES_.indexOf(person.role)===-1) auroraReject_('forbidden','Staff role is not authorized.');
+  return {email:email,role:person.role,name:String(person.name||email).slice(0,100),people:config.people};
+}
+function auroraStaffCan_(actor,action) {
+  if (actor.role === 'super_admin' || actor.role === 'admin') return true;
+  var permissions = {
+    order_manager:['confirm','cancel'],
+    kitchen_manager:['start_baking','mark_ready'],
+    delivery_manager:['assign'],
+    delivery_man:['pick_up','start_delivery','deliver'],
+    accountant:[]
+  };
+  return (permissions[actor.role] || []).indexOf(action) !== -1;
+}
+function auroraPrivateFindRow_(table, orderId) {
+  var index = table.headers.indexOf('id');
+  if (index < 0) throw new Error('Private orders ID header missing.');
+  var lastRow = table.sheet.getLastRow();
+  if (lastRow < 2) return 0;
+  var data = table.sheet.getRange(2,index+1,lastRow-1,1).getValues();
+  for (var i=0;i<data.length;i++) if (String(data[i][0]) === orderId) return i+2;
+  return 0;
+}
+function auroraPrivateSaveReceipt_(table,row,order) {
+  // Single spreadsheet row write keeps status, payment and receipt JSON in sync.
+  // Preserve any extra private columns added by the shop owner.
+  var values = table.sheet.getRange(row,1,1,table.headers.length).getValues()[0];
+  [['receipt_json',JSON.stringify(order)],['status',order.status],
+   ['payment_status',order.payment_status],['updated_at',order.updated_at]].forEach(function(entry) {
+    var col = table.headers.indexOf(entry[0]);
+    if (col < 0) throw new Error('Missing private order column: '+entry[0]);
+    values[col] = auroraSheetCell_(entry[1]);
+  });
+  table.sheet.getRange(row,1,1,values.length).setValues([values]);
+}
+function auroraOperationsOrders_(actor, table) {
+  var list = [];
+  table.rows.forEach(function(row) {
+    var order;
+    try { order = JSON.parse(String(row.receipt_json || '')); } catch (_) { return; }
+    if (!order || !order.id) return;
+    if (actor.role === 'delivery_man' && String(order.rider_id || '').toLowerCase() !== actor.email) return;
+    if (actor.role === 'kitchen_manager' && ['pending','cancelled','delivered'].indexOf(order.status) !== -1) return;
+    // Staff never receives the delivery OTP or the customer's bearer capability.
+    delete order.customer_access_token;
+    delete order.customer_google_sub;
+    if (actor.role === 'kitchen_manager') {
+      delete order.customer_phone;
+      delete order.delivery_address;
+    }
+    if (actor.role === 'accountant') {
+      delete order.customer_phone;
+      delete order.delivery_address;
+      delete order.items;
+    }
+    delete order.delivery_otp;
+    delete order.otp_failed_attempts;
+    delete order.otp_locked_until;
+    list.push(order);
+  });
+  list.sort(function(a,b){return String(b.created_at||'').localeCompare(String(a.created_at||''));});
+  return list.slice(0,100);
+}
+function auroraOperationsPost_(input) {
+  var actor = auroraStaffAuthenticate_(input);
+  if (input.action === 'staff_session') return {ok:true,role:actor.role,name:actor.name,email:actor.email,riders:['super_admin','admin','delivery_manager'].indexOf(actor.role)===-1?[]:Object.keys(actor.people).filter(function(email){return actor.people[email].role==='delivery_man';}).map(function(email){return {email:email,name:String(actor.people[email].name||email)};})};
+  var book = auroraSpreadsheet_(), table = auroraPrivateTable_(book,'orders');
+  if (input.action === 'staff_orders') return {ok:true,orders:auroraOperationsOrders_(actor,table),role:actor.role};
+  if (input.action !== 'staff_mutate') auroraReject_('invalid_action','Unknown staff action.');
+  var action = String(input.operation || '');
+  if (!auroraStaffCan_(actor,action)) auroraReject_('forbidden','Your role cannot perform this operation.');
+  var orderId = auroraOrderText_(input.order_id,'Order ID',10,150);
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) auroraReject_('busy','Another order update is in progress. Retry.');
+  try {
+    table = auroraPrivateTable_(book,'orders');
+    var rowNumber = auroraPrivateFindRow_(table,orderId);
+    if (!rowNumber) auroraReject_('not_found','Order not found.');
+    var record = table.rows.filter(function(row){return String(row.id) === orderId;})[0];
+    var order = JSON.parse(String(record.receipt_json));
+    var transitions = {
+      confirm:['pending','confirmed'], cancel:['pending','cancelled'],
+      start_baking:['confirmed','preparing'], mark_ready:['preparing','ready'],
+      assign:['ready','assigned'], pick_up:['assigned','picked_up'],
+      start_delivery:['picked_up','out_for_delivery'], deliver:['out_for_delivery','delivered']
+    };
+    if (!transitions[action] || (action==='cancel' ? ['pending','confirmed','preparing','ready','assigned'].indexOf(order.status)===-1 : order.status !== transitions[action][0])) {
+      auroraReject_('invalid_transition','Order is not at the required stage.');
+    }
+    if (['pick_up','start_delivery','deliver'].indexOf(action) !== -1 &&
+        String(order.rider_id||'').toLowerCase() !== actor.email) {
+      auroraReject_('forbidden','This delivery is assigned to a different rider.');
+    }
+    if (action === 'assign') {
+      var riderEmail = auroraOrderText_(input.rider_email,'Rider email',5,200).toLowerCase();
+      var rider = actor.people[riderEmail];
+      if (!rider || rider.role !== 'delivery_man') auroraReject_('invalid_rider','Select a registered delivery rider.');
+      order.rider_id = riderEmail;
+      order.rider_name = String(rider.name||riderEmail).slice(0,100);
+    }
+    if (action === 'start_delivery' && !order.delivery_otp) {
+      // No code is issued at checkout; generate it just before delivery.
+      // Use Apps Script's platform UUID source rather than Math.random().
+      order.delivery_otp = String(1000 + (parseInt(String(Utilities.getUuid()).replace(/-/g,'').slice(0,8),16) % 9000));
+    }
+    if (action === 'deliver') {
+      var nowMillis = Date.now();
+      if (Number(order.otp_locked_until || 0) > nowMillis) auroraReject_('otp_locked','Too many incorrect OTP entries. Try again later.');
+      var code = String(input.delivery_otp || '');
+      if (!/^\d{4}$/.test(code) || code !== String(order.delivery_otp)) {
+        order.otp_failed_attempts = Number(order.otp_failed_attempts || 0)+1;
+        if (order.otp_failed_attempts >= 5) {
+          order.otp_locked_until = nowMillis+15*60*1000;
+          order.otp_failed_attempts = 0;
+        }
+        auroraPrivateSaveReceipt_(table,rowNumber,order);
+        auroraReject_('invalid_otp','Delivery code is incorrect or temporarily locked.');
+      }
+      if (order.payment_method === 'cod' && input.cash_collected !== true) {
+        auroraReject_('cash_unconfirmed','Confirm receiving the full cash payment before marking delivered.');
+      }
+      order.cod_collected = order.payment_method === 'cod';
+      order.payment_status = order.payment_method === 'cod' ? 'paid' : order.payment_status;
+      // Delivery codes are single-use; never persist a valid code after completion.
+      order.delivery_otp = '';
+      order.otp_failed_attempts = 0;
+      order.otp_locked_until = 0;
+    }
+    if (action === 'cancel') order.delivery_otp = '';
+    order.status = transitions[action][1];
+    order.updated_at = new Date().toISOString();
+    if (!Array.isArray(order.history)) order.history = [];
+    order.history.push({id:'staff_'+Utilities.getUuid(),status:order.status,
+      notes:'Updated by authorized staff',actor_name:actor.name,created_at:order.updated_at});
+    auroraPrivateSaveReceipt_(table,rowNumber,order);
+    var safeOrder = JSON.parse(JSON.stringify(order));
+    delete safeOrder.customer_access_token;
+    delete safeOrder.customer_google_sub;
+    delete safeOrder.delivery_otp;
+    delete safeOrder.otp_failed_attempts;
+    delete safeOrder.otp_locked_until;
+    return {ok:true,order:safeOrder};
+  } finally {lock.releaseLock();}
+}
+/** Non-enumerating lookup only for a customer holding their own saved receipt. */
+function auroraCustomerOrderStatus_(input) {
+  var orderId = auroraOrderText_(input.order_id,'Order reference',10,150);
+  if (!/^ord_[0-9a-f]{8}-[0-9a-f-]{27,}$/.test(orderId)) auroraReject_('not_found','Order reference is invalid.');
+  var digits = auroraOrderText_(input.customer_phone,'Phone',7,30).replace(/\D/g,'');
+  var table = auroraPrivateTable_(auroraSpreadsheet_(),'orders');
+  var record = table.rows.filter(function(row){return String(row.id)===orderId;})[0];
+  if (!record || String(record.customer_phone||'').replace(/\D/g,'')!==digits) auroraReject_('not_found','Order reference and phone do not match.');
+  var order = JSON.parse(String(record.receipt_json));
+  var hasCapability = typeof input.customer_access_token === 'string' &&
+    order.customer_access_token &&
+    input.customer_access_token === order.customer_access_token;
+  var hasGoogleOwner = false;
+  if (!hasCapability && input.id_token && order.customer_google_sub) {
+    hasGoogleOwner = auroraCustomerIdentity_(input).sub === order.customer_google_sub;
+  }
+  // Legacy orders predate customer capabilities and may still support
+  // limited phone/reference lookup, but NEVER return an OTP on that basis.
+  if (!hasCapability && !hasGoogleOwner && order.customer_access_token) {
+    auroraReject_('forbidden','A valid receipt access key or linked Google login is required.');
+  }
+  var result={ok:true,order_id:order.id,status:order.status,updated_at:order.updated_at,
+    history:Array.isArray(order.history) ? order.history.slice(-20) : [],rider_name:order.rider_name||'',
+    payment_status:order.payment_status,cod_collected:order.cod_collected};
+  if ((hasCapability || hasGoogleOwner) && order.status==='out_for_delivery') {
+    result.delivery_otp=order.delivery_otp;
+  }
+  return result;
+}
+/* ===== END apps-script/StaffOperations.gs ===== */
+
+
+/* ===== BEGIN apps-script/CustomerAccounts.gs ===== */
+/**
+ * Optional FREE Google customer accounts; no SMS gateway and no email-sending API.
+ * Guest COD remains possible. A customer holding an original confirmed receipt
+ * can link it once to their verified Google identity and recover it later.
+ *
+ * Uses same AURORA_GOOGLE_CLIENT_ID Script Property as staff.
+ * Requires Code.gs and StaffOperations.gs (private receipt save helper).
+ */
+function auroraCustomerIdentity_(input) {
+  var clientId=String(PropertiesService.getScriptProperties().getProperty('AURORA_GOOGLE_CLIENT_ID')||'').trim();
+  var claims=auroraVerifiedGoogleClaims_(input && input.id_token,clientId);
+  return {sub:claims.sub,email:String(claims.email||'').toLowerCase(),
+    name:String(claims.name||claims.email||'Customer').slice(0,100)};
+}
+function auroraCustomerSafeReceipt_(order) {
+  var copy=JSON.parse(JSON.stringify(order));
+  delete copy.customer_google_sub;
+  delete copy.otp_failed_attempts;
+  delete copy.otp_locked_until;
+  // The rider OTP is only useful when the customer has received the cake.
+  if (copy.status !== 'out_for_delivery') copy.delivery_otp='';
+  return copy;
+}
+function auroraCustomerAccountsPost_(input) {
+  var identity=auroraCustomerIdentity_(input);
+  if (input.action === 'customer_session') {
+    return {ok:true,email:identity.email,name:identity.name};
+  }
+  if (input.action === 'customer_orders') {
+    var table=auroraPrivateTable_(auroraSpreadsheet_(),'orders');
+    var results=[];
+    table.rows.forEach(function(row) {
+      var order;
+      try {order=JSON.parse(String(row.receipt_json || ''));} catch (_) {return;}
+      if (!order || String(order.customer_google_sub||'') !== identity.sub) return;
+      results.push(auroraCustomerSafeReceipt_(order));
+    });
+    results.sort(function(a,b){return String(b.created_at||'').localeCompare(String(a.created_at||''));});
+    return {ok:true,orders:results.slice(0,50)};
+  }
+  if (input.action === 'customer_claim_order') {
+    var orderId=auroraOrderText_(input.order_id,'Order reference',10,150);
+    if (!/^ord_[0-9a-f]{8}-[0-9a-f-]{27,}$/.test(orderId)) auroraReject_('not_found','No matching order receipt.');
+    var phone=auroraOrderText_(input.customer_phone,'Checkout phone number',7,30).replace(/\D/g,'');
+    var lock=LockService.getScriptLock();
+    if (!lock.tryLock(10000)) auroraReject_('busy','Please retry linking your receipt.');
+    try {
+      var table=auroraPrivateTable_(auroraSpreadsheet_(),'orders');
+      var rowNumber=auroraPrivateFindRow_(table,orderId);
+      var record=table.rows.filter(function(row){return String(row.id)===orderId;})[0];
+      if (!rowNumber || !record ||
+          String(record.customer_phone||'').replace(/\D/g,'')!==phone) {
+        auroraReject_('not_found','No matching order receipt and checkout phone.');
+      }
+      var order=JSON.parse(String(record.receipt_json));
+      // A public order reference plus a contact number does NOT prove
+      // ownership. Only the original persisted receipt holds this key.
+      if (!order.customer_access_token ||
+          typeof input.customer_access_token !== 'string' ||
+          input.customer_access_token !== order.customer_access_token) {
+        auroraReject_('forbidden','Use the original confirmed order receipt to link this account.');
+      }
+      if (order.customer_google_sub && order.customer_google_sub!==identity.sub) {
+        auroraReject_('already_linked','This order is linked to a different Google account. Contact the bakery with proof of purchase.');
+      }
+      if (!order.customer_google_sub) {
+        order.customer_google_sub=identity.sub;
+        order.updated_at=new Date().toISOString();
+        auroraPrivateSaveReceipt_(table,rowNumber,order);
+      }
+      return {ok:true,linked:true,order_id:orderId};
+    } finally {lock.releaseLock();}
+  }
+  auroraReject_('invalid_action','Unsupported customer account action.');
+}
+/* ===== END apps-script/CustomerAccounts.gs ===== */
+
+
+/* ===== BEGIN apps-script/LiveCatalog.gs ===== */
+/**
+ * Free authenticated live catalogue operations for the original public Sheets.
+ * Deliberately limited to allowlisted fields. Staff cannot edit arbitrary cells
+ * or private orders through this route.
+ */
+function auroraCatalogSnapshot_(book) {
+  var products=auroraRows_(book,'products').map(function(row) {
+    return {id:String(row.id),name:String(row.name||''),is_active:auroraActive_(row.is_active)};
+  });
+  var variants=auroraRows_(book,'product_variants').map(function(row) {
+    return {id:String(row.id),product_id:String(row.product_id),name:String(row.name||''),
+      price:Number(row.price),sale_price:row.sale_price===''?'':Number(row.sale_price),
+      is_active:auroraActive_(row.is_active)};
+  });
+  var settings=auroraPairs_(auroraRows_(book,'settings'),PUBLIC_SETTINGS_KEYS);
+  return {ok:true,products:products,variants:variants,
+    settings:{shop_name:String(settings.shop_name||''),
+      accepting_orders:auroraActive_(settings.accepting_orders),
+      delivery_enabled:auroraActive_(settings.delivery_enabled)}};
+}
+function auroraCatalogueValue_(table,field,value) {
+  var allowed={
+    products:['name','description','image_url','is_active'],
+    product_variants:['price','sale_price','is_active'],
+    settings:['shop_name','accepting_orders','delivery_enabled']
+  };
+  if (!allowed[table] || allowed[table].indexOf(field)===-1) {
+    auroraReject_('forbidden','This field cannot be changed through the admin panel.');
+  }
+  if (field==='is_active'||field==='accepting_orders'||field==='delivery_enabled') {
+    if (typeof value!=='boolean') auroraReject_('invalid_value','Set the switch to true or false.');
+    return value;
+  }
+  if (field==='price'||field==='sale_price') {
+    if (field==='sale_price'&&value==='') return '';
+    if (typeof value!=='number'||!Number.isFinite(value)||value<0||value>10000000) {
+      auroraReject_('invalid_price','Cake price must be a valid non-negative number.');
+    }
+    return Math.round(value*100)/100;
+  }
+  if (typeof value!=='string') auroraReject_('invalid_value','A text value is required.');
+  var text=value.trim();
+  if (field==='name'||field==='shop_name') {
+    if (text.length<2||text.length>150) auroraReject_('invalid_value','Name must contain 2 to 150 characters.');
+  } else if (field==='description') {
+    if (text.length>2000) auroraReject_('invalid_value','Description must be under 2,000 characters.');
+  } else if (field==='image_url') {
+    if (text && !/^https:\/\/[^ <>"']+$/i.test(text) && !/^\/images\/[a-zA-Z0-9_.\-\/]+$/.test(text)) {
+      auroraReject_('invalid_value','Use a public HTTPS image URL or existing /images/ path.');
+    }
+    if (text.length>1500) auroraReject_('invalid_value','Image URL is too long.');
+  }
+  return text;
+}
+function auroraCatalogPost_(input) {
+  var actor=auroraStaffAuthenticate_(input);
+  if (actor.role!=='super_admin'&&actor.role!=='admin') {
+    auroraReject_('forbidden','Product and shop settings require an administrator account.');
+  }
+  if (input.action==='staff_catalog') return auroraCatalogSnapshot_(auroraSpreadsheet_());
+  if (input.action!=='staff_catalog_update') auroraReject_('invalid_action','Unknown catalogue operation.');
+  var tableName=String(input.table||''), field=String(input.field||'');
+  var recordId=auroraOrderText_(input.record_id,'Record ID',1,150);
+  var value=auroraCatalogueValue_(tableName,field,input.value);
+  var lock=LockService.getScriptLock();
+  if (!lock.tryLock(10000)) auroraReject_('busy','Another shop update is in progress.');
+  try {
+    var book=auroraSpreadsheet_();
+    var sheet=book.getSheetByName(tableName);
+    if (!sheet) auroraReject_('not_found','Catalogue table missing.');
+    var headers=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0]
+      .map(function(value){return String(value).trim().toLowerCase();});
+    var key=tableName==='settings'?'key':'id';
+    var targetColumn=tableName==='settings'?'value':field;
+    var keyIndex=headers.indexOf(key), fieldIndex=headers.indexOf(targetColumn);
+    if (keyIndex<0||fieldIndex<0||headers.lastIndexOf(key)!==keyIndex||
+        headers.lastIndexOf(targetColumn)!==fieldIndex) auroraReject_('invalid_sheet','Missing or duplicate expected column.');
+    var ids=sheet.getLastRow()>1 ?
+      sheet.getRange(2,keyIndex+1,sheet.getLastRow()-1,1).getValues() : [];
+    var rows=[];
+    ids.forEach(function(cell,index){if (String(cell[0]||'').trim()===recordId) rows.push(index+2);});
+    if (rows.length!==1 || (tableName==='settings'&&recordId!==field)) {
+      auroraReject_('not_found','Shop field or catalogue item was not found.');
+    }
+    sheet.getRange(rows[0],fieldIndex+1,1,1).setValues([[auroraSheetCell_(value)]]);
+    CacheService.getScriptCache().remove(auroraCacheKey_());
+    return {ok:true,updated:true};
+  } finally {lock.releaseLock();}
+}
+/* ===== END apps-script/LiveCatalog.gs ===== */
+
+
+/* ===== BEGIN apps-script/CustomCakeRequests.gs ===== */
+/**
+ * Free custom-cake quote requests. Public create/status and authenticated
+ * staff queue share a private Google Sheet tab, never included in public GET.
+ */
+function auroraCustomCakeDraft_(input) {
+  if (!input || input.action!=='create_custom_cake') auroraReject_('invalid_action','Unknown custom request.');
+  var id=auroraOrderText_(input.request_id,'Request ID',36,36).toLowerCase();
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id))
+    auroraReject_('invalid_request','A valid request reference is required.');
+  var phone=auroraOrderText_(input.customer_phone,'Phone',7,30);
+  var digits=phone.replace(/\D/g,'');
+  if(!/^\+?[0-9 ()-]+$/.test(phone)||digits.length<7||digits.length>15)
+    auroraReject_('invalid_phone','Enter a valid phone number.');
+  var image=auroraOptionalText_(input.reference_image_url,'Reference image URL',1500);
+  if(image&&!/^https:\/\/[^ <>"']+$/i.test(image)) auroraReject_('invalid_url','Use a public HTTPS reference image URL.');
+  return {
+    request_id:id,customer_name:auroraOrderText_(input.customer_name,'Name',2,100),
+    customer_phone:phone,cake_type:auroraOrderText_(input.cake_type,'Cake theme',2,120),
+    approx_size:auroraOrderText_(input.approx_size,'Cake weight',1,100),
+    flavor:auroraOrderText_(input.flavor,'Flavor',1,150),
+    color_theme:auroraOptionalText_(input.color_theme,'Color theme',150),
+    writing_text:auroraOptionalText_(input.writing_text,'Cake dedication',200),
+    instructions:auroraOptionalText_(input.instructions,'Instructions',1000),
+    reference_image_url:image
+  };
+}
+function auroraCustomCakeThrottled_(draft) {
+  var cache=CacheService.getScriptCache();
+  var hash=Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,
+    draft.customer_phone.replace(/\D/g,''),Utilities.Charset.UTF_8)
+    .map(function(byte){return ('0'+((byte+256)%256).toString(16)).slice(-2);}).join('').slice(0,24);
+  var key='aurora_custom_phone_'+hash;
+  var attempt='aurora_custom_attempt_'+draft.request_id;
+  if(cache.get(attempt))return;
+  var count=Number(cache.get(key)||0);
+  if(count>=3)auroraReject_('rate_limited','Too many custom cake requests. Please contact the bakery.');
+  cache.put(key,String(count+1),600);
+  cache.put(attempt,'1',600);
+}
+function auroraCustomCakeRows_(table) {
+  return table.rows.map(function(row) {
+    var value;
+    try{value=JSON.parse(String(row.receipt_json||''));}catch(_){return null;}
+    return value && value.id ? value : null;
+  }).filter(Boolean);
+}
+function auroraCustomCakePost_(input) {
+  if (input.action==='create_custom_cake') {
+    var draft=auroraCustomCakeDraft_(input),hash=auroraRequestHash_(draft);
+    var lock=LockService.getScriptLock();
+    if(!lock.tryLock(10000))auroraReject_('busy','Request confirmation is still pending. Retry with the same reference.');
+    try{
+      var table=auroraPrivateTable_(auroraSpreadsheet_(),'custom_cake_requests');
+      var existing=table.rows.filter(function(row){return String(row.request_id)===draft.request_id;});
+      if(existing.length>1)throw new Error('Duplicate custom cake request references.');
+      if(existing.length){
+        if(String(existing[0].request_hash)!==hash) auroraReject_('idempotency_conflict','Request ID belongs to a different custom cake.');
+        return {ok:true,saved:true,request_id:draft.request_id};
+      }
+      auroraCustomCakeThrottled_(draft);
+      var now=new Date().toISOString();
+      var request={
+        id:'custom_'+draft.request_id,request_id:draft.request_id,
+        customer_name:draft.customer_name,customer_phone:draft.customer_phone,
+        cake_type:draft.cake_type,approx_size:draft.approx_size,flavor:draft.flavor,
+        color_theme:draft.color_theme,writing_text:draft.writing_text,
+        instructions:draft.instructions,reference_image_url:draft.reference_image_url,
+        status:'pending',estimated_price:0,quoted_price:0,created_at:now,updated_at:now
+      };
+      auroraAppendPrivate_(table,{
+        id:request.id,request_id:draft.request_id,request_hash:hash,created_at:now,updated_at:now,
+        customer_name:request.customer_name,customer_phone:request.customer_phone,
+        cake_type:request.cake_type,approx_size:request.approx_size,
+        flavor:request.flavor,color_theme:request.color_theme,writing_text:request.writing_text,
+        instructions:request.instructions,reference_image_url:request.reference_image_url,
+        status:'pending',estimated_price:0,quoted_price:0,receipt_json:JSON.stringify(request)
+      });
+      return {ok:true,saved:true,request_id:draft.request_id};
+    }finally{lock.releaseLock();}
+  }
+  if(input.action==='get_custom_cake_status'){
+    var id=auroraOrderText_(input.request_id,'Request ID',36,36).toLowerCase();
+    var phone=auroraOrderText_(input.customer_phone,'Phone',7,30).replace(/\D/g,'');
+    var found=auroraPrivateTable_(auroraSpreadsheet_(),'custom_cake_requests').rows
+      .filter(function(row){return String(row.request_id)===id&&String(row.customer_phone).replace(/\D/g,'')===phone;});
+    if(found.length!==1)auroraReject_('not_found','Request and phone do not match.');
+    var current=JSON.parse(String(found[0].receipt_json));
+    return {ok:true,request_id:id,status:current.status,quoted_price:current.quoted_price,updated_at:current.updated_at};
+  }
+  var actor=auroraStaffAuthenticate_(input);
+  if(['super_admin','admin','order_manager'].indexOf(actor.role)===-1)
+    auroraReject_('forbidden','Only authorized managers may read custom cake requests.');
+  if(input.action==='staff_custom_cakes'){
+    var table=auroraPrivateTable_(auroraSpreadsheet_(),'custom_cake_requests');
+    var requests=auroraCustomCakeRows_(table);
+    requests.sort(function(a,b){return String(b.created_at).localeCompare(String(a.created_at));});
+    return {ok:true,requests:requests.slice(0,100)};
+  }
+  if(input.action==='staff_custom_quote'){
+    var id=auroraOrderText_(input.request_id,'Request ID',36,36).toLowerCase();
+    var status=String(input.status||'');
+    if(['quoted','declined'].indexOf(status)===-1)auroraReject_('invalid_status','Choose quoted or declined.');
+    var price=Number(input.quoted_price||0);
+    if(!Number.isFinite(price)||price<0||price>10000000||(status==='quoted'&&price<=0))
+      auroraReject_('invalid_price','An accepted quote must have a positive price.');
+    var lock=LockService.getScriptLock();
+    if(!lock.tryLock(10000))auroraReject_('busy','Another custom quote update is pending.');
+    try{
+      var table=auroraPrivateTable_(auroraSpreadsheet_(),'custom_cake_requests');
+      var row=table.rows.filter(function(row){return String(row.request_id)===id;})[0];
+      if(!row)auroraReject_('not_found','Request was not found.');
+      var old=JSON.parse(String(row.receipt_json));
+      if(old.status!=='pending'&&old.status!=='quoted')auroraReject_('invalid_status','A declined request cannot be modified.');
+      old.status=status;old.quoted_price=status==='quoted'?Math.round(price*100)/100:0;
+      old.updated_at=new Date().toISOString();
+      var sheet=table.sheet;
+      var idIndex=table.headers.indexOf('request_id');
+      var values=sheet.getRange(2,idIndex+1,sheet.getLastRow()-1,1).getValues();
+      var rowNumbers=[];
+      values.forEach(function(r,i){if(String(r[0])===id)rowNumbers.push(i+2);});
+      if(rowNumbers.length!==1)auroraReject_('invalid_sheet','Duplicate request references.');
+      var all=sheet.getRange(rowNumbers[0],1,1,table.headers.length).getValues()[0];
+      [['receipt_json',JSON.stringify(old)],['status',old.status],
+        ['quoted_price',old.quoted_price],['updated_at',old.updated_at]].forEach(function(pair){
+        all[table.headers.indexOf(pair[0])]=auroraSheetCell_(pair[1]);
+      });
+      sheet.getRange(rowNumbers[0],1,1,all.length).setValues([all]);
+      return {ok:true,updated:true};
+    }finally{lock.releaseLock();}
+  }
+  auroraReject_('invalid_action','Invalid custom cake action.');
+}
+/* ===== END apps-script/CustomCakeRequests.gs ===== */
+
