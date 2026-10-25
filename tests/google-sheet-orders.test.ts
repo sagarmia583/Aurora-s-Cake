@@ -16,7 +16,7 @@ const STAFF_CONFIG=JSON.stringify({
   'owner@example.com':{role:'super_admin',name:'Owner'},
   'rider@example.com':{role:'delivery_man',name:'Rider'},
 });
-const request=(patch:Record<string,unknown>={})=>({action:'create_order',request_id:'a1111111-2222-4333-8444-555555555555',customer_name:'Test Customer',customer_phone:'+880 1700 000000',delivery_address:'Test delivery address',delivery_zone_id:'z1',delivery_slot:'10 AM - 12 PM',delivery_date:futureDate(),cart_items:[{product_id:'p1',variant_id:'v1',flavor_id:'f1',addon_ids:['a1'],writing_message:'Happy birthday',quantity:2}],coupon_code:'SAVE10',order_note:'Call before delivery',payment_method:'cod',...patch});
+const request=(patch:Record<string,unknown>={})=>({action:'create_order',request_id:'a1111111-2222-4333-8444-555555555555',checkout_proof:'aaaaaaaa-1111-4111-8111-111111111111bbbbbbbb-2222-4222-8222-222222222222',customer_name:'Test Customer',customer_phone:'+880 1700 000000',delivery_address:'Test delivery address',delivery_zone_id:'z1',delivery_slot:'10 AM - 12 PM',delivery_date:futureDate(),cart_items:[{product_id:'p1',variant_id:'v1',flavor_id:'f1',addon_ids:['a1'],writing_message:'Happy birthday',quantity:2}],coupon_code:'SAVE10',order_note:'Call before delivery',payment_method:'cod',...patch});
 function harness(options:{withoutPrivate?:boolean}={}) {
   const tables:Record<string,Row[]>={
     Sheet1:[['existing'],['preserve me']],
@@ -411,4 +411,14 @@ test('kitchen/accountant private order views omit unnecessary customer contact a
   assert.equal(finance.orders[0].delivery_address,undefined);
   assert.equal(finance.orders[0].customer_access_token,undefined);
   assert.equal(finance.orders[0].items,undefined);
+});
+
+test('private checkout proof prevents someone replaying an exposed order number to steal its secret',()=>{
+  const h=harness(),original=h.post(request());
+  assert.equal(original.persisted,true);
+  assert.equal(h.post(request({checkout_proof:undefined})).code,'idempotency_conflict');
+  assert.equal(h.post(request({checkout_proof:'bbbbbbbb-2222-4222-8222-222222222222cccccccc-3333-4333-8333-333333333333'})).code,'idempotency_conflict');
+  assert.equal(h.post(request({request_id:'dddddddd-4444-4444-8444-444444444444',checkout_proof:undefined})).code,'upgrade_required');
+  assert.equal(h.post(request()).order.customer_access_token,original.order.customer_access_token);
+  assert.equal(h.records('orders').length,1);
 });
