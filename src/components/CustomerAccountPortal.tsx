@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, ShieldCheck, RefreshCw, Link2, LogOut } from 'lucide-react';
 import type { Order } from '../types';
 import { verifyCustomerGoogle, linkCustomerReceipt, recoverCustomerReceipts } from '../services/sheetCustomerApi';
+import { getAuroraGoogleClientId } from '../config/googleOAuth';
 
 type GoogleSdk = {
   initialize: (options: { client_id: string; callback: (result:{credential?:string})=>void }) => void;
@@ -20,7 +21,7 @@ interface Props {
   onSignOut?:()=>void;
 }
 export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,localReceipts,onRecover,onIdentityToken,onSignOut})=>{
-  const clientId=(import.meta.env?.VITE_GOOGLE_OAUTH_CLIENT_ID as string|undefined)?.trim();
+  const clientId=getAuroraGoogleClientId();
   const loginRef=useRef<HTMLDivElement>(null);
   const [account,setAccount]=useState<{email:string;name:string;token:string}|null>(null);
   const [linked,setLinked]=useState<Order[]>([]);
