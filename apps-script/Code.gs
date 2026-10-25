@@ -102,7 +102,7 @@ function doPost(e) {
     // All credential/private account routes use POST; never exposed via public GET.
     if(input && /^(staff_password_login|staff_password_logout|staff_account_create|staff_account_set_active|staff_account_reset_password)$/.test(String(input.action||'')))
       return auroraResponse_(auroraAccountStaffPost_(input));
-    if(input && /^customer_phone_(signup|login|session|logout|orders|profile|claim)$/.test(String(input.action||'')))
+    if(input && /^customer_phone_(signup|login|session|logout|orders|profile|claim|password|close)$/.test(String(input.action||'')))
       return auroraResponse_(auroraAccountCustomerPost_(input));
     if (input && (input.action === 'create_custom_cake' || input.action === 'get_custom_cake_status' || input.action === 'staff_custom_cakes' || input.action === 'staff_custom_quote')) return auroraResponse_(auroraCustomCakePost_(input));
     if (input && input.action === 'get_order_status') return auroraResponse_(auroraCustomerOrderStatus_(input));
