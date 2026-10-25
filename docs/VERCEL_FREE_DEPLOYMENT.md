@@ -46,6 +46,37 @@ frontend.** If a Client Secret was shared, rotate it in Google Cloud.
 - Copy the **real** Apps Script Web App URL ending in `/exec`. Do not reuse
   a stale URL merely because it is present in repository examples.
 
+## 2a. Show additional Staff profiles in Super Admin dashboard
+
+`setupAuroraOwnerOnce()` intentionally creates **only the owner** as
+`super_admin`. To see additional employees in the new **Staff Profiles**
+section, edit Apps Script → **Project Settings → Script Properties** →
+`AURORA_STAFF_USERS`. Keep the existing owner entry and add your real
+employee Google accounts, for example:
+
+```json
+{
+  "owner@example.com": {"role":"super_admin","name":"Shop Owner"},
+  "chef@example.com": {"role":"kitchen_manager","name":"Kitchen Staff"},
+  "dispatch@example.com": {"role":"delivery_manager","name":"Dispatch Manager"},
+  "rider@example.com": {"role":"delivery_man","name":"Delivery Rider"},
+  "accounts@example.com": {"role":"accountant","name":"Accounts Staff"}
+}
+```
+
+These are placeholder addresses, **not actual accounts**. Save the JSON as one
+single Script Property value. Do not change or remove the existing owner's
+Gmail. Roles: `super_admin`, `admin`, `order_manager`, `kitchen_manager`,
+`delivery_manager`, `delivery_man`, `accountant`.
+
+**Important:** Install the **latest** `Code.AllInOne.gs` and deploy a NEW
+Apps Script Web App version to enable the verified-owner-only staff directory.
+Click **Refresh profiles** in the Super Admin dashboard after editing Script
+Properties. Employees sign out and sign in with **their own** allowed Google
+account; a super admin viewing their profiles does not impersonate them.
+The directory is deliberately read-only, so permissions cannot be changed
+by an ordinary browser request.
+
 ## 3. Vercel Project → Settings → Environment Variables
 
 Configure these in the **Production** environment (and separately in
