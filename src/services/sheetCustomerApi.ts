@@ -13,7 +13,8 @@ export async function linkCustomerReceipt(endpoint: string, idToken: string, ord
     throw new Error('Only a confirmed original bakery receipt can be linked.');
   }
   await privatePost(endpoint,{
-    action:'customer_claim_order', id_token:idToken, order_id:order.id,customer_phone:order.customer_phone
+    action:'customer_claim_order', id_token:idToken, order_id:order.id,customer_phone:order.customer_phone,
+    customer_access_token:order.customer_access_token
   });
 }
 export async function recoverCustomerReceipts(endpoint: string, idToken: string): Promise<Order[]> {
