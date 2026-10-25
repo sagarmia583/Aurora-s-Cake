@@ -90,14 +90,23 @@ function auroraVerifiedGoogleClaims_(idToken,clientId) {
   return claims;
 }
 function auroraStaffAuthenticate_(input) {
-  var config=auroraStaffConfig_();
-  var decoded=auroraVerifiedGoogleClaims_(input && input.id_token,config.clientId);
-  var email=String(decoded.email).trim().toLowerCase();
-  if (!Object.prototype.hasOwnProperty.call(config.people,email)) {
-    auroraReject_('forbidden','This Google account is not authorized to access bakery operations.');
+  if(input&&input.auth_token) {
+    var person=auroraAccountAuthenticate_('staff',input.auth_token);
+    if(AURORA_STAFF_ROLES_.indexOf(person.role)<0||person.role==='super_admin')
+      auroraReject_('forbidden','This staff role is not authorized.');
+    return {email:String(person.username),role:person.role,name:String(person.name||person.username).slice(0,100),
+      people:auroraStaffConfig_().people,username:String(person.username),employee:true};
   }
+  var config=auroraStaffConfig_();
+  var decoded=auroraVerifiedGoogleClaims_(input&&input.id_token,config.clientId);
+  var email=String(decoded.email).trim().toLowerCase();
+  if(!Object.prototype.hasOwnProperty.call(config.people,email))
+    auroraReject_('forbidden','This Google account is not authorized to access bakery operations.');
   var person=config.people[email];
-  if (!person || AURORA_STAFF_ROLES_.indexOf(person.role)===-1) auroraReject_('forbidden','Staff role is not authorized.');
+  if(!person||AURORA_STAFF_ROLES_.indexOf(person.role)<0)
+    auroraReject_('forbidden','Staff role is not authorized.');
+  // Pre-existing Google staff accounts remain supported until the shop owner
+  // removes them from the allowlist. New employees use username/password.
   return {email:email,role:person.role,name:String(person.name||email).slice(0,100),people:config.people};
 }
 function auroraStaffCan_(actor,action) {
@@ -163,11 +172,13 @@ function auroraOperationsOrders_(actor, table) {
 function auroraOperationsPost_(input) {
   var actor = auroraStaffAuthenticate_(input);
   if (input.action === 'staff_session') {
-    var summary={ok:true,role:actor.role,name:actor.name,email:actor.email,
-      riders:['super_admin','admin','delivery_manager'].indexOf(actor.role)===-1?[]:
-        Object.keys(actor.people).filter(function(email){
-          return actor.people[email] && actor.people[email].role==='delivery_man';
-        }).map(function(email){return {email:email,name:String(actor.people[email].name||email).slice(0,100)};})};
+    var registered=auroraAccountProfiles_(),riders=registered.filter(function(p){return p.role==='delivery_man';})
+      .map(function(p){return {email:p.username,name:p.name};});
+    Object.keys(actor.people).filter(function(email){
+      return actor.people[email]&&actor.people[email].role==='delivery_man';
+    }).forEach(function(email){riders.push({email:email,name:String(actor.people[email].name||email).slice(0,100)});});
+    var summary={ok:true,role:actor.role,name:actor.name,email:actor.email,username:actor.username||'',
+      riders:['super_admin','admin','delivery_manager'].indexOf(actor.role)===-1?[]:riders};
     // Directory is private; expose only to the verified super_admin, never via GET.
     if(actor.role==='super_admin'){
       summary.staff_profiles=Object.keys(actor.people).filter(function(email){
@@ -175,7 +186,7 @@ function auroraOperationsPost_(input) {
         return person && AURORA_STAFF_ROLES_.indexOf(person.role)!==-1 &&
           /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
       }).map(function(email){return {email:email,name:String(actor.people[email].name||email).slice(0,100),role:actor.people[email].role};})
-        .sort(function(a,b){return a.role==='super_admin'?-1:b.role==='super_admin'?1:a.name.localeCompare(b.name);}).slice(0,200);
+        .sort(function(a,b){return a.role==='super_admin'?-1:b.role==='super_admin'?1:a.name.localeCompare(b.name);}).concat(registered.map(function(p){return {email:'',username:p.username,name:p.name,role:p.role};})).slice(0,200);
     }
     return summary;
   }
