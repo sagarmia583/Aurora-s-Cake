@@ -64,6 +64,9 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [otp, setOtp] = useState('');
   const [cashCollected, setCashCollected] = useState(false);
   const [updatedAt, setUpdatedAt] = useState('');
+  const ordersRefreshInFlight=useRef(false);
+  const [loadingOrders,setLoadingOrders]=useState(false);
+  const [orderUpdateMessage,setOrderUpdateMessage]=useState('');
 
   const signIn = useCallback(async (idToken: string) => {
     setLoading(true); setError('');
@@ -153,22 +156,43 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   },[identity]);
   
   const refresh = useCallback(async () => {
-    if (!identity) return;
+    if (!identity || ordersRefreshInFlight.current) return;
+    ordersRefreshInFlight.current=true;
+    setLoadingOrders(true);
     try {
       const fresh = await getStaffOrders(endpoint, identity.token);
-      setOrders(fresh);
+      setOrders(previous=>{
+        // Avoid replacing a just-confirmed local status with an older in-flight
+        // Sheet snapshot when a rider updates during this refresh.
+        const latest=new Map(previous.map(order=>[order.id,order]));
+        return fresh.map(order=>{
+          const prior=latest.get(order.id);
+          return prior && Date.parse(prior.updated_at)>Date.parse(order.updated_at) ? prior : order;
+        });
+      });
       setUpdatedAt(new Date().toLocaleTimeString());
-      setError('');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to load orders.');
+    } finally {
+      ordersRefreshInFlight.current=false;
+      setLoadingOrders(false);
     }
   }, [endpoint, identity]);
 
   useEffect(() => {
     if (!isOpen || !identity) return;
     void refresh();
-    const interval = window.setInterval(() => { void refresh(); }, 30000);
-    return () => window.clearInterval(interval);
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refresh();
+    }, 12000);
+    const visible=()=>{if(document.visibilityState==='visible')void refresh();};
+    document.addEventListener('visibilitychange',visible);
+    window.addEventListener('focus',visible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange',visible);
+      window.removeEventListener('focus',visible);
+    };
   }, [isOpen, identity, refresh]);
 
   const toggleStaff=async(username:string,active:boolean)=>{
@@ -213,11 +237,17 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     }
     setBusyOrderId(order.id); setError('');
     try {
-      await mutateStaffOrder(endpoint, identity.token, operation, order.id,
+      const confirmed=await mutateStaffOrder(endpoint, identity.token, operation, order.id,
         operation === 'assign' ? { rider_email: riderEmail } :
         operation === 'deliver' ? { delivery_otp: otp, cash_collected: cashCollected } : {});
+      // Display the server-confirmed stage immediately; don't block the rider
+      // for another costly full Sheet list request.
+      setOrders(previous=>previous.map(item=>item.id===confirmed.id?{...item,...confirmed}:item));
+      setUpdatedAt(new Date().toLocaleTimeString());
+      setOrderUpdateMessage('Order '+order.order_number+' updated to '+confirmed.status.replaceAll('_',' ')+'.');
       setOtp(''); setOtpOrderId(''); setCashCollected(false);
-      await refresh();
+      // Refresh independently to reconcile staff roles/other active orders.
+      void refresh();
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to update order.'); }
     finally { setBusyOrderId(''); }
   };
@@ -272,7 +302,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
               <div className="flex flex-wrap justify-between items-center gap-3">
                 <div><strong>{identity.name}</strong> <span className="text-slate-500 text-sm">({identity.role.replaceAll('_', ' ')})</span><p className="text-xs text-slate-500">{identity.email}</p></div>
                 <div className="flex gap-2 items-center">
-                  <span className="text-xs text-slate-500">Last refreshed {updatedAt || '—'}</span>
+                  <span className="text-xs text-slate-500">{loadingOrders?'Syncing…':'Last synced '+(updatedAt || '—')}</span>
                   <button type="button" onClick={() => void refresh()} className="flex items-center gap-2 rounded-xl bg-white border border-slate-200 px-3 py-2 text-sm"><RefreshCw size={15} /> Refresh</button>
                   <button type="button" onClick={() => { setIdentity(null); setOrders([]); setStaffProfiles([]); setError('');try{sessionStorage.removeItem('aurora_staff_session_v1');}catch{} }} className="rounded-xl px-3 py-2 border bg-white text-sm">Sign out</button>
                 </div>
@@ -347,6 +377,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                   </form>
                 </section>
               )}
+              {orderUpdateMessage && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-emerald-900 text-sm">{orderUpdateMessage}</p>}
               <p className="text-sm text-slate-600">Showing up to 100 recent authorized orders. Status updates are written to the same private Sheet used by Customer checkout.</p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
                 <div className="bg-white border rounded-xl p-3"><strong className="text-xl">{orders.length}</strong><p className="text-slate-500">Orders in visible queue</p></div>
