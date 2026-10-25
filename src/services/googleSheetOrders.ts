@@ -166,7 +166,8 @@ export function createSheetOrderAttempt(endpoint: string, draft: SheetOrderDraft
   const fingerprint = JSON.stringify({ endpoint: safeEndpoint, payload });
   if (previous?.fingerprint === fingerprint) return previous;
   const requestId = uuid();
-  return Object.freeze({ endpoint: safeEndpoint, fingerprint, request_id: requestId, body: JSON.stringify({ action: 'create_order', request_id: requestId, ...payload }) });
+  const checkoutProof = uuid() + uuid();
+  return Object.freeze({ endpoint: safeEndpoint, fingerprint, request_id: requestId, body: JSON.stringify({ action: 'create_order', request_id: requestId, checkout_proof: checkoutProof, ...payload }) });
 }
 
 export async function submitSheetOrder(attempt: SheetOrderAttempt, options: { timeoutMs?: number; fetcher?: typeof fetch } = {}): Promise<Order> {
