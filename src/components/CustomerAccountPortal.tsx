@@ -17,8 +17,9 @@ interface Props {
   localReceipts:Order[];
   onRecover:(orders:Order[])=>void;
   onIdentityToken:(token:string)=>void;
+  onSignOut?:()=>void;
 }
-export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,localReceipts,onRecover,onIdentityToken})=>{
+export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,localReceipts,onRecover,onIdentityToken,onSignOut})=>{
   const clientId=(import.meta.env?.VITE_GOOGLE_OAUTH_CLIENT_ID as string|undefined)?.trim();
   const loginRef=useRef<HTMLDivElement>(null);
   const [account,setAccount]=useState<{email:string;name:string;token:string}|null>(null);
@@ -98,11 +99,11 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
         </div>:<>
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div><p className="font-bold">{account.name}</p><p className="text-sm text-slate-500">{account.email}</p></div>
-            <button type="button" onClick={()=>{setAccount(null);setLinked([]);onIdentityToken('');}} className="flex items-center gap-1 text-sm border px-3 py-2 rounded-lg"><LogOut size={15}/> Sign out</button>
+            <button type="button" onClick={()=>{setAccount(null);setLinked([]);onIdentityToken('');onSignOut?.();}} className="flex items-center gap-1 text-sm border px-3 py-2 rounded-lg"><LogOut size={15}/> Sign out</button>
           </div>
           <div className="rounded-xl bg-emerald-50 p-4 space-y-2">
             <h3 className="font-bold text-emerald-950">Linked orders ({linked.length})</h3>
-            <p className="text-sm text-slate-700">Orders linked to your verified Google account. Use Restore to save their receipts on this device and track them here.</p>
+            <p className="text-sm text-slate-700">Orders linked to your verified Google account. Restore saves them to this device. Signing out clears only orders restored in this session; original guest receipts on this device remain.</p>
             {linked.map(o=><p key={o.id} className="text-xs break-all">{o.order_number} · {o.status} · ৳{o.total_amount}</p>)}
             <div className="flex flex-wrap gap-2">
               <button type="button" disabled={busy} onClick={()=>void refresh()} className="flex gap-1 items-center border rounded-lg px-3 py-2 bg-white text-sm"><RefreshCw size={14}/> Refresh</button>
