@@ -161,7 +161,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
               <button type="button" onClick={() => { setGoogleUiError(''); setFedcmButton(current => !current); }} className="text-sm underline text-emerald-800">
                 {fedcmButton ? 'Google button not opening? Try classic popup mode' : 'Try browser-managed Google sign-in instead'}
               </button>
-              {googleUiError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{googleUiError}</p>
+              {googleUiError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{googleUiError}</p>}
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-left text-xs text-amber-950 space-y-2">
                 <p><strong>Google button not responding?</strong> The site origin must be listed under the Google Web OAuth client's <strong>Authorized JavaScript origins</strong>. Each Vercel Preview hostname is different from Production.</p>
                 <p>Current origin: <code className="break-all font-mono">{typeof window !== 'undefined' ? window.location.origin : ''}</code></p>
