@@ -218,8 +218,14 @@ function auroraOperationsPost_(input) {
       auroraReject_('forbidden','This delivery is assigned to a different rider.');
     }
     if (action === 'assign') {
-      var riderEmail = auroraOrderText_(input.rider_email,'Rider email',5,200).toLowerCase();
+      var riderEmail = auroraOrderText_(input.rider_email,'Rider username or email',4,200).toLowerCase();
       var rider = actor.people[riderEmail];
+      if(!rider){
+        var allowed=auroraAccountProfiles_().filter(function(person){
+          return person.username===riderEmail&&person.role==='delivery_man';
+        })[0];
+        if(allowed)rider={role:'delivery_man',name:allowed.name};
+      }
       if (!rider || rider.role !== 'delivery_man') auroraReject_('invalid_rider','Select a registered delivery rider.');
       order.rider_id = riderEmail;
       order.rider_name = String(rider.name||riderEmail).slice(0,100);
