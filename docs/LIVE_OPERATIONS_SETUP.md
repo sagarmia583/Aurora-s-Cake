@@ -145,3 +145,24 @@ not exposed through the role selector in production.
 - **Final deployment:** GitHub commits and passing CI do NOT copy files to
   Apps Script or configure OAuth/Netlify settings. Shop-owner Google account
   access is required for these explicit steps; no secrets should be shared publicly.
+
+## Final security-hardening rollout notes
+
+- **New checkout proof is mandatory:** each new COD request must include the browser-generated `checkout_proof`, independent of the visible order ID. Deploy updated frontend and Apps Script together. An outdated browser may need a full refresh after a backend upgrade. Older in-flight legacy retries remain recognized if their original payload matches.
+- **OTP is now server-only:** new confirmed checkout receipts have an empty `delivery_otp`. A delivery code is issued when an assigned rider starts delivery, available to the original receipt capability holder or the linked verified Google account, then cleared on delivery or cancellation. Older copies created by previous deployments may still contain previously exposed codes.
+- **Receipt ownership:** customer account linking requires the original private receipt access token in addition to the order ID, checkout phone and verified Google login. Do not publish any original receipt or access token.
+- **Google login:** Google's token verification response is cached server-side for at most five minutes, within token expiry. Staff permission lookups are not cached. The implementation still depends on Google's tokeninfo verification service; validate the production integration and its availability before launch.
+- **Netlify same-origin POST fallback:** optional Netlify Free function at `/api/operations` forwards only allowlisted actions to one configured Google Script HTTPS URL. Set `VITE_SHEETS_POST_PROXY=/api/operations` for the frontend and set the Netlify *server-side* `AURORA_SCRIPT_POST_URL` to the same Google Script `/exec` URL. Leave the proxy disabled on Vercel or local Vite unless a matching backend relay is implemented. Netlify functions count toward Free usage.
+- **Privacy:** signing out removes Google-recovered receipts restored during the current session, but does not delete original guest receipts deliberately stored on the device. Clear browser site data on shared devices.
+- **Runtime limits:** Apps Script has no documented dedicated cryptographic random-byte API. This version uses platform-generated UUIDs rather than JavaScript `Math.random()` for receipt keys and dispatch codes, but a launch with stricter security requirements should separately verify the platform's randomness guarantees.
+- **Production hold remains:** secure browser POST forwarding, real Google OAuth, a real Google Sheet deployment and a paid-service-free full order-to-delivery acceptance test still require an authorized shop owner to configure and verify those external services.
+
+### Additional verification after upgrade
+
+- Confirm the checkout response contains `delivery_otp: ""` but includes an unpredictable `customer_access_token`.
+- Confirm a replay with a visible order number and phone but without the matching original `checkout_proof` does NOT reveal the receipt.
+- Confirm account linking without `customer_access_token` returns `forbidden` even with a valid Google sign-in.
+- Confirm staff order lists and mutation responses never return `customer_access_token` or `delivery_otp`.
+- Confirm the rider cannot mark delivered without the dispatched OTP and actual COD cash confirmation.
+- Confirm delivery/cancellation clears OTP and that changing staff roles revokes permissions even during a cached token's lifetime.
+- On Netlify, verify `/api/operations` rejects requests from other Origins and GET requests, then test a real browser POST through the deployed relay.
