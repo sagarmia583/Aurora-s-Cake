@@ -122,6 +122,41 @@ function auroraCmsValidateRefs_(book,name,row,oldId){
   if(name==='coupons'&&row.discount_type==='percentage'&&Number(row.discount_value)>100)
     auroraReject_('invalid_discount','Percentage discount cannot exceed 100.');
 }
+function auroraCmsImageUpload_(input){
+  var actor=auroraStaffAuthenticate_(input);
+  if(actor.role!=='super_admin'&&actor.role!=='admin')auroraReject_('forbidden','Only staff administrators can upload site pictures.');
+  var mime=String(input.mime_type||''), allowed=['image/jpeg','image/png','image/webp'];
+  if(allowed.indexOf(mime)===-1)auroraReject_('invalid_image','Upload JPEG, PNG or WebP images only.');
+  var b64=String(input.base64||'').trim();
+  if(!b64||b64.length>2850000||!/^[A-Za-z0-9+/]+={0,2}$/.test(b64))auroraReject_('invalid_image','Photo must be smaller than 2 MB.');
+  var bytes=Utilities.base64Decode(b64);
+  if(bytes.length>2*1024*1024||bytes.length<12)auroraReject_('invalid_image','Invalid image size.');
+  // Validate binary signature, not only claimed MIME.
+  var at=function(i){return (bytes[i]+256)%256;};
+  var png=mime==='image/png'&&at(0)===137&&at(1)===80&&at(2)===78&&at(3)===71&&at(4)===13&&at(5)===10;
+  var jpg=mime==='image/jpeg'&&at(0)===255&&at(1)===216&&at(2)===255;
+  var webp=mime==='image/webp'&&String.fromCharCode(at(0),at(1),at(2),at(3))==='RIFF'&&
+    String.fromCharCode(at(8),at(9),at(10),at(11))==='WEBP';
+  if(!(png||jpg||webp))auroraReject_('invalid_image','File type does not match its contents.');
+  var props=PropertiesService.getScriptProperties();
+  var folderId=props.getProperty('AURORA_PUBLIC_IMAGES_FOLDER_ID');
+  if(!folderId)auroraReject_('image_setup_required','Create a public images folder in Google Drive and set AURORA_PUBLIC_IMAGES_FOLDER_ID in Apps Script Script Properties.');
+  var folder=DriveApp.getFolderById(folderId);
+  // Never create a public file before checking the folder's existing policy.
+  // Images cannot be rendered publicly if Drive account disallows link sharing.
+  if(folder.getSharingAccess()!==DriveApp.Access.ANYONE_WITH_LINK&&folder.getSharingAccess()!==DriveApp.Access.ANYONE)
+    auroraReject_('image_setup_required','Set the image folder sharing to Anyone with the link / Viewer before uploading.');
+  var ext=mime==='image/png'?'png':mime==='image/webp'?'webp':'jpg';
+  var name='aurora_'+Utilities.getUuid()+'.'+ext;
+  var file=folder.createFile(Utilities.newBlob(bytes,mime,name));
+  try{
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK,DriveApp.Permission.VIEW);
+  }catch(error){
+    file.setTrashed(true);
+    auroraReject_('image_setup_required','Your Drive account blocked public image sharing.');
+  }
+  return {ok:true,url:'https://drive.google.com/thumbnail?id='+encodeURIComponent(file.getId())+'&sz=w1200'};
+}
 function auroraCmsPost_(input){
   var actor=auroraStaffAuthenticate_(input);
   if(actor.role!=='super_admin'&&actor.role!=='admin')auroraReject_('forbidden','Only authorized shop administrators can edit public content.');
