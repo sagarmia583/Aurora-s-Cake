@@ -496,7 +496,7 @@ test('single-file owner setup grants editor account admin access without a clien
   assert.equal(response.configured,true);
   assert.equal(response.owner_email,'owner@example.com');
   assert.equal(JSON.parse(properties.get('AURORA_STAFF_USERS')||'{}')['owner@example.com'].role,'super_admin');
-  assert.match(properties.get('AURORA_GOOGLE_CLIENT_ID')||'',/\\.apps\\.googleusercontent\\.com$/);
+  assert.match(properties.get('AURORA_GOOGLE_CLIENT_ID')||'',/\.apps\.googleusercontent\.com$/);
   assert.throws(()=>h.context.setupAuroraOwnerOnce(),/already exists/);
   assert.equal(h.post({action:'setupAuroraOwnerOnce'}).code,'invalid_action');
 });
