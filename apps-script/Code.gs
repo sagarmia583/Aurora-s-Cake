@@ -75,7 +75,10 @@ function doGet(e) {
 var PRIVATE_ORDER_SCHEMAS = {
   orders: ['id','order_number','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','delivery_address','delivery_zone_id','delivery_zone_name','delivery_fee','delivery_slot','delivery_date','status','subtotal','discount_amount','total_amount','coupon_code','order_note','payment_method','payment_status','receipt_json'],
   order_items: ['id','order_id','product_id','product_name','variant_id','variant_name','flavor_id','flavor_name','writing_message','unit_price','quantity','addons_json','subtotal'],
-  custom_cake_requests: ['id','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','cake_type','approx_size','flavor','color_theme','writing_text','instructions','reference_image_url','status','estimated_price','quoted_price','receipt_json']
+  custom_cake_requests: ['id','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','cake_type','approx_size','flavor','color_theme','writing_text','instructions','reference_image_url','status','estimated_price','quoted_price','receipt_json'],
+  staff_accounts: ['id','username','name','role','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'],
+  customer_accounts: ['id','phone','name','address','email','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'],
+  auth_sessions: ['token_hash','account_type','account_id','created_at','expires_at','revoked']
 };
 
 // This handler creates a private COD receipt. GET never calls these functions.
@@ -88,6 +91,11 @@ function doPost(e) {
     var input;
     try { input = JSON.parse(raw); } catch (_) { auroraReject_('invalid_request','The order body must be valid JSON.'); }
     // Private operations authenticate every POST; never expose these reads via GET.
+    // All credential/private account routes use POST; never exposed via public GET.
+    if(input && /^(staff_password_login|staff_password_logout|staff_account_create|staff_account_set_active|staff_account_reset_password)$/.test(String(input.action||'')))
+      return auroraResponse_(auroraAccountStaffPost_(input));
+    if(input && /^customer_phone_(signup|login|session|logout|orders|profile|claim)$/.test(String(input.action||'')))
+      return auroraResponse_(auroraAccountCustomerPost_(input));
     if (input && (input.action === 'create_custom_cake' || input.action === 'get_custom_cake_status' || input.action === 'staff_custom_cakes' || input.action === 'staff_custom_quote')) return auroraResponse_(auroraCustomCakePost_(input));
     if (input && input.action === 'get_order_status') return auroraResponse_(auroraCustomerOrderStatus_(input));
     if (input && (input.action==='staff_catalog'||input.action==='staff_catalog_update')) return auroraResponse_(auroraCatalogPost_(input));
