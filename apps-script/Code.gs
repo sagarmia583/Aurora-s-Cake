@@ -110,6 +110,7 @@ function doPost(e) {
       auroraRepairOrderItems_(itemTable,receipt);
       return auroraResponse_({success:true,persisted:true,order:auroraCheckoutReceiptSafe_(receipt)});
     }
+    if (!request.checkout_proof) auroraReject_('upgrade_required','Refresh the website before placing a new order.');
     var order = auroraBuildOrder_(book,request);
     auroraCheckoutRateLimit_(request);
     var receiptJson = JSON.stringify(order);
@@ -215,7 +216,7 @@ function auroraOrderRequest_(input) {
       writing_message:auroraOptionalText_(line.writing_message,'Cake message',200),quantity:line.quantity
     };
   });
-  return {
+  var normalized = {
     action:'create_order',request_id:requestId,customer_name:auroraOrderText_(input.customer_name,'Customer name',2,100),
     customer_phone:phone,delivery_address:auroraOrderText_(input.delivery_address,'Delivery address',5,1000),
     delivery_zone_id:auroraOrderText_(input.delivery_zone_id,'Delivery zone',1,100),
@@ -223,6 +224,14 @@ function auroraOrderRequest_(input) {
     coupon_code:auroraOptionalText_(input.coupon_code,'Coupon code',60).toUpperCase(),
     order_note:auroraOptionalText_(input.order_note,'Order note',1000),payment_method:'cod',expected_total:input.expected_total
   };
+  if (input.checkout_proof !== undefined) {
+    var proof=auroraOrderText_(input.checkout_proof,'Checkout security proof',72,72).toLowerCase();
+    if(!/^(?:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}){2}$/.test(proof)) {
+      auroraReject_('invalid_request','Refresh your checkout page and try again.');
+    }
+    normalized.checkout_proof=proof;
+  }
+  return normalized;
 }
 function auroraRequestHash_(request) {
   return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,JSON.stringify(request),Utilities.Charset.UTF_8).map(function(byte) { return ('0' + ((byte + 256) % 256).toString(16)).slice(-2); }).join('');
