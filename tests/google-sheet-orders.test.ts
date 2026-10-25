@@ -815,3 +815,19 @@ test('phone account linked to receipt receives dispatch OTP; an unlinked custome
   assert.equal(status(owner.auth_token).delivery_otp,undefined);
   assert.equal(status(owner.auth_token).status,'delivered');
 });
+
+
+test('customer phone account history only scans receipt JSON rather than the wide Orders Sheet',()=>{
+  const h=harness({singleFile:true});
+  const original=h.post(request()).order;
+  const acct=h.post({action:'customer_phone_signup',name:'Faster Bakery Login',phone:'01700112278',password:'VerySafeHistoryPass2026!'});
+  assert.equal(h.post({action:'customer_phone_claim',auth_token:acct.auth_token,order_id:original.id,
+    customer_access_token:original.customer_access_token}).ok,true);
+  h.rangeReads.length=0;
+  const history=h.post({action:'customer_phone_orders',auth_token:acct.auth_token});
+  assert.equal(history.orders.length,1);
+  assert.equal(history.orders[0].id,original.id);
+  const wide=h.rangeReads.filter(r=>r.name==='orders'&&r.height>1);
+  assert.ok(wide.length>0);
+  assert.ok(wide.every(r=>r.width===1),'Account refresh must read receipt JSON only');
+});
