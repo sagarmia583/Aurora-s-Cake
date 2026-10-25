@@ -4,12 +4,19 @@
   "functions": {
     "api/operations.js": {
       "maxDuration": 30
+    },
+    "api/images/[id].js": {
+      "maxDuration": 30
     }
   },
   "rewrites": [
     {
       "source": "/api/operations",
       "destination": "/api/operations"
+    },
+    {
+      "source": "/api/images/:id",
+      "destination": "/api/images/:id"
     },
     {
       "source": "/(.*)",
