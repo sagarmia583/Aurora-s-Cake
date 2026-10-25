@@ -1,12 +1,10 @@
 /**
- * AURORA'S CAKE — ALL-IN-ONE APPS SCRIPT, 7 modules in one Code.gs
- * Staff owner: Google Sign-In. Employees: username/password and role access.
- * Customers: phone/password signup, private permanent Google Sheet profiles
- * and receipt-linked order histories; phone numbers NOT SMS verified.
- * INSTALL: BACK UP Sheet; replace existing Apps Script Code.gs with this entire
- * file; remove duplicate old modules; RUN setupSheetDatabase() (preserves
- * existing non-empty tables); Deploy → Manage deployments → New version.
- * Private tabs added: staff_accounts, customer_accounts, auth_sessions.
+ * Aurora's Cake all-in-one Code.gs: free Google Sheets + Vercel backend.
+ * Staff: Google Super Admin / employees username and password.
+ * Customers: phone/password profile, permanent private Sheet order history.
+ * Phone is NOT SMS verified, and history is NEVER found by phone alone.
+ * BACK UP the Sheet; paste entire file as sole Code.gs, run
+ * setupSheetDatabase() to add private tables, redeploy a NEW web app version.
  */
 
 /* ==== BEGIN apps-script/Code.gs ==== */
@@ -1579,7 +1577,7 @@ function auroraOperationsPost_(input) {
         return person && AURORA_STAFF_ROLES_.indexOf(person.role)!==-1 &&
           /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
       }).map(function(email){return {email:email,name:String(actor.people[email].name||email).slice(0,100),role:actor.people[email].role};})
-        .sort(function(a,b){return a.role==='super_admin'?-1:b.role==='super_admin'?1:a.name.localeCompare(b.name);}).concat(registered.map(function(p){return {email:'',username:p.username,name:p.name,role:p.role};})).slice(0,200);
+        .sort(function(a,b){return a.role==='super_admin'?-1:b.role==='super_admin'?1:a.name.localeCompare(b.name);}).concat(registered.map(function(p){return {email:'',username:p.username,name:p.name,role:p.role,active:p.active};})).slice(0,200);
     }
     return summary;
   }
