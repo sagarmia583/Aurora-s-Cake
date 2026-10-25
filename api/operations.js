@@ -8,6 +8,7 @@
  */
 import relay from '../netlify/functions/operations.mjs';
 
+const MAX_REQUEST_BYTES = 9MAX_REQUEST_BYTES;
 const fail=(res, status, message)=>{
   res.statusCode=status;
   res.setHeader('Content-Type','application/json; charset=utf-8');
@@ -21,7 +22,7 @@ export default async function handler(req,res) {
   const host=typeof req.headers?.host==='string'?req.headers.host:'';
   if(!/^[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?$/i.test(host)) return fail(res,400,'Invalid request host.');
   const headerLength=Number(req.headers['content-length']||0);
-  if(!Number.isFinite(headerLength)||headerLength>50000) return fail(res,413,'Request too large.');
+  if(!Number.isFinite(headerLength)||headerLength>MAX_REQUEST_BYTES) return fail(res,413,'Request too large.');
   let body;
   if(typeof req.body==='string') body=req.body;
   else if(Buffer.isBuffer(req.body)) body=req.body.toString('utf8');
@@ -31,12 +32,12 @@ export default async function handler(req,res) {
     for await(const chunk of req){
       const value=Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk);
       size+=value.length;
-      if(size>50000) return fail(res,413,'Request too large.');
+      if(size>MAX_REQUEST_BYTES) return fail(res,413,'Request too large.');
       chunks.push(value);
     }
     body=Buffer.concat(chunks).toString('utf8');
   }
-  if(!body||Buffer.byteLength(body,'utf8')>50000) return fail(res,413,'Request too large.');
+  if(!body||Buffer.byteLength(body,'utf8')>MAX_REQUEST_BYTES) return fail(res,413,'Request too large.');
   const headers=new Headers();
   for(const key of ['origin','content-type','content-length']){
     const value=req.headers?.[key];
