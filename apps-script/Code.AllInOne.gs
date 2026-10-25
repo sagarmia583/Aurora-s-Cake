@@ -1,15 +1,14 @@
 /**
- * AURORA'S CAKE — ALL-IN-ONE Google Apps Script (8 modules in one Code.gs)
- * Free Vercel/Google Sheets backend, role-based staff, phone customer accounts,
- * authenticated website CMS for public settings/content/catalog/marketing,
- * private COD orders and original-receipt order histories.
- * BACK UP SHEET; replace old Code.gs completely; run setupSheetDatabase()
- * (nonempty existing Sheets preserved); Deploy as NEW Web App version.
- * Delete/archive only through the authenticated admin UI; payment, order,
- * customer password and session records are never generic CMS tables.
+ * AURORA'S CAKE — ALL-IN-ONE APPS SCRIPT (8 source modules, one Code.gs)
+ * Real Orders/COD, Google Owner, Password Staff, Phone Customers,
+ * Website CMS Create/Edit/Archive, marketing, content and custom cakes.
+ * Back up your existing Sheet. Replace the prior Code.gs completely.
+ * Run setupSheetDatabase() for missing private headers without clearing
+ * existing non-empty tabs. Deploy → New Web App Version afterward.
+ * Private order/payment/customer credentials cannot be altered through CMS.
  */
 
-/* ===== BEGIN apps-script/Code.gs ===== */
+/* ==== BEGIN apps-script/Code.gs ==== */
 /**
  * Aurora public content and private cash-on-delivery order API.
  * Public GET reads only explicit public tables. Private POST accepts create_order only; no private list/read API.
@@ -555,9 +554,9 @@ function auroraSeedRows_(name,seed) {
   var alias = {product_addons:'addons',delivery_zones:'zones',delivery_slots:'slots'};
   return seed[alias[name] || name] || [];
 }
-/* ===== END apps-script/Code.gs ===== */
+/* ==== END apps-script/Code.gs ==== */
 
-/* ===== BEGIN apps-script/SeedData.gs ===== */
+/* ==== BEGIN apps-script/SeedData.gs ==== */
 var AURORA_SEED_DATA = {
   "schema_version": 1,
   "settings": {
@@ -1389,9 +1388,9 @@ var AURORA_SEED_DATA = {
   ],
   "reviews": []
 };
-/* ===== END apps-script/SeedData.gs ===== */
+/* ==== END apps-script/SeedData.gs ==== */
 
-/* ===== BEGIN apps-script/StaffOperations.gs ===== */
+/* ==== BEGIN apps-script/StaffOperations.gs ==== */
 /**
  * Authenticated bakery operations for the existing private Google Sheet COD orders.
  * Install alongside Code.gs. All private operations use POST, and each staff
@@ -1697,9 +1696,9 @@ function auroraCustomerOrderStatus_(input) {
   }
   return result;
 }
-/* ===== END apps-script/StaffOperations.gs ===== */
+/* ==== END apps-script/StaffOperations.gs ==== */
 
-/* ===== BEGIN apps-script/AccountAuth.gs ===== */
+/* ==== BEGIN apps-script/AccountAuth.gs ==== */
 /**
  * Private, free Google-Sheets account system.
  * Staff: owner verifies with Google; employees use username + password.
@@ -1934,9 +1933,9 @@ function auroraAccountCustomerPost_(input) {
   }
   auroraReject_('invalid_action','Unknown customer phone account action.');
 }
-/* ===== END apps-script/AccountAuth.gs ===== */
+/* ==== END apps-script/AccountAuth.gs ==== */
 
-/* ===== BEGIN apps-script/CustomerAccounts.gs ===== */
+/* ==== BEGIN apps-script/CustomerAccounts.gs ==== */
 /**
  * Optional FREE Google customer accounts; no SMS gateway and no email-sending API.
  * Guest COD remains possible. A customer holding an original confirmed receipt
@@ -2012,9 +2011,9 @@ function auroraCustomerAccountsPost_(input) {
   }
   auroraReject_('invalid_action','Unsupported customer account action.');
 }
-/* ===== END apps-script/CustomerAccounts.gs ===== */
+/* ==== END apps-script/CustomerAccounts.gs ==== */
 
-/* ===== BEGIN apps-script/LiveCatalog.gs ===== */
+/* ==== BEGIN apps-script/LiveCatalog.gs ==== */
 /**
  * Free authenticated live catalogue operations for the original public Sheets.
  * Deliberately limited to allowlisted fields. Staff cannot edit arbitrary cells
@@ -2104,9 +2103,9 @@ function auroraCatalogPost_(input) {
     return {ok:true,updated:true};
   } finally {lock.releaseLock();}
 }
-/* ===== END apps-script/LiveCatalog.gs ===== */
+/* ==== END apps-script/LiveCatalog.gs ==== */
 
-/* ===== BEGIN apps-script/PublicCms.gs ===== */
+/* ==== BEGIN apps-script/PublicCms.gs ==== */
 /**
  * Private website CMS. Never exposes private orders or account tables.
  * All changes are validated server-side against PUBLIC_TABLE_SCHEMAS.
@@ -2204,6 +2203,21 @@ function auroraCmsValidateRefs_(book,name,row,oldId){
     var products=auroraCmsRead_(book,'products');
     if(!auroraCmsRow_(products,String(row.product_id)))auroraReject_('invalid_reference','Choose an existing product.');
   }
+  if(name==='products'){
+    [['allowed_flavor_ids','flavors'],['allowed_addon_ids','product_addons']].forEach(function(pair){
+      var ids=String(row[pair[0]]||'');
+      if(!ids)return;
+      var values=[];try{values=JSON.parse(ids);}catch(_){auroraReject_('invalid_list','Invalid selection IDs.');}
+      if(!values.length)return;
+      var linked=auroraCmsRead_(book,pair[1]).rows.map(function(item){return String(item.id);});
+      if(values.some(function(id){return linked.indexOf(id)===-1;}))
+        auroraReject_('invalid_reference','Selected '+pair[1]+' ID does not exist.');
+    });
+  }
+  if(name==='highlights'&&row.category_id){
+    var highlightCategories=auroraCmsRead_(book,'categories');
+    if(!auroraCmsRow_(highlightCategories,String(row.category_id)))auroraReject_('invalid_reference','Highlight category does not exist.');
+  }
   if(name==='hero_slides'&&row.product_id){
     var prods=auroraCmsRead_(book,'products');
     if(!auroraCmsRow_(prods,String(row.product_id)))auroraReject_('invalid_reference','Hero slide product does not exist.');
@@ -2281,7 +2295,17 @@ function auroraCmsPost_(input){
       if(name==='products'&&Number(row.base_price)===0&&row.sale_price==='')row.base_price=0;
       if(name==='coupons'&&action==='staff_cms_create')row.usage_count=0;
       // Do not allow a client to manipulate existing order/payment totals.
-      auroraCmsValidateRefs_(book,name,row,action==='staff_cms_delete'?recordId:null);
+      auroraCmsValidateRefs_(book,name,row,action==='staff_cms_create'?null:recordId);
+      // Unique storefront identifiers are required for stable product pages and coupon use.
+      var uniqueField=name==='products'||name==='categories'?'slug':name==='coupons'?'code':null;
+      if(uniqueField&&row[uniqueField]){
+        var candidate=String(row[uniqueField]).trim().toLowerCase();
+        if(table.rows.some(function(other){
+          return String(other.id)!==nowId&&String(other[uniqueField]||'').trim().toLowerCase()===candidate;
+        }))auroraReject_('duplicate','Another record already uses this '+uniqueField+'.');
+      }
+      if(name==='product_variants'&&row.sale_price!==''&&Number(row.sale_price)>Number(row.price))
+        auroraReject_('invalid_price','Sale price cannot exceed the regular price.');
       if(action==='staff_cms_create') {
         table.sheet.getRange(table.sheet.getLastRow()+1,1,1,table.headers.length).setValues([table.headers.map(function(field){return auroraSheetCell_(row[field]);})]);
       }else{
@@ -2294,9 +2318,9 @@ function auroraCmsPost_(input){
     return {ok:true,operation:action==='staff_cms_delete'?'archived':action==='staff_cms_create'?'created':'updated'};
   }finally{lock.releaseLock();}
 }
-/* ===== END apps-script/PublicCms.gs ===== */
+/* ==== END apps-script/PublicCms.gs ==== */
 
-/* ===== BEGIN apps-script/CustomCakeRequests.gs ===== */
+/* ==== BEGIN apps-script/CustomCakeRequests.gs ==== */
 /**
  * Free custom-cake quote requests. Public create/status and authenticated
  * staff queue share a private Google Sheet tab, never included in public GET.
@@ -2429,4 +2453,4 @@ function auroraCustomCakePost_(input) {
   }
   auroraReject_('invalid_action','Invalid custom cake action.');
 }
-/* ===== END apps-script/CustomCakeRequests.gs ===== */
+/* ==== END apps-script/CustomCakeRequests.gs ==== */
