@@ -6,6 +6,7 @@ export type StaffOperation = 'confirm' | 'cancel' | 'start_baking' | 'mark_ready
 export type StaffOrder = Omit<Order, 'delivery_otp'>;
 export interface StaffProfile {
   email: string;
+  username?: string;
   name: string;
   role: StaffRoleName;
 }
@@ -13,6 +14,7 @@ export interface StaffSession {
   role: StaffRoleName;
   name: string;
   email: string;
+  username?: string;
   riders: { email: string; name: string }[];
   /** Only included after the backend verifies the signed-in super_admin. */
   staff_profiles?: StaffProfile[];
@@ -51,8 +53,20 @@ export async function privatePost(endpoint: string, body: Record<string, unknown
     throw error;
   } finally { clearTimeout(timeout); }
 }
+const staffCredential = (token: string): Record<string,string> =>
+  /^[a-f0-9-]{72}$/i.test(token) ? { auth_token: token } : { id_token: token };
+
+export async function signInStaffPassword(endpoint:string,username:string,password:string):Promise<string> {
+  const result=await privatePost(endpoint,{action:'staff_password_login',username,password});
+  if(typeof result.auth_token!=='string'||! /^[a-f0-9-]{72}$/i.test(result.auth_token))
+    throw new Error('Invalid staff login session.');
+  return result.auth_token;
+}
+export async function createStaffAccount(endpoint:string,token:string,name:string,username:string,password:string,role:StaffRoleName):Promise<void>{
+  await privatePost(endpoint,{action:'staff_account_create',...staffCredential(token),name,username,password,role});
+}
 export async function checkStaffSession(endpoint: string, idToken: string): Promise<StaffSession> {
-  const data = await privatePost(endpoint, { action: 'staff_session', id_token: idToken });
+  const data = await privatePost(endpoint, { action: 'staff_session', ...staffCredential(idToken) });
   if (typeof data.role !== 'string' || typeof data.email !== 'string') throw new Error('Staff role was not returned.');
   const riders = Array.isArray(data.riders) ? data.riders.filter(item => objectValue(item) && typeof item.email === 'string' && typeof item.name === 'string') as StaffSession['riders'] : [];
   const allowedRoles: StaffRoleName[] = ['super_admin','admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'];
@@ -60,17 +74,17 @@ export async function checkStaffSession(endpoint: string, idToken: string): Prom
     ? data.staff_profiles.filter(item => objectValue(item)
         && typeof item.email === 'string' && typeof item.name === 'string'
         && typeof item.role === 'string' && allowedRoles.includes(item.role as StaffRoleName))
-      .map(item => ({ email: String(item.email), name: String(item.name), role: item.role as StaffRoleName }))
+      .map(item => ({ email: String(item.email), username: typeof item.username==='string'?item.username:undefined, name: String(item.name), role: item.role as StaffRoleName }))
     : undefined;
-  return { role: data.role as StaffRoleName, email: data.email, name: String(data.name || data.email), riders, staff_profiles };
+  return { role: data.role as StaffRoleName, email: data.email, username: typeof data.username==='string'?data.username:undefined, name: String(data.name || data.email), riders, staff_profiles };
 }
 export async function getStaffOrders(endpoint: string, idToken: string): Promise<StaffOrder[]> {
-  const data = await privatePost(endpoint, { action: 'staff_orders', id_token: idToken });
+  const data = await privatePost(endpoint, { action: 'staff_orders', ...staffCredential(idToken) });
   if (!Array.isArray(data.orders)) throw new Error('Invalid staff order list.');
   return data.orders.filter(item => objectValue(item) && typeof item.id === 'string' && typeof item.order_number === 'string') as StaffOrder[];
 }
 export async function mutateStaffOrder(endpoint: string, idToken: string, operation: StaffOperation, orderId: string, extra: Record<string, unknown> = {}): Promise<void> {
-  await privatePost(endpoint, { action: 'staff_mutate', id_token: idToken, operation, order_id: orderId, ...extra });
+  await privatePost(endpoint, { action: 'staff_mutate', ...staffCredential(idToken), operation, order_id: orderId, ...extra });
 }
 export async function fetchCustomerOrderStatus(endpoint: string, order: Order, idToken?: string): Promise<StatusSnapshot> {
   if (order.persistence !== 'google_sheets') throw new Error('Only confirmed Sheet receipts support status updates.');
@@ -93,7 +107,7 @@ export interface LiveCatalog {
   settings: {shop_name:string;accepting_orders:boolean;delivery_enabled:boolean};
 }
 export async function fetchLiveCatalog(endpoint:string,idToken:string):Promise<LiveCatalog>{
-  const response=await privatePost(endpoint,{action:'staff_catalog',id_token:idToken});
+  const response=await privatePost(endpoint,{action:'staff_catalog',...staffCredential(idToken)});
   if(!Array.isArray(response.products)||!Array.isArray(response.variants)||!objectValue(response.settings))
     throw new Error('The live catalogue response is invalid.');
   return {products:response.products as LiveCatalog['products'],
@@ -102,6 +116,6 @@ export async function fetchLiveCatalog(endpoint:string,idToken:string):Promise<L
 }
 export async function updateLiveCatalog(endpoint:string,idToken:string,table:'products'|'product_variants'|'settings',
   recordId:string,field:string,value:string|number|boolean):Promise<void>{
-  await privatePost(endpoint,{action:'staff_catalog_update',id_token:idToken,
+  await privatePost(endpoint,{action:'staff_catalog_update',...staffCredential(idToken),
     table,record_id:recordId,field,value});
 }
