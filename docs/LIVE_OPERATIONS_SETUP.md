@@ -14,7 +14,9 @@ not exposed through the role selector in production.
    **OAuth Client ID, Application type: Web application**. Add the exact website
    origin(s) (such as `https://your-site.example`) to **Authorized JavaScript
    origins**. In testing mode, add the authorized Google accounts as test users.
-4. In Apps Script **Project Settings → Script Properties** set:
+4. **Fast owner setup (new, single-file only):** The public Aurora Web OAuth Client ID is already included in `Code.AllInOne.gs` and the React website code. After pasting the single file, select `setupAuroraOwnerOnce` in the Apps Script editor and press **Run** while signed in with the Google account that will administer the shop. Accept Google permissions when prompted. This writes `AURORA_GOOGLE_CLIENT_ID` and `AURORA_STAFF_USERS` for the executing owner **only if no staff list already exists**. It never reads or stores an OAuth Client Secret. Add riders/kitchen managers later in Script Properties. When Apps Script is bound to a different owner account, verify the returned owner email before production use.
+
+5. Alternatively, configure Apps Script **Project Settings → Script Properties** manually:
 
    ```text
    AURORA_GOOGLE_CLIENT_ID = <the Google OAuth Web client ID>
@@ -26,7 +28,7 @@ not exposed through the role selector in production.
    Available roles: `super_admin`, `admin`, `order_manager`,
    `kitchen_manager`, `delivery_manager`, `delivery_man`, `accountant`.
    Staff users not listed here cannot access private orders.
-5. Configure your hosting environment:
+6. Configure your hosting environment:
 
    ```text
    VITE_GOOGLE_OAUTH_CLIENT_ID = <same public Web Client ID>
@@ -42,14 +44,14 @@ not exposed through the role selector in production.
 
    Then **rebuild/redeploy the website**. The Google OAuth client ID is public;
    Script Properties remain private.
-6. Save scripts, run `setupSheetDatabase` if not done, then **Deploy → Manage
+7. Save scripts, run `setupSheetDatabase` if not done, then **Deploy → Manage
    deployments → Edit → New version → Deploy**. An Apps Script file pushed to
    GitHub does NOT update the live Apps Script deployment automatically.
-7. Go to **Staff login** on the website and sign in with an authorized Google
+8. Go to **Staff login** on the website and sign in with an authorized Google
    account. The server verifies audience, Google issuer, expiry, verified email
    and private email-role allowlist **for every staff POST**. Tokens stay in
    memory in the tab and are not stored in localStorage.
-8. Keep `staff` and `orders` private. The public GET endpoint continues to
+9. Keep `staff` and `orders` private. The public GET endpoint continues to
    expose only the public catalogue/website settings; staff list and customer
    status lookup require POST. A customer status lookup needs the unpredictable
    receipt ID plus the matching checkout phone. It returns only limited status,
