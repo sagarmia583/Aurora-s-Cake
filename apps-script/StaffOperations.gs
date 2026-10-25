@@ -11,6 +11,29 @@
  */
 var AURORA_PUBLIC_GOOGLE_CLIENT_ID = "246617121730-fssfp59nlinltkfq0rccuud74rfpccum.apps.googleusercontent.com";
 var AURORA_STAFF_ROLES_ = ['super_admin','admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'];
+/**
+ * OWNER-ONLY ONE-TIME SETUP.
+ * Run manually from the Apps Script EDITOR while signed in as the intended
+ * shop owner; this function is never exposed through doGet or doPost.
+ * It refuses to replace an existing nonempty staff allowlist.
+ */
+function setupAuroraOwnerOnce() {
+  var props = PropertiesService.getScriptProperties();
+  var existing = String(props.getProperty('AURORA_STAFF_USERS') || '').trim();
+  if (existing && existing !== '{}') {
+    throw new Error('Staff allowlist already exists. Update it manually in Script Properties; setup will not overwrite it.');
+  }
+  var email = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
+  if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {
+    throw new Error('Could not detect the script owner Google email. Configure AURORA_STAFF_USERS manually.');
+  }
+  var staff = {};
+  staff[email] = {role:'super_admin',name:'Shop Owner'};
+  props.setProperty('AURORA_GOOGLE_CLIENT_ID',AURORA_PUBLIC_GOOGLE_CLIENT_ID);
+  props.setProperty('AURORA_STAFF_USERS',JSON.stringify(staff));
+  return {configured:true,owner_email:email,role:'super_admin'};
+}
+
 function auroraStaffConfig_() {
   var props = PropertiesService.getScriptProperties();
   var clientId = String(props.getProperty('AURORA_GOOGLE_CLIENT_ID') || AURORA_PUBLIC_GOOGLE_CLIENT_ID).trim();
