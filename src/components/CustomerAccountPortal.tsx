@@ -117,6 +117,29 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
     catch(e){setError(e instanceof Error?e.message:'Could not recover your orders.');}
     finally{setBusy(false);}
   };
+  // Keep the phone customer's order history (and dispatch OTP) fresh while
+  // this authenticated account page is open. Never poll hidden tabs.
+  useEffect(()=>{
+    if(!open||!phoneAccount?.token)return;
+    let stopped=false,inFlight=false;
+    const update=async()=>{
+      if(stopped||inFlight||document.visibilityState==='hidden')return;
+      inFlight=true;
+      try{
+        const history=await phoneCustomerOrders(endpoint,phoneAccount.token);
+        if(stopped)return;
+        setPhoneHistory(history);
+        onRecover(history);
+      }catch{
+        // Keep previously confirmed history; manual Refresh will show errors.
+      }finally{inFlight=false;}
+    };
+    const timer=window.setInterval(()=>{void update();},12000);
+    const focus=()=>{void update();};
+    window.addEventListener('focus',focus);
+    return()=>{stopped=true;window.clearInterval(timer);window.removeEventListener('focus',focus);};
+  },[open,phoneAccount?.token,endpoint]);
+
   const savePhoneProfile=async(event:React.FormEvent)=>{
     event.preventDefault();if(!phoneAccount||busy)return;setBusy(true);setError('');
     try{
@@ -258,9 +281,17 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
               <div className="flex justify-between items-center"><h4 className="font-bold">My order history ({phoneHistory.length})</h4>
                 <button onClick={()=>void refreshPhone()} disabled={busy} type="button" className="text-sm underline">Refresh</button></div>
               {phoneHistory.length===0&&<p className="text-sm text-slate-600">No linked orders yet. Link an original receipt below or place a new order while signed in.</p>}
-              {phoneHistory.map(order=><p key={order.id} className="text-sm p-2 bg-white rounded-xl break-all">
-                <strong>{order.order_number}</strong> · {order.status} · ৳{order.total_amount}
-              </p>)}
+              {phoneHistory.map(order=><div key={order.id} className="text-sm p-3 bg-white rounded-xl break-all space-y-2">
+                <p><strong>{order.order_number}</strong> · {order.status.replaceAll('_',' ')} · ৳{order.total_amount}</p>
+                {order.status==='out_for_delivery'&&
+                  <p className="rounded-lg bg-amber-50 border border-amber-200 p-3">
+                    <strong className="block text-amber-900">Delivery Verification OTP</strong>
+                    <span className="font-mono text-2xl font-bold tracking-widest text-amber-950">
+                      {/^\d{4}$/.test(order.delivery_otp)?order.delivery_otp:'Checking with bakery…'}
+                    </span>
+                    <span className="block text-xs text-amber-900 mt-1">Tell your rider only after receiving your cake.</span>
+                  </p>}
+              </div>)}
             </div>
             {localReceipts.filter(order=>order.persistence==='google_sheets'&&
               !!order.customer_access_token&&!phoneHistory.some(saved=>saved.id===order.id)).map(order=>(
@@ -289,7 +320,12 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
           <div className="rounded-xl bg-emerald-50 p-4 space-y-2">
             <h3 className="font-bold text-emerald-950">Linked orders ({linked.length})</h3>
             <p className="text-sm text-slate-700">Orders linked to your verified Google account. Restore saves them to this device. Signing out clears only orders restored in this session; original guest receipts on this device remain.</p>
-            {linked.map(o=><p key={o.id} className="text-xs break-all">{o.order_number} · {o.status} · ৳{o.total_amount}</p>)}
+            {linked.map(o=><div key={o.id} className="text-xs break-all space-y-1">
+              <p>{o.order_number} · {o.status.replaceAll('_',' ')} · ৳{o.total_amount}</p>
+              {o.status==='out_for_delivery' && <p className="bg-amber-50 rounded-lg p-2 text-amber-950">
+                Delivery OTP: <strong className="font-mono text-xl tracking-widest">{/^\d{4}$/.test(o.delivery_otp)?o.delivery_otp:'Refresh to check'}</strong>
+              </p>}
+            </div>)}
             <div className="flex flex-wrap gap-2">
               <button type="button" disabled={busy} onClick={()=>void refresh()} className="flex gap-1 items-center border rounded-lg px-3 py-2 bg-white text-sm"><RefreshCw size={14}/> Refresh</button>
               <button type="button" disabled={busy||!linked.length} onClick={restore} className="rounded-lg bg-emerald-800 disabled:opacity-40 text-white font-semibold px-3 py-2 text-sm">Restore linked orders to this device</button>
