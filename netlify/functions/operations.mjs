@@ -14,19 +14,21 @@ export default async function operations(request) {
   const origin=request.headers.get('origin');
   if(origin && origin!==new URL(request.url).origin) return response(403,'Cross-origin requests are not permitted.');
   const declaredLength=Number(request.headers.get('content-length')||0);
-  if(declaredLength>50000) return response(413,'Request too large.');
+  if(declaredLength>950000) return response(413,'Request too large.');
   const raw=await request.text();
-  if(!raw||raw.length>50000) return response(413,'Request too large.');
+  if(!raw||raw.length>950000) return response(413,'Request too large.');
   let payload;
   try {payload=JSON.parse(raw);} catch {return response(400,'Invalid JSON.');}
   const allowed=['create_order','get_order_status','staff_session','staff_orders','staff_mutate','staff_catalog',
     'staff_catalog_update','customer_session','customer_orders','customer_claim_order','create_custom_cake',
     'get_custom_cake_status','staff_custom_cakes','staff_custom_quote',
     'staff_password_login','staff_password_logout','staff_account_create','staff_account_set_active',
-    'staff_account_reset_password','staff_cms_list','staff_cms_create','staff_cms_update','staff_cms_delete','customer_phone_signup','customer_phone_login','customer_phone_session',
+    'staff_account_reset_password','staff_cms_list','staff_cms_create','staff_cms_update','staff_cms_delete','staff_image_upload','customer_phone_signup','customer_phone_login','customer_phone_session',
     'customer_phone_logout','customer_phone_profile','customer_phone_orders','customer_phone_claim'];
   if(!payload||typeof payload!=='object'||Array.isArray(payload)||!allowed.includes(payload.action))
     return response(400,'Unknown action.');
+  if(raw.length>50000&&payload.action!=='staff_image_upload')
+    return response(413,'Large requests are only allowed for staff image uploads.');
   let target;
   try {target=new URL(process.env.AURORA_SCRIPT_POST_URL||'');}
   catch {return response(503,'Bakery backend URL has not been configured.');}
