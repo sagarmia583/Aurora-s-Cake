@@ -3,6 +3,8 @@ import { X, ShieldCheck, RefreshCw, Link2, LogOut } from 'lucide-react';
 import type { Order } from '../types';
 import { verifyCustomerGoogle, linkCustomerReceipt, recoverCustomerReceipts } from '../services/sheetCustomerApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
+import { getPhoneCustomerProfile, signupPhoneCustomer, loginPhoneCustomer, updatePhoneCustomerProfile, phoneCustomerOrders, linkPhoneCustomerReceipt, logoutPhoneCustomer } from '../services/phoneCustomerApi';
+import type { PhoneCustomerProfile } from '../services/phoneCustomerApi';
 
 type GoogleSdk = {
   initialize: (options: { client_id: string; callback: (result:{credential?:string})=>void; ux_mode?:'popup'; use_fedcm_for_button?:boolean;auto_select?:boolean }) => void;
@@ -29,6 +31,11 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
   const [linked,setLinked]=useState<Order[]>([]);
   const [error,setError]=useState('');
   const [busy,setBusy]=useState(false);
+  const [phoneAccount,setPhoneAccount]=useState<{profile:PhoneCustomerProfile;token:string}|null>(null);
+  const [phoneMode,setPhoneMode]=useState<'login'|'signup'>('login');
+  const [phoneForm,setPhoneForm]=useState({name:'',phone:'',password:''});
+  const [phoneHistory,setPhoneHistory]=useState<Order[]>([]);
+  const [phoneProfileDraft,setPhoneProfileDraft]=useState({name:'',email:'',address:''});
   const signIn=useCallback(async(token:string)=>{
     setBusy(true);setError('');
     try {
@@ -69,6 +76,68 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
     return ()=>{active=false;script?.removeEventListener('load',render);script?.removeEventListener('error',scriptError);};
   },[open,account,clientId,fedcmButton,signIn]);
 
+  useEffect(()=>{
+    if(!open)return;
+    let token='';try{token=sessionStorage.getItem('aurora_customer_phone_session_v1')||'';}catch{}
+    if(!token)return;
+    let active=true;
+    (async()=>{
+      try{
+        const [profile,history]=await Promise.all([getPhoneCustomerProfile(endpoint,token),phoneCustomerOrders(endpoint,token)]);
+        if(!active)return;
+        setPhoneAccount({profile,token});
+        setPhoneProfileDraft({name:profile.name,email:profile.email,address:profile.address});
+        setPhoneHistory(history);
+        onRecover(history);
+      }catch{if(active)try{sessionStorage.removeItem('aurora_customer_phone_session_v1');}catch{}}
+    })();
+    return()=>{active=false;};
+  },[open,endpoint]);
+  const submitPhone=async(event:React.FormEvent)=>{
+    event.preventDefault();if(busy)return;setBusy(true);setError('');
+    try{
+      const info=phoneMode==='signup'
+        ? await signupPhoneCustomer(endpoint,phoneForm.name,phoneForm.phone,phoneForm.password)
+        : await loginPhoneCustomer(endpoint,phoneForm.phone,phoneForm.password);
+      const history=await phoneCustomerOrders(endpoint,info.token);
+      try{sessionStorage.setItem('aurora_customer_phone_session_v1',info.token);}catch{}
+      setPhoneAccount(info);
+      setPhoneHistory(history);
+      setPhoneProfileDraft({name:info.profile.name,email:info.profile.email,address:info.profile.address});
+      setPhoneForm({name:'',phone:'',password:''});
+      onRecover(history);
+    }catch(e){setError(e instanceof Error?e.message:'Phone account sign-in failed.');}
+    finally{setBusy(false);}
+  };
+  const refreshPhone=async()=>{
+    if(!phoneAccount||busy)return;setBusy(true);setError('');
+    try{const history=await phoneCustomerOrders(endpoint,phoneAccount.token);setPhoneHistory(history);onRecover(history);}
+    catch(e){setError(e instanceof Error?e.message:'Could not recover your orders.');}
+    finally{setBusy(false);}
+  };
+  const savePhoneProfile=async(event:React.FormEvent)=>{
+    event.preventDefault();if(!phoneAccount||busy)return;setBusy(true);setError('');
+    try{
+      const profile=await updatePhoneCustomerProfile(endpoint,phoneAccount.token,phoneProfileDraft);
+      setPhoneAccount(previous=>previous?{...previous,profile}:previous);
+    }catch(e){setError(e instanceof Error?e.message:'Could not save profile to Google Sheets.');}
+    finally{setBusy(false);}
+  };
+  const linkPhone=async(order:Order)=>{
+    if(!phoneAccount||busy)return;setBusy(true);setError('');
+    try{
+      await linkPhoneCustomerReceipt(endpoint,phoneAccount.token,order);
+      const history=await phoneCustomerOrders(endpoint,phoneAccount.token);
+      setPhoneHistory(history);onRecover(history);
+    }catch(e){setError(e instanceof Error?e.message:'Original receipt could not be linked.');}
+    finally{setBusy(false);}
+  };
+  const signOutPhone=async()=>{
+    const token=phoneAccount?.token;
+    try{sessionStorage.removeItem('aurora_customer_phone_session_v1');}catch{}
+    setPhoneAccount(null);setPhoneHistory([]);onSignOut?.();setError('');
+    if(token)try{await logoutPhoneCustomer(endpoint,token);}catch{}
+  };
   const refresh=async()=>{
     if(!account)return;
     setBusy(true);setError('');
@@ -97,13 +166,69 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
     <div className="mx-auto max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden">
       <header className="flex items-start justify-between gap-3 bg-emerald-950 text-white p-5">
         <div><h2 id="customer-google-title" className="flex items-center gap-2 text-xl font-black"><ShieldCheck/> My bakery orders</h2>
-          <p className="text-sm text-emerald-100">Free Google sign-in · No paid SMS or payment gateway</p></div>
+          <p className="text-sm text-emerald-100">Phone + password account · Private order history saved in Google Sheets</p></div>
         <button type="button" aria-label="Close customer account" onClick={onClose} className="p-2 rounded-full hover:bg-emerald-800"><X/></button>
       </header>
       <section className="space-y-5 p-5">
-        {!clientId?<p role="alert" className="p-4 bg-amber-50 rounded-xl text-amber-900">Customer account recovery needs the free Google OAuth Web Client ID configured by the shop owner. Guest COD orders are still available without sign-in.</p>
+        {!phoneAccount ? (
+          <section className="rounded-2xl border border-emerald-200 p-4 space-y-4">
+            <h3 className="font-bold text-lg text-emerald-950">{phoneMode==='signup'?'Create an account with your phone':'Phone number login'}</h3>
+            <form onSubmit={submitPhone} className="space-y-3">
+              {phoneMode==='signup'&&<input required aria-label="Your name" autoComplete="name" placeholder="Your name"
+                value={phoneForm.name} onChange={e=>setPhoneForm(f=>({...f,name:e.target.value}))} className="w-full border rounded-xl p-3"/>}
+              <input required aria-label="Bangladesh mobile number" type="tel" autoComplete="tel" placeholder="01XXXXXXXXX"
+                value={phoneForm.phone} onChange={e=>setPhoneForm(f=>({...f,phone:e.target.value}))} className="w-full border rounded-xl p-3"/>
+              <input required aria-label="Account password" type="password" minLength={10}
+                autoComplete={phoneMode==='signup'?'new-password':'current-password'} placeholder="Password (at least 10 characters)"
+                value={phoneForm.password} onChange={e=>setPhoneForm(f=>({...f,password:e.target.value}))} className="w-full border rounded-xl p-3"/>
+              <button disabled={busy} type="submit" className="w-full bg-emerald-800 text-white rounded-xl p-3 font-bold disabled:opacity-50">
+                {busy?'Checking…':phoneMode==='signup'?'Sign up with phone':'Sign in'}
+              </button>
+            </form>
+            <button type="button" onClick={()=>{setPhoneMode(m=>m==='signup'?'login':'signup');setError('');}}
+              className="text-sm underline text-emerald-900">
+              {phoneMode==='signup'?'Already registered? Sign in':'New customer? Create an account'}
+            </button>
+            <p className="text-xs text-amber-800 bg-amber-50 p-3 rounded-lg">
+              Your mobile number is not SMS verified. Your password protects this account; knowing a phone number alone never reveals previous orders.
+              If you forget the password, contact the shop for manual recovery.
+            </p>
+          </section>
+        ):(
+          <section className="rounded-2xl bg-emerald-50 p-4 space-y-4">
+            <div className="flex justify-between items-center gap-3">
+              <div><h3 className="font-bold text-emerald-950">{phoneAccount.profile.name}</h3>
+                <p className="text-sm text-slate-600">{phoneAccount.profile.phone} · Phone account</p></div>
+              <button type="button" onClick={()=>void signOutPhone()} className="text-sm bg-white border rounded-xl p-2">Sign out</button>
+            </div>
+            <form onSubmit={savePhoneProfile} className="grid gap-3">
+              <h4 className="font-bold">Profile saved in Google Sheets</h4>
+              <input aria-label="Profile name" required value={phoneProfileDraft.name} onChange={e=>setPhoneProfileDraft(p=>({...p,name:e.target.value}))} className="border rounded-xl p-2"/>
+              <input aria-label="Profile email optional" type="email" placeholder="Email (optional)" value={phoneProfileDraft.email} onChange={e=>setPhoneProfileDraft(p=>({...p,email:e.target.value}))} className="border rounded-xl p-2"/>
+              <textarea aria-label="Delivery address" placeholder="Saved delivery address" value={phoneProfileDraft.address} onChange={e=>setPhoneProfileDraft(p=>({...p,address:e.target.value}))} className="border rounded-xl p-2"/>
+              <button disabled={busy} type="submit" className="bg-emerald-800 text-white rounded-xl p-2 disabled:opacity-50">Save profile to Sheets</button>
+            </form>
+            <div className="space-y-2">
+              <div className="flex justify-between items-center"><h4 className="font-bold">My order history ({phoneHistory.length})</h4>
+                <button onClick={()=>void refreshPhone()} disabled={busy} type="button" className="text-sm underline">Refresh</button></div>
+              {phoneHistory.length===0&&<p className="text-sm text-slate-600">No linked orders yet. Link an original receipt below or place a new order while signed in.</p>}
+              {phoneHistory.map(order=><p key={order.id} className="text-sm p-2 bg-white rounded-xl break-all">
+                <strong>{order.order_number}</strong> · {order.status} · ৳{order.total_amount}
+              </p>)}
+            </div>
+            {localReceipts.filter(order=>order.persistence==='google_sheets'&&
+              !!order.customer_access_token&&!phoneHistory.some(saved=>saved.id===order.id)).map(order=>(
+              <div key={order.id} className="flex flex-wrap gap-2 justify-between items-center text-sm bg-white p-2 rounded-xl">
+                <span className="break-all">{order.order_number} · ৳{order.total_amount}</span>
+                <button type="button" disabled={busy} onClick={()=>void linkPhone(order)}
+                  className="rounded-xl bg-emerald-900 text-white p-2 disabled:opacity-50">Link original receipt</button>
+              </div>
+            ))}
+          </section>
+        )}
+        {!phoneAccount && (!clientId?<p role="alert" className="p-4 bg-amber-50 rounded-xl text-amber-900">Customer account recovery needs the free Google OAuth Web Client ID configured by the shop owner. Guest COD orders are still available without sign-in.</p>
         :!account?<div className="space-y-4 text-center">
-          <p className="text-sm text-slate-700">Sign in to recover receipts that you previously linked to this Google account. A phone number alone does not prove ownership without SMS verification.</p>
+          <p className="text-sm text-slate-700">Previously linked orders? You can still use your Google account below. New customers can use phone + password above.</p>
           <div ref={loginRef} className="min-h-12 flex justify-center"/>
           <button type="button" className="text-xs underline text-emerald-800" onClick={()=>{setGoogleUiError('');setFedcmButton(v=>!v);}}>
             {fedcmButton?'Google button not working? Try classic popup mode':'Try browser-managed Google sign-in instead'}
@@ -132,7 +257,7 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
               <button type="button" disabled={busy} onClick={()=>void link(o)} className="shrink-0 flex gap-1 items-center bg-slate-900 text-white px-3 py-2 rounded-lg text-xs disabled:opacity-40"><Link2 size={13}/> Link</button>
             </div>)}
           </div>}
-        </>}
+        </>)}
         {busy&&<p role="status" className="text-sm">Checking your account…</p>}
         {error&&<p role="alert" className="text-sm p-4 bg-red-50 border rounded-xl text-red-800">{error}</p>}
       </section>
