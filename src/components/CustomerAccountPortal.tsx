@@ -109,7 +109,7 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
             {fedcmButton?'Google button not working? Try classic popup mode':'Try browser-managed Google sign-in instead'}
           </button>
           <p className="text-xs text-slate-500 break-all">Google OAuth origin: {typeof window !== 'undefined'?window.location.origin:''}</p>
-          {googleUiError&&<p role="alert" className="rounded-lg p-3 bg-red-50 text-sm text-red-800">{googleUiError}</p>
+          {googleUiError&&<p role="alert" className="rounded-lg p-3 bg-red-50 text-sm text-red-800">{googleUiError}</p>}
         </div>:<>
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div><p className="font-bold">{account.name}</p><p className="text-sm text-slate-500">{account.email}</p></div>
