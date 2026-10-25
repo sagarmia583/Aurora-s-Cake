@@ -691,3 +691,38 @@ test('live website manager validates category/product references, archives safel
   assert.equal(JSON.parse(String(h.records('orders')[0].receipt_json)).total_amount,originalReceipt.total_amount);
   assert.equal(h.post({action:'staff_cms_list',id_token:ADMIN_TOKEN,table:'staff_accounts'}).code,'forbidden');
 });
+
+
+test('customer password can be changed and phone account closed while preserving the COD ledger',()=>{
+ const h=harness({singleFile:true});
+ const registered=h.post({action:'customer_phone_signup',name:'Safety Customer',phone:'01700112244',password:'OriginalCustomerPass20!'});
+ assert.equal(registered.ok,true);
+ const original=h.post(request()).order;
+ assert.equal(h.post({action:'customer_phone_claim',auth_token:registered.auth_token,order_id:original.id,customer_access_token:original.customer_access_token}).ok,true);
+ assert.equal(h.post({action:'customer_phone_password',auth_token:registered.auth_token,current_password:'wrong-password',new_password:'NewCustomerPass20!'}).code,'invalid_credentials');
+ const changed=h.post({action:'customer_phone_password',auth_token:registered.auth_token,current_password:'OriginalCustomerPass20!',new_password:'NewCustomerPass20!'});
+ assert.equal(changed.ok,true,JSON.stringify(changed));
+ assert.notEqual(changed.auth_token,registered.auth_token);
+ assert.equal(h.post({action:'customer_phone_session',auth_token:registered.auth_token}).code,'unauthorized');
+ assert.equal(h.post({action:'customer_phone_login',phone:'01700112244',password:'OriginalCustomerPass20!'}).code,'invalid_credentials');
+ assert.equal(h.post({action:'customer_phone_orders',auth_token:changed.auth_token}).orders.length,1);
+ assert.equal(h.post({action:'customer_phone_close',auth_token:changed.auth_token,current_password:'NewCustomerPass20!'}).closed,true);
+ assert.equal(h.post({action:'customer_phone_session',auth_token:changed.auth_token}).code,'unauthorized');
+ assert.equal(h.post({action:'customer_phone_login',phone:'01700112244',password:'NewCustomerPass20!'}).code,'invalid_credentials');
+ assert.equal(h.records('orders').length,1);
+ assert.equal(h.records('order_items').length,1);
+ assert.equal(h.records('customer_accounts')[0].address,'');
+ assert.equal(h.records('customer_accounts')[0].active,false);
+});
+test('photo storage actions are rejected for untrusted visitors and image signatures are validated',()=>{
+ const h=harness({singleFile:true});
+ assert.equal(h.post({action:'staff_image_upload',id_token:INTRUDER_TOKEN,base64:'AAAA'}).code,'forbidden');
+ assert.equal(h.post({action:'staff_image_upload',id_token:RIDER_TOKEN,base64:'AAAA'}).code,'forbidden');
+ assert.equal(h.post({action:'staff_image_upload',id_token:ADMIN_TOKEN,base64:'AAAA'}).code,'invalid_image');
+ assert.equal(h.post({action:'staff_image_upload',id_token:ADMIN_TOKEN,base64:'YXNkZmdoaWo=',mime_type:'image/jpeg'}).code,'invalid_image');
+ assert.equal(h.get('public_image').ok,false);
+ const context=h.context;
+ assert.equal(context.auroraImageMime_([255,216,255,0,1]),'image/jpeg');
+ assert.equal(context.auroraImageMime_([137,80,78,71,13,10,26,10,0]),'image/png');
+ assert.throws(()=>context.auroraImageMime_([65,65,65,65]));
+});
