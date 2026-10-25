@@ -27,6 +27,7 @@ import { useGoogleSheetContent } from './hooks/useGoogleSheetContent';
 import { SheetContentPanel } from './components/SheetContentPanel';
 import { loadConfirmedSheetOrders, rememberConfirmedSheetOrder, removeConfirmedSheetOrdersById } from './services/googleSheetOrders';
 import { fetchCustomerOrderStatus } from './services/sheetStaffApi';
+import { linkPhoneCustomerReceipt } from './services/phoneCustomerApi';
 import { reconcilePublicCart, reorderFromPublicOrder } from './services/reconcilePublicCart';
 import { 
   ShopSettings, 
@@ -196,7 +197,15 @@ export default function App() {
   };
 
   const handleOrderSuccess = (newOrder: Order) => {
-    if (newOrder.persistence === 'google_sheets') rememberConfirmedSheetOrder(newOrder);
+    if (newOrder.persistence === 'google_sheets') {
+      rememberConfirmedSheetOrder(newOrder);
+      // The original receipt capability authorizes linking. Phone alone never
+      // exposes historical orders; account association is stored in the Sheet.
+      let token='';try{token=sessionStorage.getItem('aurora_customer_phone_session_v1')||'';}catch{}
+      if(token)void linkPhoneCustomerReceipt(sheetContent.endpoint,token,newOrder).catch(()=>{
+        setCartNotice('Your order was saved, but account linking needs retrying from My bakery orders.');
+      });
+    }
     setOrders(previous => [newOrder, ...previous.filter(order => order.id !== newOrder.id)]);
     setCartNotice('');
     setIsCartOpen(false);
@@ -429,6 +438,7 @@ export default function App() {
 
       <CustomerProfileModal
         isOpen={isProfileOpen}
+        accountEndpoint={sheetContent.endpoint}
         onClose={() => setIsProfileOpen(false)}
         orders={orders}
         products={products}
