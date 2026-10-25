@@ -90,14 +90,22 @@ export async function getStaffOrders(endpoint: string, idToken: string): Promise
   if (!Array.isArray(data.orders)) throw new Error('Invalid staff order list.');
   return data.orders.filter(item => objectValue(item) && typeof item.id === 'string' && typeof item.order_number === 'string') as StaffOrder[];
 }
-export async function mutateStaffOrder(endpoint: string, idToken: string, operation: StaffOperation, orderId: string, extra: Record<string, unknown> = {}): Promise<void> {
-  await privatePost(endpoint, { action: 'staff_mutate', ...staffCredential(idToken), operation, order_id: orderId, ...extra });
+export async function mutateStaffOrder(endpoint: string, idToken: string, operation: StaffOperation, orderId: string, extra: Record<string, unknown> = {}): Promise<StaffOrder> {
+  const response=await privatePost(endpoint,{ action:'staff_mutate',...staffCredential(idToken),operation,order_id:orderId,...extra });
+  if(!objectValue(response.order)||response.order.id!==orderId||
+     typeof response.order.status!=='string'||
+     typeof response.order.updated_at!=='string'||
+     Object.prototype.hasOwnProperty.call(response.order,'delivery_otp')||
+     Object.prototype.hasOwnProperty.call(response.order,'customer_access_token'))
+    throw new Error('The order update response was invalid. Refresh the order list before retrying.');
+  return response.order as unknown as StaffOrder;
 }
-export async function fetchCustomerOrderStatus(endpoint: string, order: Order, idToken?: string): Promise<StatusSnapshot> {
+export async function fetchCustomerOrderStatus(endpoint: string, order: Order, idToken?: string, phoneToken?: string): Promise<StatusSnapshot> {
   if (order.persistence !== 'google_sheets') throw new Error('Only confirmed Sheet receipts support status updates.');
   const data = await privatePost(endpoint, { action: 'get_order_status', order_id: order.id, customer_phone: order.customer_phone,
     ...(order.customer_access_token ? {customer_access_token:order.customer_access_token} : {}),
-    ...(idToken ? {id_token:idToken} : {}) });
+    ...(idToken ? {id_token:idToken} : {}),
+    ...(phoneToken ? {auth_token:phoneToken} : {}) });
   const validStatuses: OrderStatus[] = ['pending', 'confirmed', 'preparing', 'ready', 'assigned', 'picked_up', 'out_for_delivery', 'delivered', 'cancelled'];
   if (data.order_id !== order.id || !validStatuses.includes(data.status as OrderStatus) ||
       typeof data.updated_at !== 'string' || !Array.isArray(data.history) ||
