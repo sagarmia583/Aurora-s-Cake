@@ -1,14 +1,14 @@
 /**
- * AURORA'S CAKE — COMPLETE ONE-FILE GOOGLE APPS SCRIPT BACKEND
- * Public Store/COD, Staff/Delivery, Phone Customers, Google Account Recovery,
- * CMS, Private Images, Catalog, Custom Cakes and Seed setup.
- * PERFORMANCE: Customer/Rider live status uses narrow Sheet reads.
- * BACK UP live Sheet; replace existing Code.gs completely; run
- * setupSheetDatabase() and setupAuroraImagesOnce() if not already done.
- * Deploy → Manage deployments → Edit → New version → Deploy.
+ * AURORA'S CAKE — ALL-IN-ONE GOOGLE APPS SCRIPT
+ * Free Google Sheets order/COD, staff roles, secure delivery OTP,
+ * phone/Google customer accounts, fast order-history/status lookup,
+ * live storefront CMS, images, custom cakes and initial seed data.
+ * BACK UP the existing Spreadsheet first; replace your old single Code.gs
+ * with the entire file, without duplicate source modules. Run setupSheetDatabase()
+ * only if required Sheet headers are missing. Then DEPLOY A NEW WEB APP VERSION.
  */
 
-/* ==== BEGIN apps-script/Code.gs ==== */
+/* ===== BEGIN apps-script/Code.gs ===== */
 /**
  * Aurora public content and private cash-on-delivery order API.
  * Public GET reads only explicit public tables. Private POST accepts create_order only; no private list/read API.
@@ -562,9 +562,9 @@ function auroraSeedRows_(name,seed) {
   var alias = {product_addons:'addons',delivery_zones:'zones',delivery_slots:'slots'};
   return seed[alias[name] || name] || [];
 }
-/* ==== END apps-script/Code.gs ==== */
+/* ===== END apps-script/Code.gs ===== */
 
-/* ==== BEGIN apps-script/SeedData.gs ==== */
+/* ===== BEGIN apps-script/SeedData.gs ===== */
 var AURORA_SEED_DATA = {
   "schema_version": 1,
   "settings": {
@@ -1396,9 +1396,9 @@ var AURORA_SEED_DATA = {
   ],
   "reviews": []
 };
-/* ==== END apps-script/SeedData.gs ==== */
+/* ===== END apps-script/SeedData.gs ===== */
 
-/* ==== BEGIN apps-script/StaffOperations.gs ==== */
+/* ===== BEGIN apps-script/StaffOperations.gs ===== */
 /**
  * Authenticated bakery operations for the existing private Google Sheet COD orders.
  * Install alongside Code.gs. All private operations use POST, and each staff
@@ -1745,9 +1745,9 @@ function auroraCustomerOrderStatus_(input) {
   }
   return result;
 }
-/* ==== END apps-script/StaffOperations.gs ==== */
+/* ===== END apps-script/StaffOperations.gs ===== */
 
-/* ==== BEGIN apps-script/AccountAuth.gs ==== */
+/* ===== BEGIN apps-script/AccountAuth.gs ===== */
 /**
  * Private, free Google-Sheets account system.
  * Staff: owner verifies with Google; employees use username + password.
@@ -1981,8 +1981,8 @@ function auroraAccountCustomerPost_(input) {
     return {ok:true,profile:auroraAccountSafeCustomer_(person)};
   }
   if(action==='customer_phone_orders') {
-    var t=auroraPrivateTable_(auroraSpreadsheet_(),'orders'),results=[];
-    t.rows.forEach(function(row){
+    var t=auroraFastOrderTable_(auroraSpreadsheet_()),results=[];
+    auroraFastOrderList_(t).forEach(function(row){
       var order;try{order=JSON.parse(String(row.receipt_json||''));}catch(_){return;}
       if(order&&order.customer_account_id===person.id)results.push(auroraCustomerSafeReceipt_(order));
     });
@@ -2015,9 +2015,9 @@ function auroraAccountCustomerPost_(input) {
   }
   auroraReject_('invalid_action','Unknown customer phone account action.');
 }
-/* ==== END apps-script/AccountAuth.gs ==== */
+/* ===== END apps-script/AccountAuth.gs ===== */
 
-/* ==== BEGIN apps-script/CustomerAccounts.gs ==== */
+/* ===== BEGIN apps-script/CustomerAccounts.gs ===== */
 /**
  * Optional FREE Google customer accounts; no SMS gateway and no email-sending API.
  * Guest COD remains possible. A customer holding an original confirmed receipt
@@ -2047,9 +2047,9 @@ function auroraCustomerAccountsPost_(input) {
     return {ok:true,email:identity.email,name:identity.name};
   }
   if (input.action === 'customer_orders') {
-    var table=auroraPrivateTable_(auroraSpreadsheet_(),'orders');
+    var table=auroraFastOrderTable_(auroraSpreadsheet_());
     var results=[];
-    table.rows.forEach(function(row) {
+    auroraFastOrderList_(table).forEach(function(row) {
       var order;
       try {order=JSON.parse(String(row.receipt_json || ''));} catch (_) {return;}
       if (!order || String(order.customer_google_sub||'') !== identity.sub) return;
@@ -2093,9 +2093,9 @@ function auroraCustomerAccountsPost_(input) {
   }
   auroraReject_('invalid_action','Unsupported customer account action.');
 }
-/* ==== END apps-script/CustomerAccounts.gs ==== */
+/* ===== END apps-script/CustomerAccounts.gs ===== */
 
-/* ==== BEGIN apps-script/LiveCatalog.gs ==== */
+/* ===== BEGIN apps-script/LiveCatalog.gs ===== */
 /**
  * Free authenticated live catalogue operations for the original public Sheets.
  * Deliberately limited to allowlisted fields. Staff cannot edit arbitrary cells
@@ -2185,9 +2185,9 @@ function auroraCatalogPost_(input) {
     return {ok:true,updated:true};
   } finally {lock.releaseLock();}
 }
-/* ==== END apps-script/LiveCatalog.gs ==== */
+/* ===== END apps-script/LiveCatalog.gs ===== */
 
-/* ==== BEGIN apps-script/PublicCms.gs ==== */
+/* ===== BEGIN apps-script/PublicCms.gs ===== */
 /**
  * Private website CMS. Never exposes private orders or account tables.
  * All changes are validated server-side against PUBLIC_TABLE_SCHEMAS.
@@ -2400,9 +2400,9 @@ function auroraCmsPost_(input){
     return {ok:true,operation:action==='staff_cms_delete'?'archived':action==='staff_cms_create'?'created':'updated'};
   }finally{lock.releaseLock();}
 }
-/* ==== END apps-script/PublicCms.gs ==== */
+/* ===== END apps-script/PublicCms.gs ===== */
 
-/* ==== BEGIN apps-script/PublicImages.gs ==== */
+/* ===== BEGIN apps-script/PublicImages.gs ===== */
 /**
  * Free private Google Drive storage for small public bakery images.
  * The Web App runs as owner. Only authenticated Admin uploads.
@@ -2471,9 +2471,9 @@ function auroraPublicImage_(id){
   var raw=file.getBlob().getBytes();
   return {ok:true,mime_type:file.getMimeType(),base64:Utilities.base64Encode(raw)};
 }
-/* ==== END apps-script/PublicImages.gs ==== */
+/* ===== END apps-script/PublicImages.gs ===== */
 
-/* ==== BEGIN apps-script/CustomCakeRequests.gs ==== */
+/* ===== BEGIN apps-script/CustomCakeRequests.gs ===== */
 /**
  * Free custom-cake quote requests. Public create/status and authenticated
  * staff queue share a private Google Sheet tab, never included in public GET.
@@ -2606,4 +2606,4 @@ function auroraCustomCakePost_(input) {
   }
   auroraReject_('invalid_action','Invalid custom cake action.');
 }
-/* ==== END apps-script/CustomCakeRequests.gs ==== */
+/* ===== END apps-script/CustomCakeRequests.gs ===== */
