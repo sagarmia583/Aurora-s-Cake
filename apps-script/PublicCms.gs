@@ -95,6 +95,20 @@ function auroraCmsValidateRefs_(book,name,row,oldId){
     var products=auroraCmsRead_(book,'products');
     if(!auroraCmsRow_(products,String(row.product_id)))auroraReject_('invalid_reference','Choose an existing product.');
   }
+  if(name==='products'){
+    [['allowed_flavor_ids','flavors'],['allowed_addon_ids','product_addons']].forEach(function(pair){
+      var ids=String(row[pair[0]]||'');
+      if(!ids)return;
+      var values=[];try{values=JSON.parse(ids);}catch(_){auroraReject_('invalid_list','Invalid selection IDs.');}
+      var linked=auroraCmsRead_(book,pair[1]).rows.map(function(item){return String(item.id);});
+      if(values.some(function(id){return linked.indexOf(id)===-1;}))
+        auroraReject_('invalid_reference','Selected '+pair[1]+' ID does not exist.');
+    });
+  }
+  if(name==='highlights'&&row.category_id){
+    var highlightCategories=auroraCmsRead_(book,'categories');
+    if(!auroraCmsRow_(highlightCategories,String(row.category_id)))auroraReject_('invalid_reference','Highlight category does not exist.');
+  }
   if(name==='hero_slides'&&row.product_id){
     var prods=auroraCmsRead_(book,'products');
     if(!auroraCmsRow_(prods,String(row.product_id)))auroraReject_('invalid_reference','Hero slide product does not exist.');
@@ -172,7 +186,17 @@ function auroraCmsPost_(input){
       if(name==='products'&&Number(row.base_price)===0&&row.sale_price==='')row.base_price=0;
       if(name==='coupons'&&action==='staff_cms_create')row.usage_count=0;
       // Do not allow a client to manipulate existing order/payment totals.
-      auroraCmsValidateRefs_(book,name,row,action==='staff_cms_delete'?recordId:null);
+      auroraCmsValidateRefs_(book,name,row,action==='staff_cms_create'?null:recordId);
+      // Unique storefront identifiers are required for stable product pages and coupon use.
+      var uniqueField=name==='products'||name==='categories'?'slug':name==='coupons'?'code':null;
+      if(uniqueField&&row[uniqueField]){
+        var candidate=String(row[uniqueField]).trim().toLowerCase();
+        if(table.rows.some(function(other){
+          return String(other.id)!==nowId&&String(other[uniqueField]||'').trim().toLowerCase()===candidate;
+        }))auroraReject_('duplicate','Another record already uses this '+uniqueField+'.');
+      }
+      if(name==='product_variants'&&row.sale_price!==''&&Number(row.sale_price)>Number(row.price))
+        auroraReject_('invalid_price','Sale price cannot exceed the regular price.');
       if(action==='staff_cms_create') {
         table.sheet.getRange(table.sheet.getLastRow()+1,1,1,table.headers.length).setValues([table.headers.map(function(field){return auroraSheetCell_(row[field]);})]);
       }else{
