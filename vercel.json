@@ -5,7 +5,7 @@
     "api/operations.js": {
       "maxDuration": 30
     },
-    "api/images/[id].js": {
+    "api/image.js": {
       "maxDuration": 30
     }
   },
@@ -15,8 +15,8 @@
       "destination": "/api/operations"
     },
     {
-      "source": "/api/images/:id",
-      "destination": "/api/images/:id"
+      "source": "/api/image",
+      "destination": "/api/image"
     },
     {
       "source": "/(.*)",
