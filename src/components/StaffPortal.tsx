@@ -169,16 +169,16 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                   const canCancel = canOperate(identity.role, 'cancel') && ['pending','confirmed','preparing','ready','assigned'].includes(order.status);
                   return <article key={order.id} className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
                     <div className="flex flex-wrap justify-between gap-2">
-                      <div><strong className="break-all">#{order.order_number}</strong><p className="text-sm">{order.customer_name} · <a className="underline" href={`tel:${order.customer_phone}`}>{order.customer_phone}</a></p></div>
+                      <div><strong className="break-all">#{order.order_number}</strong><p className="text-sm">{order.customer_name} · {order.customer_phone && <a className="underline" href={`tel:${order.customer_phone}`}>{order.customer_phone}</a>}</p></div>
                       <span className="self-start rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1 text-emerald-900 text-xs font-bold">{order.status.replaceAll('_',' ')}</span>
                     </div>
                     <div className="grid sm:grid-cols-3 gap-2 text-sm text-slate-700">
-                      <div><strong>Address:</strong> {order.delivery_address}<p className="mt-1"><a className="text-emerald-700 underline" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.delivery_address)}`} target="_blank" rel="noopener noreferrer">Open in Google Maps</a></p></div>
+                      {order.delivery_address && <div><strong>Address:</strong> {order.delivery_address}<p className="mt-1"><a className="text-emerald-700 underline" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.delivery_address)}`} target="_blank" rel="noopener noreferrer">Open in Google Maps</a></p></div>}
                       <div><strong>Slot:</strong> {order.delivery_date} · {order.delivery_slot}</div>
                       <div><strong>COD:</strong> {order.total_amount} · {order.payment_status} {order.cod_collected ? '· collected' : ''}</div>
                     </div>
                     <div className="text-sm bg-slate-50 rounded-xl p-3">
-                      {order.items.map(item => <p key={item.id}>{item.quantity} × {item.product_name} ({item.variant_name}) {item.flavor_name ? '· '+item.flavor_name : ''}{item.writing_message ? ' · '+item.writing_message : ''}</p>)}
+                      {(order.items || []).map(item => <p key={item.id}>{item.quantity} × {item.product_name} ({item.variant_name}) {item.flavor_name ? '· '+item.flavor_name : ''}{item.writing_message ? ' · '+item.writing_message : ''}</p>)}
                       {order.order_note && <p className="text-slate-500 mt-2">Note: {order.order_note}</p>}
                       {order.rider_name && <p className="mt-2 flex items-center gap-1"><Truck size={14} /> Assigned rider: {order.rider_name}</p>}
                     </div>
