@@ -234,6 +234,14 @@ export function normalizePublicSiteData(input: unknown, defaults: PublicSiteData
   return {schema_version:1,order_submission_enabled:lookup('order_submission_enabled') === true,settings:settings as unknown as ShopSettings,content,hero_slides,highlights,faqs,links,products,categories,flavors,addons,banners,zones,slots,coupons,reviews};
 }
 
+/** Optional same-origin free Netlify relay; only one fixed path is accepted.
+ * Backend URL stays pinned to the validated Google Apps Script deployment.
+ */
+export function resolveSheetsPostEndpoint(endpoint: string): string {
+  const direct=validateGoogleSheetsEndpoint(endpoint).href;
+  const relay=(import.meta.env?.VITE_SHEETS_POST_PROXY as string|undefined)?.trim();
+  return relay==='/api/operations' ? relay : direct;
+}
 export function validateGoogleSheetsEndpoint(endpoint: string): URL {
   let url: URL;
   try { url=new URL(endpoint); } catch { throw new GoogleSheetsError('invalid_endpoint','Enter the Apps Script web app /exec URL.'); }
