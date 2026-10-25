@@ -500,3 +500,16 @@ test('single-file owner setup grants editor account admin access without a clien
   assert.throws(()=>h.context.setupAuroraOwnerOnce(),/already exists/);
   assert.equal(h.post({action:'setupAuroraOwnerOnce'}).code,'invalid_action');
 });
+
+test('only authenticated super admin sees a private read-only directory of configured staff profiles',()=>{
+  const h=harness({singleFile:true});
+  const owner=h.post({action:'staff_session',id_token:ADMIN_TOKEN});
+  assert.equal(owner.role,'super_admin');
+  assert.deepEqual([...owner.staff_profiles].map((item:{email:string})=>item.email).sort(),['owner@example.com','rider@example.com']);
+  assert.equal(owner.staff_profiles[0].role,'super_admin');
+  const rider=h.post({action:'staff_session',id_token:RIDER_TOKEN});
+  assert.equal(rider.role,'delivery_man');
+  assert.equal('staff_profiles' in rider,false);
+  assert.equal(h.post({action:'staff_session',id_token:INTRUDER_TOKEN}).code,'forbidden');
+  assert.equal(h.get('public').staff_profiles,undefined);
+});
