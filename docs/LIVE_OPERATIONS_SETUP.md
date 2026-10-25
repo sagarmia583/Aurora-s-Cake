@@ -8,11 +8,8 @@ not exposed through the role selector in production.
 ## Before going live
 
 1. **Back up the spreadsheet.** Never publish or share the private orders tab.
-2. Copy all six current Apps Script files into the SAME script project:
-   `apps-script/Code.gs`, `apps-script/SeedData.gs`,
-   `apps-script/StaffOperations.gs`, `apps-script/CustomerAccounts.gs`,
-   `apps-script/LiveCatalog.gs`, and `apps-script/CustomCakeRequests.gs`. Keep only one `doPost` and `doGet`
-   implementation. Existing private order headers are preserved.
+2. **Simplest single-file installation:** Open [`apps-script/Code.AllInOne.gs`](../apps-script/Code.AllInOne.gs), copy its entire contents, and paste it into **one Apps Script `Code.gs` file**. Remove other `.gs` files from that Apps Script project first (except files you intentionally maintain with non-conflicting unique names). This single file already contains the public content API, complete seed data, staff operations, Google customer accounts, live catalog, and custom cake requests. It has exactly one `doGet` and one `doPost`.
+   **Alternative for developers:** Install the original six separate files (`Code.gs`, `SeedData.gs`, `StaffOperations.gs`, `CustomerAccounts.gs`, `LiveCatalog.gs`, `CustomCakeRequests.gs`) instead. **Never use the all-in-one source and six separate files together.** Existing private order headers are preserved.
 3. In Google Cloud Console, configure the Google OAuth consent screen and create an
    **OAuth Client ID, Application type: Web application**. Add the exact website
    origin(s) (such as `https://your-site.example`) to **Authorized JavaScript
