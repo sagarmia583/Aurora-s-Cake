@@ -75,6 +75,13 @@ function auroraCustomerAccountsPost_(input) {
         auroraReject_('not_found','No matching order receipt and checkout phone.');
       }
       var order=JSON.parse(String(record.receipt_json));
+      // A public order reference plus a contact number does NOT prove
+      // ownership. Only the original persisted receipt holds this key.
+      if (!order.customer_access_token ||
+          typeof input.customer_access_token !== 'string' ||
+          input.customer_access_token !== order.customer_access_token) {
+        auroraReject_('forbidden','Use the original confirmed order receipt to link this account.');
+      }
       if (order.customer_google_sub && order.customer_google_sub!==identity.sub) {
         auroraReject_('already_linked','This order is linked to a different Google account. Contact the bakery with proof of purchase.');
       }
