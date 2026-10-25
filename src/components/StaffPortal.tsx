@@ -145,6 +145,11 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
               <h3 className="text-xl font-bold">Verified staff sign-in</h3>
               <p className="text-sm text-slate-600">Use your approved Google account. Your access level and delivery assignments are checked on the server.</p>
               <div ref={signinRef} className="flex justify-center min-h-12" />
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-left text-xs text-amber-950 space-y-2">
+                <p><strong>Google button not responding?</strong> The site origin must be listed under the Google Web OAuth client's <strong>Authorized JavaScript origins</strong>. Each Vercel Preview hostname is different from Production.</p>
+                <p>Current origin: <code className="break-all font-mono">{typeof window !== 'undefined' ? window.location.origin : ''}</code></p>
+                <p>After adding it, reload this page. Also allow Google sign-in popups, and use an account listed as a Test User if OAuth is in Testing mode.</p>
+              </div>
               {loading && <p role="status">Verifying your Google account…</p>}
             </div>
           ) : (
