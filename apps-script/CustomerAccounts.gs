@@ -7,32 +7,10 @@
  * Requires Code.gs and StaffOperations.gs (private receipt save helper).
  */
 function auroraCustomerIdentity_(input) {
-  var token = input && input.id_token;
-  if (typeof token !== 'string' || token.length < 100 || token.length > 6000 ||
-      !/^[a-zA-Z0-9_.-]+$/.test(token)) {
-    auroraReject_('unauthorized','Sign in with your Google account to recover linked orders.');
-  }
-  var clientId = String(PropertiesService.getScriptProperties().getProperty('AURORA_GOOGLE_CLIENT_ID') || '').trim();
-  if (!clientId) auroraReject_('account_not_configured','Customer Google sign-in is not configured.');
-  var claims;
-  try {
-    var response = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(token), {
-      method:'get', muteHttpExceptions:true, followRedirects:false
-    });
-    if (response.getResponseCode() !== 200) auroraReject_('unauthorized','Your Google sign-in is invalid or expired.');
-    claims = JSON.parse(response.getContentText());
-  } catch (error) {
-    if (error && error.auroraValidation) throw error;
-    auroraReject_('unauthorized','Unable to verify your Google sign-in.');
-  }
-  if (claims.aud !== clientId ||
-      ['accounts.google.com','https://accounts.google.com'].indexOf(claims.iss) === -1 ||
-      !(claims.email_verified === true || claims.email_verified === 'true') ||
-      typeof claims.sub !== 'string' || !claims.sub ||
-      !Number.isFinite(Number(claims.exp)) || Number(claims.exp)*1000 <= Date.now()) {
-    auroraReject_('unauthorized','Your Google identity could not be verified.');
-  }
-  return {sub:claims.sub,email:String(claims.email || '').toLowerCase(),name:String(claims.name||claims.email||'Customer').slice(0,100)};
+  var clientId=String(PropertiesService.getScriptProperties().getProperty('AURORA_GOOGLE_CLIENT_ID')||'').trim();
+  var claims=auroraVerifiedGoogleClaims_(input && input.id_token,clientId);
+  return {sub:claims.sub,email:String(claims.email||'').toLowerCase(),
+    name:String(claims.name||claims.email||'Customer').slice(0,100)};
 }
 function auroraCustomerSafeReceipt_(order) {
   var copy=JSON.parse(JSON.stringify(order));
