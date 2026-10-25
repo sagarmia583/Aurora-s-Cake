@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, RefreshCw, ShieldCheck, LockKeyhole, Truck, PackageCheck } from 'lucide-react';
 import { checkStaffSession, getStaffOrders, mutateStaffOrder } from '../services/sheetStaffApi';
-import type { StaffOperation, StaffOrder, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
+import type { StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
 import { LiveShopEditor } from './LiveShopEditor';
 import { CustomCakeQueue } from './CustomCakeQueue';
@@ -48,6 +48,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [fedcmButton, setFedcmButton] = useState(true);
   const [googleUiError, setGoogleUiError] = useState('');
   const [orders, setOrders] = useState<StaffOrder[]>([]);
+  const [staffProfiles, setStaffProfiles] = useState<StaffProfile[]>([]);
+  const [refreshingStaff, setRefreshingStaff] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [busyOrderId, setBusyOrderId] = useState('');
@@ -62,6 +64,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     try {
       const profile = await checkStaffSession(endpoint, idToken);
       setIdentity({ ...profile, token: idToken });
+      setStaffProfiles(profile.staff_profiles ?? []);
       setRiderEmail(profile.riders[0]?.email || '');
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Staff login failed.'); }
     finally { setLoading(false); }
@@ -120,6 +123,18 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     return () => window.clearInterval(interval);
   }, [isOpen, identity, refresh]);
 
+  const refreshStaffProfiles = useCallback(async () => {
+    if (!identity || identity.role !== 'super_admin') return;
+    setRefreshingStaff(true);
+    try {
+      const current = await checkStaffSession(endpoint, identity.token);
+      if (current.role !== 'super_admin') throw new Error('Super admin access is no longer available. Sign in again.');
+      setStaffProfiles(current.staff_profiles ?? []);
+      setError('');
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to refresh staff profiles.'); }
+    finally { setRefreshingStaff(false); }
+  }, [endpoint, identity]);
+
   const mutate = async (order: StaffOrder, operation: StaffOperation) => {
     if (!identity || busyOrderId) return;
     if (operation === 'cancel' && !window.confirm('Cancel this order? This cannot be undone.')) return;
@@ -176,9 +191,42 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                 <div className="flex gap-2 items-center">
                   <span className="text-xs text-slate-500">Last refreshed {updatedAt || '—'}</span>
                   <button type="button" onClick={() => void refresh()} className="flex items-center gap-2 rounded-xl bg-white border border-slate-200 px-3 py-2 text-sm"><RefreshCw size={15} /> Refresh</button>
-                  <button type="button" onClick={() => { setIdentity(null); setOrders([]); setError(''); }} className="rounded-xl px-3 py-2 border bg-white text-sm">Sign out</button>
+                  <button type="button" onClick={() => { setIdentity(null); setOrders([]); setStaffProfiles([]); setError(''); }} className="rounded-xl px-3 py-2 border bg-white text-sm">Sign out</button>
                 </div>
               </div>
+              {identity.role === 'super_admin' && (
+                <section className="rounded-2xl bg-white border border-slate-200 p-4 space-y-3" aria-labelledby="staff-profiles-heading">
+                  <div className="flex flex-wrap gap-3 items-center justify-between">
+                    <div>
+                      <h3 id="staff-profiles-heading" className="text-lg font-bold text-slate-900">Staff Profiles ({staffProfiles.length})</h3>
+                      <p className="text-sm text-slate-600">Verified staff directory · Only the Super Admin can see this list</p>
+                    </div>
+                    <button type="button" disabled={refreshingStaff} onClick={() => void refreshStaffProfiles()}
+                      className="rounded-xl border px-3 py-2 text-sm flex items-center gap-2 disabled:opacity-50">
+                      <RefreshCw size={15} /> {refreshingStaff ? 'Checking…' : 'Refresh profiles'}
+                    </button>
+                  </div>
+                  {staffProfiles.length ? (
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {staffProfiles.map(person => (
+                        <article key={person.email} className="rounded-xl border border-slate-200 p-3 min-w-0">
+                          <strong className="block break-words text-slate-900">{person.name}</strong>
+                          <p className="text-sm break-all text-slate-600">{person.email}</p>
+                          <span className="inline-block mt-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-900">
+                            {person.role.replaceAll('_', ' ')}
+                          </span>
+                          {person.email === identity.email && <span className="ml-2 text-xs text-slate-500">You</span>}
+                        </article>
+                      ))}
+                    </div>
+                  ) : <p className="text-sm text-amber-800">This Apps Script deployment has not returned the staff directory yet. Install the newest all-in-one Code.gs and deploy a new version.</p>}
+                  <p className="text-xs text-slate-500">
+                    To add staff, open Apps Script → Project Settings → Script Properties → AURORA_STAFF_USERS.
+                    Keep the existing owner entry and add each employee's real Gmail and role. After saving, refresh profiles.
+                    Each person signs in separately with their own Google account; a Super Admin cannot impersonate another profile.
+                  </p>
+                </section>
+              )}
               <p className="text-sm text-slate-600">Showing up to 100 recent authorized orders. Status updates are written to the same private Sheet used by Customer checkout.</p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
                 <div className="bg-white border rounded-xl p-3"><strong className="text-xl">{orders.length}</strong><p className="text-slate-500">Orders in visible queue</p></div>
