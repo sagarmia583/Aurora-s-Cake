@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { Order, OrderStatus, Product, CartItem } from '../types';
 import { mockDb } from '../services/mockDatabase';
+import { getPhoneCustomerProfile, updatePhoneCustomerProfile } from '../services/phoneCustomerApi';
 
 const readProfile = (): {name?: string; phone?: string; email?: string; address?: string} => {
   try {
@@ -38,6 +39,7 @@ const readProfile = (): {name?: string; phone?: string; email?: string; address?
 interface CustomerProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
+  accountEndpoint: string;
   orders: Order[];
   products: Product[];
   currency: string;
@@ -51,6 +53,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = (props)
 const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
   isOpen,
   onClose,
+  accountEndpoint,
   orders,
   products,
   currency,
@@ -87,6 +90,21 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
   const [savedAddress, setSavedAddress] = useState(() => readProfile().address || '');
   const [isEditingProfile, setIsEditingProfile] = useState(() => !readProfile().name);
   const [profileSuccessMsg, setProfileSuccessMsg] = useState<string | null>(null);
+  const [serverProfile,setServerProfile]=useState(false);
+  useEffect(()=>{
+    if(!isOpen)return;
+    let token='';try{token=sessionStorage.getItem('aurora_customer_phone_session_v1')||'';}catch{}
+    setServerProfile(!!token);
+    if(!token)return;
+    let active=true;
+    getPhoneCustomerProfile(accountEndpoint,token).then(profile=>{
+      if(!active)return;
+      setCustomerName(profile.name);setCustomerPhone(profile.phone);
+      setCustomerEmail(profile.email);setSavedAddress(profile.address);
+    }).catch(()=>{if(active)setProfileSuccessMsg('Sign in again under My bakery orders to load your saved profile.');});
+    return()=>{active=false;};
+  },[isOpen,accountEndpoint]);
+
 
   // Filter orders: all, active, delivered
   const [orderFilter, setOrderFilter] = useState<'all' | 'active' | 'delivered'>('all');
@@ -116,16 +134,28 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
   const totalSpent = userOrders.reduce((sum, o) => sum + (o.status !== 'cancelled' ? o.total_amount : 0), 0);
   const activeOrdersCount = userOrders.filter((o) => o.status !== 'delivered' && o.status !== 'cancelled').length;
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    let token='';try{token=sessionStorage.getItem('aurora_customer_phone_session_v1')||'';}catch{}
+    if(token){
+      try{
+        await updatePhoneCustomerProfile(accountEndpoint,token,{
+          name:customerName.trim(),email:customerEmail.trim(),address:savedAddress.trim()
+        });
+        setIsEditingProfile(false);
+        setProfileSuccessMsg('Profile saved permanently in Google Sheets.');
+      }catch(error){
+        setProfileSuccessMsg(error instanceof Error?error.message:'Google Sheets profile could not be saved.');
+      }
+      return;
+    }
     try {
       localStorage.setItem('aurora_customer_profile_v1', JSON.stringify({ name: customerName.trim(), phone: customerPhone.trim(), email: customerEmail.trim(), address: savedAddress.trim() }));
       setIsEditingProfile(false);
-      setProfileSuccessMsg('Profile saved on this device.');
+      setProfileSuccessMsg('Guest profile saved only on this device. Sign in by phone for permanent storage.');
     } catch {
-      setProfileSuccessMsg('Storage is unavailable. Your profile could not be saved.');
+      setProfileSuccessMsg('Storage is unavailable. Your guest profile could not be saved.');
     }
-    setTimeout(() => setProfileSuccessMsg(null), 2500);
   };
 
   const handleReorderClick = (order: Order) => {
@@ -238,13 +268,13 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
               <div className="flex items-center gap-2">
                 <h3 id="profile-title" className="text-xl font-black text-white">{customerName || 'Your cake journal'}</h3>
                 <span className="bg-amber-400 text-slate-900 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 shadow-xs">
-                  <Sparkles className="w-2.5 h-2.5" /> Local profile
+                  <Sparkles className="w-2.5 h-2.5" /> {serverProfile?'Google Sheets profile':'Guest device profile'}
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-0.5 flex items-center gap-2">
                 <span>{customerPhone}</span>
                 <span>•</span>
-                <span className="text-emerald-400 font-semibold">Saved on this device</span>
+                <span className="text-emerald-400 font-semibold">{serverProfile?'Saved in Google Sheets':'Saved on this device'}</span>
               </p>
             </div>
           </div>
@@ -258,7 +288,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
           </button>
         </div>
 
-        <p className="text-xs text-slate-600 bg-rose-50 px-6 py-3">Order receipts and profile details saved here are stored on this device. For private cross-device recovery, use My Google orders. On shared devices, sign out and clear saved data.</p>
+        <p className="text-xs text-slate-600 bg-rose-50 px-6 py-3">Guest profile data is saved on this device only. Sign up with phone + password in My bakery orders to save your profile and linked order history privately in Google Sheets; existing guest orders can be linked using the original receipt.</p>
         {/* Quick Metrics Bar */}
         <div className="grid grid-cols-3 gap-2 px-6 py-3 bg-slate-50 border-b border-slate-200/80 text-xs">
           <div className="space-y-0.5">
