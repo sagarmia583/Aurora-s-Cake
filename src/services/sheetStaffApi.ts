@@ -9,6 +9,7 @@ export interface StaffProfile {
   username?: string;
   name: string;
   role: StaffRoleName;
+  active?: boolean;
 }
 export interface StaffSession {
   role: StaffRoleName;
@@ -65,6 +66,12 @@ export async function signInStaffPassword(endpoint:string,username:string,passwo
 export async function createStaffAccount(endpoint:string,token:string,name:string,username:string,password:string,role:StaffRoleName):Promise<void>{
   await privatePost(endpoint,{action:'staff_account_create',...staffCredential(token),name,username,password,role});
 }
+export async function changeStaffStatus(endpoint:string,token:string,username:string,active:boolean):Promise<void>{
+  await privatePost(endpoint,{action:'staff_account_set_active',...staffCredential(token),username,active});
+}
+export async function resetStaffPassword(endpoint:string,token:string,username:string,password:string):Promise<void>{
+  await privatePost(endpoint,{action:'staff_account_reset_password',...staffCredential(token),username,password});
+}
 export async function checkStaffSession(endpoint: string, idToken: string): Promise<StaffSession> {
   const data = await privatePost(endpoint, { action: 'staff_session', ...staffCredential(idToken) });
   if (typeof data.role !== 'string' || typeof data.email !== 'string') throw new Error('Staff role was not returned.');
@@ -74,7 +81,7 @@ export async function checkStaffSession(endpoint: string, idToken: string): Prom
     ? data.staff_profiles.filter(item => objectValue(item)
         && typeof item.email === 'string' && typeof item.name === 'string'
         && typeof item.role === 'string' && allowedRoles.includes(item.role as StaffRoleName))
-      .map(item => ({ email: String(item.email), username: typeof item.username==='string'?item.username:undefined, name: String(item.name), role: item.role as StaffRoleName }))
+      .map(item => ({ email: String(item.email), username: typeof item.username==='string'?item.username:undefined, name: String(item.name), role: item.role as StaffRoleName, active: typeof item.active==='boolean'?item.active:undefined }))
     : undefined;
   return { role: data.role as StaffRoleName, email: data.email, username: typeof data.username==='string'?data.username:undefined, name: String(data.name || data.email), riders, staff_profiles };
 }
