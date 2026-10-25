@@ -587,8 +587,8 @@ test('staff password reset and disable revoke sessions without leaking password 
   assert.equal(h.records('staff_accounts').length,1);
   const saved=h.records('staff_accounts')[0];
   assert.equal(saved.password_hash===create.password,false);
-  assert.equal(saved.password_hash.length,64);
-  assert.equal(saved.password_salt.length,72);
+  assert.equal(String(saved.password_hash).length,64);
+  assert.equal(String(saved.password_salt).length,72);
   const bad=h.post({action:'staff_password_login',username:'kitchen02',password:'WrongPassword999'});
   assert.equal(bad.code,'invalid_credentials');
   const initial=h.post({action:'staff_password_login',username:'kitchen02',password:create.password});
