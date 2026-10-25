@@ -17,7 +17,7 @@ const STAFF_CONFIG=JSON.stringify({
   'rider@example.com':{role:'delivery_man',name:'Rider'},
 });
 const request=(patch:Record<string,unknown>={})=>({action:'create_order',request_id:'a1111111-2222-4333-8444-555555555555',checkout_proof:'aaaaaaaa-1111-4111-8111-111111111111bbbbbbbb-2222-4222-8222-222222222222',customer_name:'Test Customer',customer_phone:'+880 1700 000000',delivery_address:'Test delivery address',delivery_zone_id:'z1',delivery_slot:'10 AM - 12 PM',delivery_date:futureDate(),cart_items:[{product_id:'p1',variant_id:'v1',flavor_id:'f1',addon_ids:['a1'],writing_message:'Happy birthday',quantity:2}],coupon_code:'SAVE10',order_note:'Call before delivery',payment_method:'cod',...patch});
-function harness(options:{withoutPrivate?:boolean}={}) {
+function harness(options:{withoutPrivate?:boolean;singleFile?:boolean}={}) {
   const tables:Record<string,Row[]>={
     Sheet1:[['existing'],['preserve me']],
     settings:[['key','value'],['shop_name','Test Bakery'],['accepting_orders',true],['delivery_enabled',true]],
@@ -69,11 +69,15 @@ function harness(options:{withoutPrivate?:boolean}={}) {
     ContentService:{MimeType:{JSON:'json',JAVASCRIPT:'js'},createTextOutput:(content:string)=>({content,setMimeType(){return this;}})},
   };
   vm.createContext(context);
+  if (options.singleFile) {
+    vm.runInContext(fs.readFileSync(new URL('../apps-script/Code.AllInOne.gs',import.meta.url),'utf8'),context);
+  } else {
   vm.runInContext(fs.readFileSync(new URL('../apps-script/Code.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/StaffOperations.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/CustomerAccounts.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/LiveCatalog.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/CustomCakeRequests.gs',import.meta.url),'utf8'),context);
+  }
   const post=(payload:unknown)=>JSON.parse(context.doPost({postData:{type:'text/plain',contents:JSON.stringify(payload)}}).content);
   const get=(action:string)=>JSON.parse(context.doGet({parameter:{action}}).content);
   const records=(name:string)=>tables[name].slice(1).map(row=>Object.fromEntries(tables[name][0].map((key,index)=>[String(key),row[index]])));
@@ -454,4 +458,28 @@ test('a delivery OTP is issued only at dispatch and destroyed after confirmed CO
   assert.equal(server().delivery_otp,'');
   assert.equal(h.post({action:'get_order_status',order_id:created.order.id,customer_phone:created.order.customer_phone,
     customer_access_token:created.order.customer_access_token}).delivery_otp,undefined);
+});
+
+test('single Code.gs file runs full COD, staff role, customer account, live catalogue and custom quote workflows',()=>{
+  const h=harness({singleFile:true});
+  const result=h.post(request());
+  assert.equal(result.persisted,true,JSON.stringify(result));
+  assert.equal(result.order.delivery_otp,'');
+  assert.match(result.order.customer_access_token,/^[a-f0-9-]{72}$/);
+  assert.equal(h.post({action:'staff_session',id_token:ADMIN_TOKEN}).role,'super_admin');
+  assert.equal(h.post({action:'staff_orders',id_token:RIDER_TOKEN}).orders.length,0);
+  assert.equal(h.post({action:'staff_catalog',id_token:ADMIN_TOKEN}).ok,true);
+  assert.equal(h.post({action:'customer_claim_order',id_token:ADMIN_TOKEN,
+    order_id:result.order.id,customer_phone:result.order.customer_phone,
+    customer_access_token:result.order.customer_access_token}).ok,true);
+  assert.equal(h.post({action:'customer_orders',id_token:ADMIN_TOKEN}).orders.length,1);
+  const draft={action:'create_custom_cake',request_id:'dddddddd-2222-4222-8222-444444444444',
+    customer_name:'Customer',customer_phone:'01700112233',cake_type:'Wedding Cake',
+    approx_size:'2 kg',flavor:'Vanilla',color_theme:'White',writing_text:'',
+    instructions:'',reference_image_url:''};
+  assert.equal(h.post(draft).saved,true);
+  assert.equal(h.post({action:'staff_custom_cakes',id_token:ADMIN_TOKEN}).requests.length,1);
+  const publicData=h.get('public');
+  assert.equal(publicData.ok,true);
+  assert.equal(JSON.stringify(publicData).includes('Customer'),false);
 });
