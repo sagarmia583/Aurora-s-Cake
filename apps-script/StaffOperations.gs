@@ -20,33 +20,61 @@ function auroraStaffConfig_() {
   }
   return {clientId:clientId,people:people};
 }
+/**
+ * Server-side Google token verification with a short-lived ScriptCache to avoid
+ * exceeding free URL Fetch quotas for active staff/rider polling.
+ * Google's tokeninfo service validates the Google-issued token. This avoids
+ * implementing homemade JWT cryptography inside Apps Script.
+ * Permissions are NEVER cached; the staff allowlist is checked on each request.
+ */
+function auroraVerifiedGoogleClaims_(idToken,clientId) {
+  if (typeof idToken !== 'string' || idToken.length < 100 || idToken.length > 6000 ||
+      !/^[a-zA-Z0-9_.-]+$/.test(idToken)) auroraReject_('unauthorized','Sign in with your Google account.');
+  if (!clientId) auroraReject_('account_not_configured','Google account verification is not configured.');
+  var fingerprint = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,idToken,Utilities.Charset.UTF_8)
+    .map(function(byte){return ('0'+((byte+256)%256).toString(16)).slice(-2);}).join('');
+  var cache=CacheService.getScriptCache(), key='aurora_auth_'+fingerprint, claims;
+  var previous=cache.get(key);
+  if (previous) { try { claims=JSON.parse(previous); } catch (_) { claims=null; } }
+  if (!claims) {
+    try {
+      var response=UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token='+encodeURIComponent(idToken),{
+        method:'get',muteHttpExceptions:true,followRedirects:false
+      });
+      if(response.getResponseCode()!==200)auroraReject_('unauthorized','Your Google sign-in has expired or is invalid.');
+      claims=JSON.parse(response.getContentText());
+    } catch (error) {
+      if(error&&error.auroraValidation)throw error;
+      auroraReject_('unauthorized','Unable to verify Google sign-in.');
+    }
+  }
+  var now=Math.floor(Date.now()/1000), expiry=Number(claims.exp);
+  if(claims.aud!==clientId ||
+     ['accounts.google.com','https://accounts.google.com'].indexOf(claims.iss)===-1 ||
+     !(claims.email_verified===true||claims.email_verified==='true')||
+     typeof claims.sub!=='string'||!claims.sub||
+     typeof claims.email!=='string'||!claims.email||
+     !Number.isFinite(expiry)||expiry<=now) {
+    auroraReject_('unauthorized','Google sign-in did not pass identity validation.');
+  }
+  var ttl=Math.min(300,Math.floor(expiry-now)-30);
+  if(!previous&&ttl>0){
+    cache.put(key,JSON.stringify({aud:claims.aud,iss:claims.iss,
+      email_verified:claims.email_verified,sub:claims.sub,email:claims.email,
+      name:claims.name||'',exp:claims.exp}),ttl);
+  }
+  return claims;
+}
 function auroraStaffAuthenticate_(input) {
-  var idToken = input && input.id_token;
-  if (typeof idToken !== 'string' || idToken.length < 100 || idToken.length > 6000 || !/^[a-zA-Z0-9_.-]+$/.test(idToken)) {
-    auroraReject_('unauthorized','Staff sign-in is required.');
-  }
-  var config = auroraStaffConfig_(), decoded;
-  try {
-    var response = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken), {
-      method:'get', muteHttpExceptions:true, followRedirects:false
-    });
-    if (response.getResponseCode() !== 200) auroraReject_('unauthorized','Sign-in expired or invalid.');
-    decoded = JSON.parse(response.getContentText());
-  } catch (error) {
-    if (error && error.auroraValidation) throw error;
-    auroraReject_('unauthorized','Unable to verify Google sign-in.');
-  }
-  var email = String(decoded.email || '').trim().toLowerCase();
-  var verified = decoded.email_verified === true || decoded.email_verified === 'true';
-  if (decoded.aud !== config.clientId || !verified ||
-      ['accounts.google.com','https://accounts.google.com'].indexOf(decoded.iss) === -1 ||
-      !decoded.sub || !Number.isFinite(Number(decoded.exp)) ||
-      Number(decoded.exp) * 1000 <= Date.now() || !Object.prototype.hasOwnProperty.call(config.people,email)) {
+  var config=auroraStaffConfig_();
+  var decoded=auroraVerifiedGoogleClaims_(input && input.id_token,config.clientId);
+  var email=String(decoded.email).trim().toLowerCase();
+  if (!Object.prototype.hasOwnProperty.call(config.people,email)) {
     auroraReject_('forbidden','This Google account is not authorized to access bakery operations.');
   }
-  var person = config.people[email];
-  if (!person || AURORA_STAFF_ROLES_.indexOf(person.role) === -1) auroraReject_('forbidden','Staff role is not authorized.');
-  return {email:email, role:person.role, name:String(person.name || email).slice(0,100), people:config.people};
+  var person=config.people[email];
+  if (!person || AURORA_STAFF_ROLES_.indexOf(person.role)===-1) auroraReject_('forbidden','Staff role is not authorized.');
+  return {email:email,role:person.role,name:String(person.name||email).slice(0,100),people:config.people};
 }
 function auroraStaffCan_(actor,action) {
   if (actor.role === 'super_admin' || actor.role === 'admin') return true;
