@@ -21,7 +21,10 @@ export default async function operations(request) {
   try {payload=JSON.parse(raw);} catch {return response(400,'Invalid JSON.');}
   const allowed=['create_order','get_order_status','staff_session','staff_orders','staff_mutate','staff_catalog',
     'staff_catalog_update','customer_session','customer_orders','customer_claim_order','create_custom_cake',
-    'get_custom_cake_status','staff_custom_cakes','staff_custom_quote'];
+    'get_custom_cake_status','staff_custom_cakes','staff_custom_quote',
+    'staff_password_login','staff_password_logout','staff_account_create','staff_account_set_active',
+    'staff_account_reset_password','customer_phone_signup','customer_phone_login','customer_phone_session',
+    'customer_phone_logout','customer_phone_profile','customer_phone_orders','customer_phone_claim'];
   if(!payload||typeof payload!=='object'||Array.isArray(payload)||!allowed.includes(payload.action))
     return response(400,'Unknown action.');
   let target;
