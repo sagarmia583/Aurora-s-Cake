@@ -24,7 +24,7 @@ function setupAuroraOwnerOnce() {
     throw new Error('Staff allowlist already exists. Update it manually in Script Properties; setup will not overwrite it.');
   }
   var email = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
-  if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw new Error('Could not detect the script owner Google email. Configure AURORA_STAFF_USERS manually.');
   }
   var staff = {};
