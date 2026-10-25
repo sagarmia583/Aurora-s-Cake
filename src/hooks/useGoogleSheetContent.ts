@@ -30,7 +30,9 @@ export function useGoogleSheetContent() {
   const [data, setData] = useState<PublicSiteData>(initial.data);
   const [status, setStatus] = useState<SheetContentStatus>(initial.status);
   const activeRequest = useRef<AbortController | null>(null);
+  const lastPublicRefreshAt=useRef(0);
   const refresh = useCallback(async () => {
+    lastPublicRefreshAt.current=Date.now();
     activeRequest.current?.abort();
     const controller = new AbortController();
     activeRequest.current = controller;
@@ -53,7 +55,12 @@ export function useGoogleSheetContent() {
   }, [endpoint]);
   useEffect(() => {
     void refresh();
-    const updateWhenVisible = () => { if (!document.hidden) void refresh(); };
+    const updateWhenVisible = () => {
+      // Returning from another tab shouldn't force repeated expensive Apps
+      // Script reads when the visitor just refreshed their storefront.
+      if (!document.hidden && Date.now()-lastPublicRefreshAt.current>=30000)
+        void refresh();
+    };
     const timer = window.setInterval(updateWhenVisible, 60000);
     window.addEventListener('online', updateWhenVisible);
     window.addEventListener('focus', updateWhenVisible);
