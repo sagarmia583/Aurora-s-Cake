@@ -8,6 +8,9 @@ type Row = unknown[];
 const ORDER_HEADERS=['id','order_number','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','delivery_address','delivery_zone_id','delivery_zone_name','delivery_fee','delivery_slot','delivery_date','status','subtotal','discount_amount','total_amount','coupon_code','order_note','payment_method','payment_status','receipt_json'];
 const ITEM_HEADERS=['id','order_id','product_id','product_name','variant_id','variant_name','flavor_id','flavor_name','writing_message','unit_price','quantity','addons_json','subtotal'];
 const CUSTOM_HEADERS=['id','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','cake_type','approx_size','flavor','color_theme','writing_text','instructions','reference_image_url','status','estimated_price','quoted_price','receipt_json'];
+const STAFF_HEADERS=['id','username','name','role','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'];
+const CUSTOMER_HEADERS=['id','phone','name','address','email','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'];
+const SESSION_HEADERS=['token_hash','account_type','account_id','created_at','expires_at','revoked'];
 const futureDate=()=>new Date(Date.now()+2*86400000).toISOString().slice(0,10);
 const ADMIN_TOKEN='admin_'+ 'a'.repeat(130);
 const RIDER_TOKEN='rider_'+ 'b'.repeat(130);
@@ -30,7 +33,7 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean}={}) {
     delivery_slots:[['id','slot_label','is_active'],['s1','10 AM - 12 PM',true]],
     coupons:[['id','code','discount_type','discount_value','min_order_amount','max_discount_amount','is_active'],['c1','SAVE10','percentage',10,100,120,true]],
   };
-  if(!options.withoutPrivate){tables.orders=[ORDER_HEADERS];tables.order_items=[ITEM_HEADERS];tables.custom_cake_requests=[CUSTOM_HEADERS];}
+  if(!options.withoutPrivate){tables.orders=[ORDER_HEADERS];tables.order_items=[ITEM_HEADERS];tables.custom_cake_requests=[CUSTOM_HEADERS];tables.staff_accounts=[STAFF_HEADERS];tables.customer_accounts=[CUSTOMER_HEADERS];tables.auth_sessions=[SESSION_HEADERS];}
   const reads:string[]=[];const writes:string[]=[];
   const throttles=new Map<string,string>();
   let failNextItemWrite=false;let failAfterOrderWrite=false;let acquired=0;
@@ -74,6 +77,7 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean}={}) {
   } else {
   vm.runInContext(fs.readFileSync(new URL('../apps-script/Code.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/StaffOperations.gs',import.meta.url),'utf8'),context);
+  vm.runInContext(fs.readFileSync(new URL('../apps-script/AccountAuth.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/CustomerAccounts.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/LiveCatalog.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/CustomCakeRequests.gs',import.meta.url),'utf8'),context);
