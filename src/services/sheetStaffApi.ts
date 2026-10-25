@@ -4,11 +4,18 @@ import { resolveSheetsPostEndpoint, sheetsPostCredentials } from './googleSheets
 export type StaffRoleName = 'super_admin' | 'admin' | 'order_manager' | 'kitchen_manager' | 'delivery_manager' | 'delivery_man' | 'accountant';
 export type StaffOperation = 'confirm' | 'cancel' | 'start_baking' | 'mark_ready' | 'assign' | 'pick_up' | 'start_delivery' | 'deliver';
 export type StaffOrder = Omit<Order, 'delivery_otp'>;
+export interface StaffProfile {
+  email: string;
+  name: string;
+  role: StaffRoleName;
+}
 export interface StaffSession {
   role: StaffRoleName;
   name: string;
   email: string;
   riders: { email: string; name: string }[];
+  /** Only included after the backend verifies the signed-in super_admin. */
+  staff_profiles?: StaffProfile[];
 }
 export interface StatusSnapshot {
   order_id: string;
@@ -48,7 +55,14 @@ export async function checkStaffSession(endpoint: string, idToken: string): Prom
   const data = await privatePost(endpoint, { action: 'staff_session', id_token: idToken });
   if (typeof data.role !== 'string' || typeof data.email !== 'string') throw new Error('Staff role was not returned.');
   const riders = Array.isArray(data.riders) ? data.riders.filter(item => objectValue(item) && typeof item.email === 'string' && typeof item.name === 'string') as StaffSession['riders'] : [];
-  return { role: data.role as StaffRoleName, email: data.email, name: String(data.name || data.email), riders };
+  const allowedRoles: StaffRoleName[] = ['super_admin','admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'];
+  const staff_profiles: StaffProfile[] | undefined = data.role === 'super_admin' && Array.isArray(data.staff_profiles)
+    ? data.staff_profiles.filter(item => objectValue(item)
+        && typeof item.email === 'string' && typeof item.name === 'string'
+        && typeof item.role === 'string' && allowedRoles.includes(item.role as StaffRoleName))
+      .map(item => ({ email: String(item.email), name: String(item.name), role: item.role as StaffRoleName }))
+    : undefined;
+  return { role: data.role as StaffRoleName, email: data.email, name: String(data.name || data.email), riders, staff_profiles };
 }
 export async function getStaffOrders(endpoint: string, idToken: string): Promise<StaffOrder[]> {
   const data = await privatePost(endpoint, { action: 'staff_orders', id_token: idToken });
