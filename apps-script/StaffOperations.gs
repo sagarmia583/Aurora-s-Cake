@@ -172,7 +172,7 @@ function auroraOperationsOrders_(actor, table) {
 function auroraOperationsPost_(input) {
   var actor = auroraStaffAuthenticate_(input);
   if (input.action === 'staff_session') {
-    var registered=auroraAccountProfiles_(),riders=registered.filter(function(p){return p.role==='delivery_man';})
+    var registered=auroraAccountProfiles_(),riders=registered.filter(function(p){return p.role==='delivery_man'&&p.active===true;})
       .map(function(p){return {email:p.username,name:p.name};});
     Object.keys(actor.people).filter(function(email){
       return actor.people[email]&&actor.people[email].role==='delivery_man';
@@ -222,7 +222,7 @@ function auroraOperationsPost_(input) {
       var rider = actor.people[riderEmail];
       if(!rider){
         var allowed=auroraAccountProfiles_().filter(function(person){
-          return person.username===riderEmail&&person.role==='delivery_man';
+          return person.username===riderEmail&&person.role==='delivery_man'&&person.active===true;
         })[0];
         if(allowed)rider={role:'delivery_man',name:allowed.name};
       }
