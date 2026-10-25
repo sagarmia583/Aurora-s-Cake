@@ -24,8 +24,8 @@ export default async function handler(req,res) {
   if(!Number.isFinite(headerLength)||headerLength>50000) return fail(res,413,'Request too large.');
   let body;
   if(typeof req.body==='string') body=req.body;
-  else if(req.body&&typeof req.body==='object') body=JSON.stringify(req.body);
   else if(Buffer.isBuffer(req.body)) body=req.body.toString('utf8');
+  else if(req.body&&typeof req.body==='object') body=JSON.stringify(req.body);
   else {
     const chunks=[];let size=0;
     for await(const chunk of req){
