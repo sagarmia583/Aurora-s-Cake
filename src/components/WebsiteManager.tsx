@@ -124,6 +124,33 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
     }
     return false;
   };
+  /** Explicit owner-requested smoke test: creates one clearly marked hidden FAQ,
+   *  updates it, then archives it; never touches existing public or private rows.
+   */
+  const runCmsSmoke=async()=>{
+    if(role!=='super_admin'||saving||loading||uploading)return;
+    if(!window.confirm('Run a real Google Sheets CRUD test? This adds one clearly labeled, hidden FAQ test row (preserved/archived for audit). No existing orders or products will be changed.'))return;
+    setSaving(true);setError('');setNotice('');
+    const marker='AURORA_CMS_TEST_'+Date.now();
+    try{
+      await mutateCmsTable(endpoint,token,'faqs','create',{
+        question:marker,answer:'Live CRUD creation test',sort_order:999999,is_active:false
+      });
+      const found=await fetchCmsTable(endpoint,token,'faqs');
+      const saved=found.rows.find(row=>row.question===marker);
+      if(!saved||typeof saved.id!=='string')throw new Error('Create completed, but the test row was not found in the first 500 FAQs. Open the FAQs Sheet to verify.');
+      await mutateCmsTable(endpoint,token,'faqs','update',{answer:'Live CRUD update verified'},saved.id);
+      await mutateCmsTable(endpoint,token,'faqs','delete',{},saved.id);
+      const confirmed=await fetchCmsTable(endpoint,token,'faqs');
+      const result=confirmed.rows.find(row=>row.id===saved.id);
+      if(!result||result.is_active!==false||result.answer!=='Live CRUD update verified')
+        throw new Error('The test was saved, but a final read did not confirm its archived state.');
+      setNotice('Live CMS create, update, archive and readback succeeded. An inactive test FAQ remains in Google Sheets for audit.');
+      if(table==='faqs')setData(confirmed);
+      onUpdated();
+    }catch(error){setError(error instanceof Error?error.message:'CMS smoke test failed. Check Apps Script logs and the FAQ Sheet for a partial test row.');}
+    finally{setSaving(false);}
+  };
   const archive=async()=>{
     if(!data||!selected||role!=='super_admin'||saving)return;
     if(!window.confirm('Archive this public record? Historical orders stay intact. This cannot be used for private orders.'))return;
@@ -141,9 +168,15 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
         <h3 className="text-xl font-black flex items-center gap-2"><Database size={20}/> Live Website Manager</h3>
         <p className="text-sm text-slate-600">Create, edit and archive real Google Sheets website content. No demo/local-only saves.</p>
       </div>
-      <button type="button" disabled={loading||saving} onClick={()=>void load()} className="rounded-xl border px-3 py-2 flex items-center gap-2 text-sm">
-        <RefreshCw size={15}/> Refresh
-      </button>
+      <div className="flex gap-2 flex-wrap">
+        {role==='super_admin'&&<button type="button" disabled={loading||saving||uploading} onClick={()=>void runCmsSmoke()}
+          className="rounded-xl border border-amber-300 px-3 py-2 text-sm text-amber-900">
+          Test live Create / Edit / Archive
+        </button>}
+        <button type="button" disabled={loading||saving} onClick={()=>void load()} className="rounded-xl border px-3 py-2 flex items-center gap-2 text-sm">
+          <RefreshCw size={15}/> Refresh
+        </button>
+      </div>
     </div>
     {error&&<p role="alert" className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800">{error}</p>}
     {notice&&<p role="status" className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</p>}
