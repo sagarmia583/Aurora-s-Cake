@@ -1,5 +1,5 @@
 import type { Coupon, Order } from '../types';
-import { resolveSheetsPostEndpoint } from './googleSheets';
+import { resolveSheetsPostEndpoint, sheetsPostCredentials } from './googleSheets';
 
 export interface SheetOrderCartLine {
   product_id: string;
@@ -176,9 +176,10 @@ export async function submitSheetOrder(attempt: SheetOrderAttempt, options: { ti
   const timeout = globalThis.setTimeout(() => controller.abort(), options.timeoutMs ?? 45000);
   const unconfirmed = () => new SheetOrderSubmissionError("We couldn't confirm whether Google Sheets saved this order. Retry the original order with the same reference.", true, attempt.request_id);
   try {
-    const response = await (options.fetcher ?? globalThis.fetch)(resolveSheetsPostEndpoint(attempt.endpoint), {
+    const postUrl = resolveSheetsPostEndpoint(attempt.endpoint);
+    const response = await (options.fetcher ?? globalThis.fetch)(postUrl, {
       method: 'POST', mode: 'cors', headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-      credentials: 'omit', redirect: 'follow', cache: 'no-store', body: attempt.body, signal: controller.signal,
+      credentials: sheetsPostCredentials(postUrl), redirect: 'follow', cache: 'no-store', body: attempt.body, signal: controller.signal,
     });
     if (!response.ok) throw unconfirmed();
     let acknowledgement: unknown;
