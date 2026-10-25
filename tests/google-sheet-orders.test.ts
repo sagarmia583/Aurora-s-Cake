@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 type Row = unknown[];
 const ORDER_HEADERS=['id','order_number','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','delivery_address','delivery_zone_id','delivery_zone_name','delivery_fee','delivery_slot','delivery_date','status','subtotal','discount_amount','total_amount','coupon_code','order_note','payment_method','payment_status','receipt_json'];
@@ -65,7 +65,7 @@ function harness(options:{withoutPrivate?:boolean}={}) {
     UrlFetchApp:{fetch:(url:string)=>({getResponseCode:()=>200,getContentText:()=>JSON.stringify({aud:'test-client.apps.googleusercontent.com',iss:'https://accounts.google.com',sub:url.includes('intruder_')?'other-google-user':'verified-google-user',exp:Math.floor(Date.now()/1000)+3600,email_verified:'true',email:url.includes('rider_')?'rider@example.com':url.includes('intruder_')?'intruder@example.com':'owner@example.com'})})},
     CacheService:{getScriptCache:()=>({get:(key:string)=>(key.startsWith('aurora_cod_')||key.startsWith('aurora_custom_'))?throttles.get(key)||null:null,put:(key:string,value:string)=>{if((key.startsWith('aurora_cod_')||key.startsWith('aurora_custom_')))throttles.set(key,value);},remove:()=>{}})},
     LockService:{getScriptLock:()=>({tryLock:()=>{acquired++;return true;},releaseLock:()=>{acquired--;}})},
-    Utilities:{DigestAlgorithm:{SHA_256:'sha256'},Charset:{UTF_8:'utf8'},computeDigest:(_algorithm:string,value:string)=>Array.from(createHash('sha256').update(value).digest()),formatDate:(date:Date)=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Dhaka',year:'numeric',month:'2-digit',day:'2-digit'}).format(date),getUuid:()=>Math.random().toString(36).slice(2)},
+    Utilities:{DigestAlgorithm:{SHA_256:'sha256'},Charset:{UTF_8:'utf8'},computeDigest:(_algorithm:string,value:string)=>Array.from(createHash('sha256').update(value).digest()),formatDate:(date:Date)=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Dhaka',year:'numeric',month:'2-digit',day:'2-digit'}).format(date),getUuid:()=>randomUUID()},
     ContentService:{MimeType:{JSON:'json',JAVASCRIPT:'js'},createTextOutput:(content:string)=>({content,setMimeType(){return this;}})},
   };
   vm.createContext(context);
@@ -214,9 +214,9 @@ test('verified staff manage the same private receipt; riders see assigned orders
   assert.equal(Object.prototype.hasOwnProperty.call(riderQueue.orders[0],'delivery_otp'),false);
   assert.equal(update('pick_up',RIDER_TOKEN).ok,true);
   assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
-  assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:created.order.delivery_otp,cash_collected:false}).code,'cash_unconfirmed');
+  assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp,cash_collected:false}).code,'cash_unconfirmed');
   assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:created.order.delivery_otp,cash_collected:true}).ok,true);
-  const customer=h.post({action:'get_order_status',order_id:orderId,customer_phone:request().customer_phone});
+  const customer=h.post({action:'get_order_status',order_id:orderId,customer_phone:request().customer_phone,customer_access_token:created.order.customer_access_token});
   assert.equal(customer.status,'delivered');
   assert.equal(customer.payment_status,'paid');
   assert.equal(customer.cod_collected,true);
@@ -238,7 +238,7 @@ test('delivery OTP rate limit and order transition checks are persisted server-s
   assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
   for(let i=0;i<5;i++) assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:'0000',cash_collected:true}).code,'invalid_otp');
   assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:created.order.delivery_otp,cash_collected:true}).code,'otp_locked');
-  assert.equal(h.post({action:'get_order_status',order_id:orderId,customer_phone:request().customer_phone}).status,'out_for_delivery');
+  assert.equal(h.post({action:'get_order_status',order_id:orderId,customer_phone:request().customer_phone,customer_access_token:created.order.customer_access_token}).status,'out_for_delivery');
 });
 test('customer status requires both unpredictable order reference and matching phone',()=>{
   const h=harness(),created=h.post(request());
@@ -269,7 +269,7 @@ test('free Google accounts require a verified token and cannot list unlinked pri
 });
 test('customer explicitly links original receipt and recovers order from the same verified Google identity',()=>{
   const h=harness();const original=h.post(request()).order;
-  const claim={action:'customer_claim_order',id_token:ADMIN_TOKEN,order_id:original.id,customer_phone:original.customer_phone};
+  const claim={action:'customer_claim_order',id_token:ADMIN_TOKEN,order_id:original.id,customer_phone:original.customer_phone,customer_access_token:original.customer_access_token};
   assert.equal(h.post({...claim,customer_phone:'01700000000'}).code,'not_found');
   assert.equal(h.post(claim).linked,true);
   assert.equal(h.post(claim).linked,true);
@@ -287,21 +287,21 @@ test('customer explicitly links original receipt and recovers order from the sam
 });
 test('free Google recovery shows delivery OTP only after the linked order is out for delivery',()=>{
   const h=harness();const created=h.post(request()).order;
-  assert.equal(h.post({action:'customer_claim_order',id_token:ADMIN_TOKEN,order_id:created.id,customer_phone:created.customer_phone}).ok,true);
+  assert.equal(h.post({action:'customer_claim_order',id_token:ADMIN_TOKEN,order_id:created.id,customer_phone:created.customer_phone,customer_access_token:created.customer_access_token}).ok,true);
   const update=(operation:string,id_token:string,extra:Record<string,unknown>={})=>h.post({action:'staff_mutate',id_token,operation,order_id:created.id,...extra});
   for(const op of ['confirm','start_baking','mark_ready']) assert.equal(update(op,ADMIN_TOKEN).ok,true);
   assert.equal(update('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
   assert.equal(update('pick_up',RIDER_TOKEN).ok,true);
   assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
   const orders=h.post({action:'customer_orders',id_token:ADMIN_TOKEN}).orders;
-  assert.equal(orders[0].delivery_otp,created.delivery_otp);
+  assert.equal(orders[0].delivery_otp,JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp);
   assert.equal(orders[0].status,'out_for_delivery');
 });
 
 test('linked customer gets delivery OTP only after dispatch with their own valid Google token',()=>{
   const h=harness();const order=h.post(request()).order;
-  const status=(token?:string)=>h.post({action:'get_order_status',order_id:order.id,customer_phone:order.customer_phone,...(token?{id_token:token}:{})});
-  assert.equal(h.post({action:'customer_claim_order',id_token:ADMIN_TOKEN,order_id:order.id,customer_phone:order.customer_phone}).ok,true);
+  const status=(token?:string)=>h.post({action:'get_order_status',order_id:order.id,customer_phone:order.customer_phone,...(token?{id_token:token}:{} )});
+  assert.equal(h.post({action:'customer_claim_order',id_token:ADMIN_TOKEN,order_id:order.id,customer_phone:order.customer_phone,customer_access_token:order.customer_access_token}).ok,true);
   assert.equal(status(ADMIN_TOKEN).delivery_otp,undefined);
   const update=(operation:string,id_token:string,extra:Record<string,unknown>={})=>h.post({action:'staff_mutate',id_token,operation,order_id:order.id,...extra});
   for(const op of ['confirm','start_baking','mark_ready']) assert.equal(update(op,ADMIN_TOKEN).ok,true);
@@ -310,7 +310,8 @@ test('linked customer gets delivery OTP only after dispatch with their own valid
   assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
   assert.equal(status().delivery_otp,undefined);
   assert.equal(status(INTRUDER_TOKEN).code,'forbidden');
-  assert.equal(status(ADMIN_TOKEN).delivery_otp,order.delivery_otp);
+  assert.equal(status(ADMIN_TOKEN).delivery_otp,JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp);
+  assert.equal(h.post({action:'get_order_status',order_id:order.id,customer_phone:order.customer_phone,customer_access_token:order.customer_access_token}).delivery_otp,JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp);
 });
 
 test('only verified admins can edit live catalogue; arbitrary fields and other roles are rejected',()=>{
@@ -373,4 +374,41 @@ test('free custom cake requests are throttled per phone while saved retries stay
   assert.equal(h.post({...draft,request_id:id(4)}).code,'rate_limited');
   assert.equal(h.post({...draft,request_id:id(1)}).saved,true);
   assert.equal(h.records('custom_cake_requests').length,3);
+});
+
+test('checkout OTP remains server-only, receipt capability is stable and staff never sees it',()=>{
+  const h=harness();const first=h.post(request());
+  assert.equal(first.order.delivery_otp,'');
+  assert.match(first.order.customer_access_token,/^[a-f0-9-]{72}$/);
+  assert.equal(h.post(request()).order.customer_access_token,first.order.customer_access_token);
+  const privateOrder=JSON.parse(String(h.records('orders')[0].receipt_json));
+  assert.equal(privateOrder.delivery_otp,'');
+  assert.equal(h.post({action:'staff_orders',id_token:ADMIN_TOKEN}).orders[0].customer_access_token,undefined);
+  const unauthorized=h.post({action:'get_order_status',order_id:first.order.id,customer_phone:first.order.customer_phone});
+  assert.equal(unauthorized.code,'forbidden');
+  const valid=h.post({action:'get_order_status',order_id:first.order.id,customer_phone:first.order.customer_phone,customer_access_token:first.order.customer_access_token});
+  assert.equal(valid.status,'pending');
+  assert.equal(valid.delivery_otp,undefined);
+});
+test('public order ID and phone cannot hijack Google ownership or retrieve a new delivery OTP',()=>{
+  const h=harness(),created=h.post(request());const o=created.order;
+  const guess={action:'customer_claim_order',id_token:INTRUDER_TOKEN,order_id:o.id,customer_phone:o.customer_phone};
+  assert.equal(h.post(guess).code,'forbidden');
+  assert.equal(h.post({...guess,customer_access_token:'guessed-capability'}).code,'forbidden');
+  assert.equal(h.post({...guess,id_token:ADMIN_TOKEN,customer_access_token:o.customer_access_token}).ok,true);
+  assert.equal(h.post({...guess,customer_access_token:o.customer_access_token}).code,'already_linked');
+  const status=h.post({action:'get_order_status',order_id:o.id,customer_phone:o.customer_phone,customer_access_token:'bad'});
+  assert.equal(status.code,'forbidden');
+});
+test('kitchen/accountant private order views omit unnecessary customer contact and delivery secrets',()=>{
+  const h=harness();h.post(request());
+  h.context.PropertiesService={getScriptProperties:()=>({getProperty:(key:string)=>key==='AURORA_GOOGLE_CLIENT_ID'?'test-client.apps.googleusercontent.com':key==='AURORA_STAFF_USERS'?JSON.stringify({'owner@example.com':{role:'kitchen_manager'},'rider@example.com':{role:'accountant'}}):null})};
+  const kitchen=h.post({action:'staff_orders',id_token:ADMIN_TOKEN});
+  assert.equal(kitchen.orders.length,0); // Kitchen sees only confirmed orders.
+  const finance=h.post({action:'staff_orders',id_token:RIDER_TOKEN});
+  assert.equal(finance.orders.length,1);
+  assert.equal(finance.orders[0].customer_phone,undefined);
+  assert.equal(finance.orders[0].delivery_address,undefined);
+  assert.equal(finance.orders[0].customer_access_token,undefined);
+  assert.equal(finance.orders[0].items,undefined);
 });
