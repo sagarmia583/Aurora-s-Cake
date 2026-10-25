@@ -1,5 +1,5 @@
 import type { Order, OrderStatus } from '../types';
-import { validateGoogleSheetsEndpoint } from './googleSheets';
+import { resolveSheetsPostEndpoint } from './googleSheets';
 
 export type StaffRoleName = 'super_admin' | 'admin' | 'order_manager' | 'kitchen_manager' | 'delivery_manager' | 'delivery_man' | 'accountant';
 export type StaffOperation = 'confirm' | 'cancel' | 'start_baking' | 'mark_ready' | 'assign' | 'pick_up' | 'start_delivery' | 'deliver';
@@ -25,7 +25,7 @@ function objectValue(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 export async function privatePost(endpoint: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const url = validateGoogleSheetsEndpoint(endpoint).href;
+  const url = resolveSheetsPostEndpoint(endpoint);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20000);
   try {
