@@ -1,5 +1,5 @@
 import type { Order, OrderStatus } from '../types';
-import { resolveSheetsPostEndpoint } from './googleSheets';
+import { resolveSheetsPostEndpoint, sheetsPostCredentials } from './googleSheets';
 
 export type StaffRoleName = 'super_admin' | 'admin' | 'order_manager' | 'kitchen_manager' | 'delivery_manager' | 'delivery_man' | 'accountant';
 export type StaffOperation = 'confirm' | 'cancel' | 'start_baking' | 'mark_ready' | 'assign' | 'pick_up' | 'start_delivery' | 'deliver';
@@ -31,7 +31,7 @@ export async function privatePost(endpoint: string, body: Record<string, unknown
   try {
     const response = await fetch(url, {
       method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(body), redirect: 'follow', credentials: 'omit',
+      body: JSON.stringify(body), redirect: 'follow', credentials: sheetsPostCredentials(url),
       signal: controller.signal,
     });
     if (!response.ok) throw new Error('The bakery operations endpoint is unavailable.');
