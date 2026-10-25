@@ -107,6 +107,10 @@ export default function App() {
   const [isSupabaseSyncOpen, setIsSupabaseSyncOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [latestOrderId, setLatestOrderId] = useState<string | undefined>(undefined);
+  const [trackingRefreshKey,setTrackingRefreshKey]=useState(0);
+  const [trackingSyncing,setTrackingSyncing]=useState(false);
+  const [trackingSyncError,setTrackingSyncError]=useState('');
+  const [trackingCheckedAt,setTrackingCheckedAt]=useState('');
 
   // Sync cart to localStorage
   useEffect(() => {
@@ -215,36 +219,55 @@ export default function App() {
     setIsTrackOrderOpen(true);
   };
 
-  // A receipt is a capability held only on the ordering device. Poll only that
-  // exact receipt while tracking is open; never expose the private order list.
+  // Tracking must work even if the public catalog cache is temporarily offline.
+  // Only poll the selected private receipt: the public endpoint never lists orders.
   useEffect(() => {
-    if (!isTrackOrderOpen || !publicData.order_submission_enabled) return;
-    let stopped = false;
-    const updateTrackedReceipt = async () => {
-      const saved = loadConfirmedSheetOrders();
-      const selected = saved.find(order => order.id === latestOrderId) || (!latestOrderId ? saved[0] : undefined);
-      if (!selected) return;
-      try {
-        const next = await fetchCustomerOrderStatus(sheetContent.endpoint, selected, customerGoogleToken || undefined);
-        if (stopped) return;
-        const updated: Order = {
-          ...selected, status: next.status, history: next.history,
-          updated_at: next.updated_at, rider_name: next.rider_name,
-          payment_status: next.payment_status, cod_collected: next.cod_collected,
-          delivery_otp: next.delivery_otp || '',
-        };
-        if (rememberConfirmedSheetOrder(updated)) {
-          setOrders(previous => [updated, ...previous.filter(order => order.id !== updated.id)]);
+    if(!isTrackOrderOpen)return;
+    let stopped=false,inFlight=false;
+    const updateTrackedReceipt=async()=>{
+      if(stopped||inFlight||document.visibilityState==='hidden')return;
+      const saved=loadConfirmedSheetOrders();
+      const selected=saved.find(order=>order.id===latestOrderId)||(!latestOrderId?saved[0]:undefined);
+      if(!selected){
+        setTrackingSyncError('This order receipt is not available on this device. Sign in to My orders to recover your history.');
+        return;
+      }
+      inFlight=true;
+      setTrackingSyncing(true);
+      try{
+        let phoneToken='';
+        try{phoneToken=sessionStorage.getItem('aurora_customer_phone_session_v1')||'';}catch{}
+        const next=await fetchCustomerOrderStatus(sheetContent.endpoint,selected,customerGoogleToken||undefined,phoneToken||undefined);
+        if(stopped)return;
+        const updated:Order={...selected,status:next.status,history:next.history,
+          updated_at:next.updated_at,rider_name:next.rider_name,
+          payment_status:next.payment_status,cod_collected:next.cod_collected,
+          delivery_otp:next.delivery_otp||''};
+        if(rememberConfirmedSheetOrder(updated)){
+          setOrders(previous=>[updated,...previous.filter(order=>order.id!==updated.id)]);
         }
-      } catch {
-        // Old deployments do not have private status lookup. Retain the last
-        // confirmed receipt rather than guessing an order transition.
+        setTrackingCheckedAt(new Date().toLocaleTimeString());
+        setTrackingSyncError('');
+      }catch(error){
+        if(!stopped)setTrackingSyncError(error instanceof Error?error.message:'Could not load live delivery status.');
+      }finally{
+        inFlight=false;
+        if(!stopped)setTrackingSyncing(false);
       }
     };
+    setTrackingSyncError('');
     void updateTrackedReceipt();
-    const timer = window.setInterval(() => { void updateTrackedReceipt(); }, 30000);
-    return () => { stopped = true; window.clearInterval(timer); };
-  }, [isTrackOrderOpen, latestOrderId, sheetContent.endpoint, publicData.order_submission_enabled, customerGoogleToken]);
+    const timer=window.setInterval(()=>{void updateTrackedReceipt();},12000);
+    const whenVisible=()=>{if(document.visibilityState==='visible')void updateTrackedReceipt();};
+    document.addEventListener('visibilitychange',whenVisible);
+    window.addEventListener('focus',whenVisible);
+    return()=>{
+      stopped=true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange',whenVisible);
+      window.removeEventListener('focus',whenVisible);
+    };
+  },[isTrackOrderOpen,latestOrderId,sheetContent.endpoint,customerGoogleToken,trackingRefreshKey]);
 
   // Reorders use the current Sheet catalogue; removed sizes/cakes are not recreated.
   const handleReorder = (order: Order) => {
@@ -473,6 +496,10 @@ export default function App() {
 
       <OrderTrackingModal
         isOpen={isTrackOrderOpen}
+        syncing={trackingSyncing}
+        syncError={trackingSyncError}
+        checkedAt={trackingCheckedAt}
+        onRefresh={() => setTrackingRefreshKey(key=>key+1)}
         onClose={() => setIsTrackOrderOpen(false)}
         orders={orders}
         currentOrderId={latestOrderId}
