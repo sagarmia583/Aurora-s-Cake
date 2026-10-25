@@ -215,7 +215,7 @@ test('verified staff manage the same private receipt; riders see assigned orders
   assert.equal(update('pick_up',RIDER_TOKEN).ok,true);
   assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
   assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp,cash_collected:false}).code,'cash_unconfirmed');
-  assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:created.order.delivery_otp,cash_collected:true}).ok,true);
+  assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp,cash_collected:true}).ok,true);
   const customer=h.post({action:'get_order_status',order_id:orderId,customer_phone:request().customer_phone,customer_access_token:created.order.customer_access_token});
   assert.equal(customer.status,'delivered');
   assert.equal(customer.payment_status,'paid');
