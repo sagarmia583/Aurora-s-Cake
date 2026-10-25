@@ -3,7 +3,7 @@ import { X, RefreshCw, ShieldCheck, LockKeyhole, Truck, PackageCheck } from 'luc
 import { checkStaffSession, getStaffOrders, mutateStaffOrder, signInStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword } from '../services/sheetStaffApi';
 import type { StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
-import { LiveShopEditor } from './LiveShopEditor';
+import { WebsiteManager } from './WebsiteManager';
 import { CustomCakeQueue } from './CustomCakeQueue';
 
 type GoogleSdk = {
@@ -398,7 +398,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                 })}
               </div>
               {(['super_admin','admin','order_manager'] as string[]).includes(identity.role) && <CustomCakeQueue endpoint={endpoint} token={identity.token} />}
-              {(identity.role === 'super_admin' || identity.role === 'admin') && <LiveShopEditor endpoint={endpoint} token={identity.token} onUpdated={() => onCatalogUpdated?.()} />}
+              {(identity.role === 'super_admin' || identity.role === 'admin') && <WebsiteManager endpoint={endpoint} token={identity.token}
+                role={identity.role} onUpdated={() => onCatalogUpdated?.()} />}
             </>
           )}
           {error && <p role="alert" className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-800 text-sm">{error}</p>}
