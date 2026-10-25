@@ -651,3 +651,43 @@ test('website CMS safely edits approved shop settings and refuses private tables
   assert.equal(saved.operation,'created');
   assert.ok(String(h.records('faqs')[0].answer).startsWith("'="));
 });
+
+
+test('live website manager validates category/product references, archives safely and preserves historical COD orders',()=>{
+  const h=harness({singleFile:true});
+  const first=h.post(request());
+  assert.equal(first.success,true);
+  const originalReceipt=JSON.parse(String(h.records('orders')[0].receipt_json));
+  const productCols=h.context.PUBLIC_TABLE_SCHEMAS.products as string[];
+  const categoryCols=h.context.PUBLIC_TABLE_SCHEMAS.categories as string[];
+  const variants=h.context.PUBLIC_TABLE_SCHEMAS.product_variants as string[];
+  const existing:Record<string,unknown>={id:'p1',name:'Original cake',category_id:'c1',slug:'original-cake',base_price:800,sale_price:'',
+    description:'Original',is_active:true,is_featured:true,price:800};
+  h.tables.products=[productCols,productCols.map(k=>existing[k]??'')];
+  h.tables.categories=[categoryCols,categoryCols.map(k=>({id:'c1',name:'Existing category',slug:'existing-category',sort_order:1,is_active:true} as Record<string,unknown>)[k]??'')];
+  h.tables.product_variants=[variants,variants.map(k=>({id:'v1',product_id:'p1',name:'1kg',weight_grams:1000,price:800,is_active:true} as Record<string,unknown>)[k]??'')];
+  const noCategory=h.post({action:'staff_cms_create',id_token:ADMIN_TOKEN,table:'products',
+    values:{name:'Unknown cake',category_id:'fake-category',slug:'unknown-cake',base_price:1200,is_active:true}});
+  assert.equal(noCategory.code,'invalid_reference');
+  const category=h.post({action:'staff_cms_create',id_token:ADMIN_TOKEN,table:'categories',
+    values:{name:'New Celebration Cakes',slug:'new-celebration-cakes',sort_order:5,is_active:true}});
+  assert.equal(category.operation,'created');
+  const createdCategory=h.records('categories').at(-1)!;
+  const product=h.post({action:'staff_cms_create',id_token:ADMIN_TOKEN,table:'products',
+    values:{name:'New Sheet Cake',category_id:String(createdCategory.id),slug:'new-sheet-cake',description:'Freshly baked',
+      base_price:750,is_active:true,allowed_flavor_ids:'[]',allowed_addon_ids:'[]',gallery_images:'[]'}});
+  assert.equal(product.operation,'created',JSON.stringify(product));
+  const newProduct=h.records('products').at(-1)!;
+  assert.equal(newProduct.name,'New Sheet Cake');
+  const failedCategoryArchive=h.post({action:'staff_cms_delete',id_token:ADMIN_TOKEN,table:'categories',
+    record_id:String(createdCategory.id),values:{}});
+  assert.equal(failedCategoryArchive.code,'in_use');
+  assert.equal(h.post({action:'staff_cms_delete',id_token:ADMIN_TOKEN,table:'products',
+    record_id:String(newProduct.id),values:{}}).operation,'archived');
+  assert.equal(h.post({action:'staff_cms_delete',id_token:ADMIN_TOKEN,table:'categories',
+    record_id:String(createdCategory.id),values:{}}).operation,'archived');
+  assert.equal(h.records('orders').length,1);
+  assert.equal(h.records('order_items').length,1);
+  assert.equal(JSON.parse(String(h.records('orders')[0].receipt_json)).total_amount,originalReceipt.total_amount);
+  assert.equal(h.post({action:'staff_cms_list',id_token:ADMIN_TOKEN,table:'staff_accounts'}).code,'forbidden');
+});
