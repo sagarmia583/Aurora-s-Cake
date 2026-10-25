@@ -63,7 +63,7 @@ function harness(options:{withoutPrivate?:boolean}={}) {
     SpreadsheetApp:{openById:()=>book,getActiveSpreadsheet:()=>book},
     PropertiesService:{getScriptProperties:()=>({getProperty:(key:string)=>key==='AURORA_GOOGLE_CLIENT_ID'?'test-client.apps.googleusercontent.com':key==='AURORA_STAFF_USERS'?STAFF_CONFIG:null})},
     UrlFetchApp:{fetch:(url:string)=>({getResponseCode:()=>200,getContentText:()=>JSON.stringify({aud:'test-client.apps.googleusercontent.com',iss:'https://accounts.google.com',sub:url.includes('intruder_')?'other-google-user':'verified-google-user',exp:Math.floor(Date.now()/1000)+3600,email_verified:'true',email:url.includes('rider_')?'rider@example.com':url.includes('intruder_')?'intruder@example.com':'owner@example.com'})})},
-    CacheService:{getScriptCache:()=>({get:(key:string)=>(key.startsWith('aurora_cod_')||key.startsWith('aurora_custom_'))?throttles.get(key)||null:null,put:(key:string,value:string)=>{if((key.startsWith('aurora_cod_')||key.startsWith('aurora_custom_')))throttles.set(key,value);},remove:()=>{}})},
+    CacheService:{getScriptCache:()=>({get:(key:string)=>(key.startsWith('aurora_cod_')||key.startsWith('aurora_custom_')||key.startsWith('aurora_auth_'))?throttles.get(key)||null:null,put:(key:string,value:string)=>{if((key.startsWith('aurora_cod_')||key.startsWith('aurora_custom_')||key.startsWith('aurora_auth_')))throttles.set(key,value);},remove:()=>{}})},
     LockService:{getScriptLock:()=>({tryLock:()=>{acquired++;return true;},releaseLock:()=>{acquired--;}})},
     Utilities:{DigestAlgorithm:{SHA_256:'sha256'},Charset:{UTF_8:'utf8'},computeDigest:(_algorithm:string,value:string)=>Array.from(createHash('sha256').update(value).digest()),formatDate:(date:Date)=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Dhaka',year:'numeric',month:'2-digit',day:'2-digit'}).format(date),getUuid:()=>randomUUID()},
     ContentService:{MimeType:{JSON:'json',JAVASCRIPT:'js'},createTextOutput:(content:string)=>({content,setMimeType(){return this;}})},
@@ -421,4 +421,37 @@ test('private checkout proof prevents someone replaying an exposed order number 
   assert.equal(h.post(request({request_id:'dddddddd-4444-4444-8444-444444444444',checkout_proof:undefined})).code,'upgrade_required');
   assert.equal(h.post(request()).order.customer_access_token,original.order.customer_access_token);
   assert.equal(h.records('orders').length,1);
+});
+
+test('valid Google identity is briefly cached but changed staff allowlist is enforced on every request',()=>{
+  const h=harness();let fetchCalls=0;
+  h.context.UrlFetchApp={fetch:(_:string)=>{fetchCalls++;return {getResponseCode:()=>200,
+    getContentText:()=>JSON.stringify({aud:'test-client.apps.googleusercontent.com',
+      iss:'https://accounts.google.com',sub:'verified-google-user',
+      exp:Math.floor(Date.now()/1000)+1800,email_verified:'true',email:'owner@example.com'})};}};
+  assert.equal(h.post({action:'staff_session',id_token:ADMIN_TOKEN}).role,'super_admin');
+  assert.equal(h.post({action:'staff_session',id_token:ADMIN_TOKEN}).role,'super_admin');
+  assert.equal(h.post({action:'customer_session',id_token:ADMIN_TOKEN}).email,'owner@example.com');
+  assert.equal(fetchCalls,1);
+  h.context.PropertiesService={getScriptProperties:()=>({getProperty:(key:string)=>key==='AURORA_GOOGLE_CLIENT_ID'?'test-client.apps.googleusercontent.com':key==='AURORA_STAFF_USERS'?'{}':null})};
+  assert.equal(h.post({action:'staff_session',id_token:ADMIN_TOKEN}).code,'forbidden');
+  assert.equal(fetchCalls,1);
+});
+test('a delivery OTP is issued only at dispatch and destroyed after confirmed COD delivery',()=>{
+  const h=harness(),created=h.post(request());
+  const change=(operation:string,id_token:string,extra:Record<string,unknown>={})=>h.post({
+    action:'staff_mutate',id_token,operation,order_id:created.order.id,...extra});
+  const server=()=>JSON.parse(String(h.records('orders')[0].receipt_json));
+  assert.equal(server().delivery_otp,'');
+  for(const operation of ['confirm','start_baking','mark_ready'])assert.equal(change(operation,ADMIN_TOKEN).ok,true);
+  assert.equal(change('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
+  assert.equal(change('pick_up',RIDER_TOKEN).ok,true);
+  assert.equal(server().delivery_otp,'');
+  assert.equal(change('start_delivery',RIDER_TOKEN).ok,true);
+  const code=server().delivery_otp;
+  assert.match(code,/^\d{4}$/);
+  assert.equal(change('deliver',RIDER_TOKEN,{delivery_otp:code,cash_collected:true}).ok,true);
+  assert.equal(server().delivery_otp,'');
+  assert.equal(h.post({action:'get_order_status',order_id:created.order.id,customer_phone:created.order.customer_phone,
+    customer_access_token:created.order.customer_access_token}).delivery_otp,undefined);
 });
