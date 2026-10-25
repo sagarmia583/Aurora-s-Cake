@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import imageHandler from '../api/images/[id].js';
+import imageHandler from '../api/image.js';
 
 type TestResponse={statusCode:number;headers:Record<string,string>;body:any;setHeader:(name:string,value:string)=>void;end:(body?:any)=>void};
 const request=(id:string,method='GET')=>({method,query:{id}});
