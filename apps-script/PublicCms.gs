@@ -48,7 +48,7 @@ function auroraCmsValidate_(name,field,value){
   }
   var str=auroraCmsString_(value,5000);
   if(AURORA_CMS_URL_FIELDS_.indexOf(field)!==-1||/(_url|_image)$/.test(field)){
-    if(str&&!/^https:\/\/[^\s<>"']+$/i.test(str)&&!/^\/images\/[a-zA-Z0-9_./-]+$/.test(str))
+    if(str&&!/^https:\/\/[^\s<>"']+$/i.test(str)&&!/^\/images\/[a-zA-Z0-9_./-]+$/.test(str)&&!/^\/api\/images\/[A-Za-z0-9_-]{12,150}$/.test(str))
       auroraReject_('invalid_url','Images and links must be HTTPS or an existing /images/ path.');
   }
   if(field==='color_hex'&&str&&!/^#[0-9a-f]{6}$/i.test(str))auroraReject_('invalid_color','Use a six-digit hex color.');
