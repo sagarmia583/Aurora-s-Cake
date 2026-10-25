@@ -1,13 +1,15 @@
 /**
- * Aurora's Cake all-in-one Code.gs: free Google Sheets + Vercel backend.
- * Staff: Google Super Admin / employees username and password.
- * Customers: phone/password profile, permanent private Sheet order history.
- * Phone is NOT SMS verified, and history is NEVER found by phone alone.
- * BACK UP the Sheet; paste entire file as sole Code.gs, run
- * setupSheetDatabase() to add private tables, redeploy a NEW web app version.
+ * AURORA'S CAKE — ALL-IN-ONE Google Apps Script (8 modules in one Code.gs)
+ * Free Vercel/Google Sheets backend, role-based staff, phone customer accounts,
+ * authenticated website CMS for public settings/content/catalog/marketing,
+ * private COD orders and original-receipt order histories.
+ * BACK UP SHEET; replace old Code.gs completely; run setupSheetDatabase()
+ * (nonempty existing Sheets preserved); Deploy as NEW Web App version.
+ * Delete/archive only through the authenticated admin UI; payment, order,
+ * customer password and session records are never generic CMS tables.
  */
 
-/* ==== BEGIN apps-script/Code.gs ==== */
+/* ===== BEGIN apps-script/Code.gs ===== */
 /**
  * Aurora public content and private cash-on-delivery order API.
  * Public GET reads only explicit public tables. Private POST accepts create_order only; no private list/read API.
@@ -108,6 +110,7 @@ function doPost(e) {
       return auroraResponse_(auroraAccountCustomerPost_(input));
     if (input && (input.action === 'create_custom_cake' || input.action === 'get_custom_cake_status' || input.action === 'staff_custom_cakes' || input.action === 'staff_custom_quote')) return auroraResponse_(auroraCustomCakePost_(input));
     if (input && input.action === 'get_order_status') return auroraResponse_(auroraCustomerOrderStatus_(input));
+    if (input && /^staff_cms_(list|create|update|delete)$/.test(String(input.action||''))) return auroraResponse_(auroraCmsPost_(input));
     if (input && (input.action==='staff_catalog'||input.action==='staff_catalog_update')) return auroraResponse_(auroraCatalogPost_(input));
     if (input && /^staff_/.test(String(input.action || ''))) return auroraResponse_(auroraOperationsPost_(input));
     if (input && /^customer_(session|orders|claim_order)$/.test(String(input.action || ''))) return auroraResponse_(auroraCustomerAccountsPost_(input));
@@ -552,9 +555,9 @@ function auroraSeedRows_(name,seed) {
   var alias = {product_addons:'addons',delivery_zones:'zones',delivery_slots:'slots'};
   return seed[alias[name] || name] || [];
 }
-/* ==== END apps-script/Code.gs ==== */
+/* ===== END apps-script/Code.gs ===== */
 
-/* ==== BEGIN apps-script/SeedData.gs ==== */
+/* ===== BEGIN apps-script/SeedData.gs ===== */
 var AURORA_SEED_DATA = {
   "schema_version": 1,
   "settings": {
@@ -1386,9 +1389,9 @@ var AURORA_SEED_DATA = {
   ],
   "reviews": []
 };
-/* ==== END apps-script/SeedData.gs ==== */
+/* ===== END apps-script/SeedData.gs ===== */
 
-/* ==== BEGIN apps-script/StaffOperations.gs ==== */
+/* ===== BEGIN apps-script/StaffOperations.gs ===== */
 /**
  * Authenticated bakery operations for the existing private Google Sheet COD orders.
  * Install alongside Code.gs. All private operations use POST, and each staff
@@ -1694,9 +1697,9 @@ function auroraCustomerOrderStatus_(input) {
   }
   return result;
 }
-/* ==== END apps-script/StaffOperations.gs ==== */
+/* ===== END apps-script/StaffOperations.gs ===== */
 
-/* ==== BEGIN apps-script/AccountAuth.gs ==== */
+/* ===== BEGIN apps-script/AccountAuth.gs ===== */
 /**
  * Private, free Google-Sheets account system.
  * Staff: owner verifies with Google; employees use username + password.
@@ -1931,9 +1934,9 @@ function auroraAccountCustomerPost_(input) {
   }
   auroraReject_('invalid_action','Unknown customer phone account action.');
 }
-/* ==== END apps-script/AccountAuth.gs ==== */
+/* ===== END apps-script/AccountAuth.gs ===== */
 
-/* ==== BEGIN apps-script/CustomerAccounts.gs ==== */
+/* ===== BEGIN apps-script/CustomerAccounts.gs ===== */
 /**
  * Optional FREE Google customer accounts; no SMS gateway and no email-sending API.
  * Guest COD remains possible. A customer holding an original confirmed receipt
@@ -2009,9 +2012,9 @@ function auroraCustomerAccountsPost_(input) {
   }
   auroraReject_('invalid_action','Unsupported customer account action.');
 }
-/* ==== END apps-script/CustomerAccounts.gs ==== */
+/* ===== END apps-script/CustomerAccounts.gs ===== */
 
-/* ==== BEGIN apps-script/LiveCatalog.gs ==== */
+/* ===== BEGIN apps-script/LiveCatalog.gs ===== */
 /**
  * Free authenticated live catalogue operations for the original public Sheets.
  * Deliberately limited to allowlisted fields. Staff cannot edit arbitrary cells
@@ -2101,9 +2104,199 @@ function auroraCatalogPost_(input) {
     return {ok:true,updated:true};
   } finally {lock.releaseLock();}
 }
-/* ==== END apps-script/LiveCatalog.gs ==== */
+/* ===== END apps-script/LiveCatalog.gs ===== */
 
-/* ==== BEGIN apps-script/CustomCakeRequests.gs ==== */
+/* ===== BEGIN apps-script/PublicCms.gs ===== */
+/**
+ * Private website CMS. Never exposes private orders or account tables.
+ * All changes are validated server-side against PUBLIC_TABLE_SCHEMAS.
+ * 'Delete' archives a public row; historical references remain intact.
+ */
+var AURORA_CMS_TABLES_=['settings','content','hero_slides','highlights','faqs','links','categories','products','product_variants','flavors','product_addons','banners','delivery_zones','delivery_slots','coupons','reviews'];
+var AURORA_CMS_BOOLEAN_FIELDS_=['is_active','is_featured','accepting_orders','delivery_enabled'];
+var AURORA_CMS_NUMBER_FIELDS_=['sort_order','base_price','sale_price','price','weight_grams','rating','review_count','delivery_fee','discount_value','min_order_amount','max_discount_amount','usage_count'];
+var AURORA_CMS_URL_FIELDS_=['image_url','logo_url','profile_image_url','facebook_url','instagram_url','youtube_url','tiktok_url','website_url','button_link','url','whatsapp_url','maps_url'];
+function auroraCmsTable_(name) {
+  if(AURORA_CMS_TABLES_.indexOf(name)===-1)auroraReject_('forbidden','This table is not editable through the website.');
+  return name;
+}
+function auroraCmsRow_(table,id){
+  return table.rows.filter(function(row){return String(row[table.key])===id;})[0]||null;
+}
+function auroraCmsRead_(book,name) {
+  var columns=PUBLIC_TABLE_SCHEMAS[name],sheet=book.getSheetByName(name);
+  if(!sheet||sheet.getLastRow()<1)auroraReject_('not_ready','Run setupSheetDatabase before editing website content.');
+  var width=sheet.getLastColumn(),count=sheet.getLastRow();
+  if(width>100||count>20001)auroraReject_('limit','This Sheet exceeds the current live editor limit.');
+  var raw=sheet.getRange(1,1,count,width).getValues();
+  var headers=raw.shift().map(function(cell){return String(cell).trim().toLowerCase();});
+  columns.forEach(function(field){if(headers.indexOf(field)<0||headers.indexOf(field)!==headers.lastIndexOf(field))auroraReject_('invalid_sheet','Missing or duplicate column: '+field);});
+  var key=(name==='settings'||name==='content')?'key':'id';
+  var rows=raw.map(function(rawRow,index){
+    var obj={_row:index+2};
+    columns.forEach(function(field){obj[field]=rawRow[headers.indexOf(field)];});
+    return obj;
+  }).filter(function(row){return String(row[key]||'').trim()!=='';});
+  return {sheet:sheet,headers:headers,columns:columns,key:key,rows:rows};
+}
+function auroraCmsValidate_(name,field,value){
+  if(PUBLIC_TABLE_SCHEMAS[name].indexOf(field)===-1)auroraReject_('invalid_field','This field is not allowed.');
+  if(name==='settings'&&field==='value') {
+    return value===true||value===false||typeof value==='number'?value:auroraCmsString_(value,5000);
+  }
+  if(name==='content'&&field==='value')return auroraCmsString_(value,5000);
+  if(AURORA_CMS_BOOLEAN_FIELDS_.indexOf(field)!==-1){
+    if(typeof value!=='boolean')auroraReject_('invalid_value','A true/false value is required for '+field);
+    return value;
+  }
+  if(AURORA_CMS_NUMBER_FIELDS_.indexOf(field)!==-1){
+    if(value===''&&['sale_price','max_discount_amount','rating'].indexOf(field)!==-1)return '';
+    if(typeof value!=='number'||!isFinite(value)||value<0||value>10000000)
+      auroraReject_('invalid_value','Enter a valid non-negative number for '+field);
+    return Math.round(value*100)/100;
+  }
+  var str=auroraCmsString_(value,5000);
+  if(AURORA_CMS_URL_FIELDS_.indexOf(field)!==-1||/(_url|_image)$/.test(field)){
+    if(str&&!/^https:\/\/[^\s<>"']+$/i.test(str)&&!/^\/images\/[a-zA-Z0-9_./-]+$/.test(str))
+      auroraReject_('invalid_url','Images and links must be HTTPS or an existing /images/ path.');
+  }
+  if(field==='color_hex'&&str&&!/^#[0-9a-f]{6}$/i.test(str))auroraReject_('invalid_color','Use a six-digit hex color.');
+  if(field==='discount_type'&&['fixed','percentage'].indexOf(str)===-1)auroraReject_('invalid_value','Choose fixed or percentage.');
+  if(field==='status'&&name==='reviews'&&['pending','approved','rejected','hidden'].indexOf(str)===-1)
+    auroraReject_('invalid_status','Invalid review status.');
+  if(field==='sort_order'&&str.length>0)auroraReject_('invalid_value','Sort order must be numeric.');
+  if(field==='slug'&&str&&!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(str))auroraReject_('invalid_slug','Slug must be lowercase letters, numbers and hyphens.');
+  if(['allowed_flavor_ids','allowed_addon_ids','gallery_images'].indexOf(field)!==-1&&str){
+    try{var parsed=JSON.parse(str);if(!Array.isArray(parsed)||parsed.length>60||parsed.some(function(item){return typeof item!=='string'||item.length>150;}))throw new Error('bad');}
+    catch(_){auroraReject_('invalid_list','Provide a JSON array of strings for '+field);}
+  }
+  return str;
+}
+function auroraCmsString_(value,max){
+  if(typeof value!=='string')auroraReject_('invalid_value','Enter text rather than an object.');
+  if(value.length>max)auroraReject_('too_long','Text is too long.');
+  return value.trim();
+}
+function auroraCmsKeyValue_(name,key,value){
+  var permitted=name==='settings'?PUBLIC_SETTINGS_KEYS:PUBLIC_CONTENT_KEYS;
+  if(permitted.indexOf(key)===-1)auroraReject_('forbidden','This website field is not in the allowed content list.');
+  if(name==='settings'&&['accepting_orders','delivery_enabled'].indexOf(key)!==-1){
+    if(typeof value!=='boolean')auroraReject_('invalid_value','Use a boolean for this switch.');
+    return value;
+  }
+  if(name==='settings'&&AURORA_CMS_URL_FIELDS_.indexOf(key)!==-1)return auroraCmsValidate_('links','url',value);
+  if(typeof value!=='string')auroraReject_('invalid_value','Enter a text value.');
+  return auroraCmsString_(value,5000);
+}
+function auroraCmsRowsSafe_(table){
+  return table.rows.slice(0,500).map(function(row){
+    var result={};
+    table.columns.forEach(function(field){result[field]=row[field];});
+    return result;
+  });
+}
+function auroraCmsValidateRefs_(book,name,row,oldId){
+  if(name==='products'&&row.category_id){
+    var categories=auroraCmsRead_(book,'categories');
+    if(!auroraCmsRow_(categories,String(row.category_id)))auroraReject_('invalid_reference','Choose an existing category.');
+  }
+  if(name==='product_variants'){
+    var products=auroraCmsRead_(book,'products');
+    if(!auroraCmsRow_(products,String(row.product_id)))auroraReject_('invalid_reference','Choose an existing product.');
+  }
+  if(name==='hero_slides'&&row.product_id){
+    var prods=auroraCmsRead_(book,'products');
+    if(!auroraCmsRow_(prods,String(row.product_id)))auroraReject_('invalid_reference','Hero slide product does not exist.');
+  }
+  if(name==='categories'&&oldId&&row.is_active===false){
+    var products2=auroraCmsRead_(book,'products').rows;
+    if(products2.some(function(p){return String(p.category_id)===oldId&&auroraActive_(p.is_active);}))
+      auroraReject_('in_use','Hide or move active products in this category before archiving it.');
+  }
+  if(name==='coupons'&&row.discount_type==='percentage'&&Number(row.discount_value)>100)
+    auroraReject_('invalid_discount','Percentage discount cannot exceed 100.');
+}
+function auroraCmsPost_(input){
+  var actor=auroraStaffAuthenticate_(input);
+  if(actor.role!=='super_admin'&&actor.role!=='admin')auroraReject_('forbidden','Only authorized shop administrators can edit public content.');
+  var name=auroraCmsTable_(String(input.table||'')),action=String(input.action||'');
+  if(action==='staff_cms_list'){
+    var snapshot=auroraCmsRead_(auroraSpreadsheet_(),name);
+    return {ok:true,table:name,columns:snapshot.columns,rows:auroraCmsRowsSafe_(snapshot),
+      total:snapshot.rows.length,truncated:snapshot.rows.length>500,can_delete:actor.role==='super_admin'};
+  }
+  if(['staff_cms_create','staff_cms_update','staff_cms_delete'].indexOf(action)===-1)
+    auroraReject_('invalid_action','Unsupported website edit.');
+  if(action==='staff_cms_delete'&&actor.role!=='super_admin')auroraReject_('forbidden','Only Super Admin can archive public records.');
+  var lock=LockService.getScriptLock();
+  if(!lock.tryLock(10000))auroraReject_('busy','Another website change is being saved.');
+  try {
+    var book=auroraSpreadsheet_(),table=auroraCmsRead_(book,name),isKeyValue=name==='settings'||name==='content';
+    var recordId=String(input.record_id||'').trim();
+    var draft=input.values;
+    if(!draft||typeof draft!=='object'||Array.isArray(draft))auroraReject_('invalid_request','Send an object of editable values.');
+    var fields=Object.keys(draft);
+    if(action!=='staff_cms_delete'&&(fields.length===0||fields.length>table.columns.length))
+      auroraReject_('invalid_request','Choose fields to save.');
+    if(fields.some(function(k){return table.columns.indexOf(k)===-1||k===table.key||k==='created_at'}))
+      auroraReject_('invalid_field','A protected key or column cannot be changed.');
+    if(isKeyValue){
+      if(action==='staff_cms_delete')auroraReject_('protected','Required shop text/settings keys cannot be deleted. Edit their values instead.');
+      var key=action==='staff_cms_create'?String(input.key||'').trim():recordId;
+      var allow=name==='settings'?PUBLIC_SETTINGS_KEYS:PUBLIC_CONTENT_KEYS;
+      if(allow.indexOf(key)===-1)auroraReject_('forbidden','This website key is not editable.');
+      var previous=auroraCmsRow_(table,key);
+      if(action==='staff_cms_create'&&previous)auroraReject_('duplicate','That website key already exists.');
+      if(action==='staff_cms_update'&&!previous)auroraReject_('not_found','Website key does not exist.');
+      if(!Object.prototype.hasOwnProperty.call(draft,'value'))auroraReject_('invalid_field','Provide a value.');
+      var val=auroraCmsKeyValue_(name,key,draft.value);
+      if(action==='staff_cms_create')table.sheet.getRange(table.sheet.getLastRow()+1,1,1,2).setValues([[key,auroraSheetCell_(val)]]);
+      else table.sheet.getRange(previous._row,table.headers.indexOf('value')+1,1,1).setValues([[auroraSheetCell_(val)]]);
+    }else{
+      if(action!=='staff_cms_create'&&!recordId)auroraReject_('invalid_request','Select a record.');
+      var existing=action==='staff_cms_create'?null:auroraCmsRow_(table,recordId);
+      if(action!=='staff_cms_create'&&!existing)auroraReject_('not_found','Record was not found.');
+      var row={},nowId=action==='staff_cms_create'?'cms_'+Utilities.getUuid():recordId;
+      table.columns.forEach(function(field){
+        row[field]=existing?existing[field]:field===table.key?nowId:
+          AURORA_CMS_BOOLEAN_FIELDS_.indexOf(field)!==-1?false:
+          AURORA_CMS_NUMBER_FIELDS_.indexOf(field)!==-1?0:'';
+      });
+      if(action==='staff_cms_delete'){
+        if(table.columns.indexOf('is_active')!==-1)row.is_active=false;
+        else if(name==='reviews')row.status='hidden';
+        else auroraReject_('protected','This record cannot be deleted from the website safely.');
+      }else{
+        fields.forEach(function(field){row[field]=auroraCmsValidate_(name,field,draft[field]);});
+        if(action==='staff_cms_create'&&table.columns.indexOf('is_active')!==-1&&!Object.prototype.hasOwnProperty.call(draft,'is_active'))row.is_active=true;
+        if(action==='staff_cms_create'&&name==='reviews'&&!Object.prototype.hasOwnProperty.call(draft,'status'))row.status='pending';
+        if(action==='staff_cms_create'&&name==='reviews'&&!Object.prototype.hasOwnProperty.call(draft,'created_at'))row.created_at=new Date().toISOString();
+      }
+      if(name==='products'&&(!row.name||!row.category_id))auroraReject_('invalid_request','Product name and category are required.');
+      if(name==='categories'&&!row.name)auroraReject_('invalid_request','Category name is required.');
+      if(name==='product_variants'&&(!row.product_id||!row.name))auroraReject_('invalid_request','Product ID and variant name are required.');
+      if(name==='delivery_zones'&&!row.name)auroraReject_('invalid_request','Delivery zone name is required.');
+      if(name==='delivery_slots'&&!row.slot_label)auroraReject_('invalid_request','Delivery slot label is required.');
+      if(name==='coupons'&&(!row.code||!row.discount_type))auroraReject_('invalid_request','Coupon code and discount type are required.');
+      if(name==='products'&&Number(row.base_price)===0&&row.sale_price==='')row.base_price=0;
+      if(name==='coupons'&&action==='staff_cms_create')row.usage_count=0;
+      // Do not allow a client to manipulate existing order/payment totals.
+      auroraCmsValidateRefs_(book,name,row,action==='staff_cms_delete'?recordId:null);
+      if(action==='staff_cms_create') {
+        table.sheet.getRange(table.sheet.getLastRow()+1,1,1,table.headers.length).setValues([table.headers.map(function(field){return auroraSheetCell_(row[field]);})]);
+      }else{
+        var original=table.sheet.getRange(existing._row,1,1,table.headers.length).getValues()[0];
+        table.columns.forEach(function(field){original[table.headers.indexOf(field)]=auroraSheetCell_(row[field]);});
+        table.sheet.getRange(existing._row,1,1,original.length).setValues([original]);
+      }
+    }
+    CacheService.getScriptCache().remove(auroraCacheKey_());
+    return {ok:true,operation:action==='staff_cms_delete'?'archived':action==='staff_cms_create'?'created':'updated'};
+  }finally{lock.releaseLock();}
+}
+/* ===== END apps-script/PublicCms.gs ===== */
+
+/* ===== BEGIN apps-script/CustomCakeRequests.gs ===== */
 /**
  * Free custom-cake quote requests. Public create/status and authenticated
  * staff queue share a private Google Sheet tab, never included in public GET.
@@ -2236,4 +2429,4 @@ function auroraCustomCakePost_(input) {
   }
   auroraReject_('invalid_action','Invalid custom cake action.');
 }
-/* ==== END apps-script/CustomCakeRequests.gs ==== */
+/* ===== END apps-script/CustomCakeRequests.gs ===== */
