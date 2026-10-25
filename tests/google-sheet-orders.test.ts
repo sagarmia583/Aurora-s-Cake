@@ -579,3 +579,32 @@ test('verified super admin creates username/password rider; only the assigned ri
   assert.equal(h.post({action:'staff_password_logout',auth_token:signed.auth_token}).ok,true);
   assert.equal(h.post({action:'staff_orders',auth_token:signed.auth_token}).code,'unauthorized');
 });
+
+test('staff password reset and disable revoke sessions without leaking password hashes',()=>{
+  const h=harness({singleFile:true});
+  const create={action:'staff_account_create',id_token:ADMIN_TOKEN,username:'kitchen02',name:'Cake Chef',role:'kitchen_manager',password:'KitchenSecretPass20!'};
+  assert.equal(h.post(create).created,true);
+  assert.equal(h.records('staff_accounts').length,1);
+  const saved=h.records('staff_accounts')[0];
+  assert.equal(saved.password_hash===create.password,false);
+  assert.equal(saved.password_hash.length,64);
+  assert.equal(saved.password_salt.length,72);
+  const bad=h.post({action:'staff_password_login',username:'kitchen02',password:'WrongPassword999'});
+  assert.equal(bad.code,'invalid_credentials');
+  const initial=h.post({action:'staff_password_login',username:'kitchen02',password:create.password});
+  assert.equal(initial.role,'kitchen_manager');
+  assert.equal(h.post({action:'staff_session',auth_token:initial.auth_token}).role,'kitchen_manager');
+  assert.equal(h.post({action:'staff_account_create',auth_token:initial.auth_token,username:'rogue_staff',name:'Rogue',role:'admin',password:'SomePassword123!'}).code,'forbidden');
+  assert.equal(h.post({action:'staff_account_reset_password',id_token:ADMIN_TOKEN,username:'kitchen02',password:'NewKitchenStrongPass20!'}).updated,true);
+  assert.equal(h.post({action:'staff_session',auth_token:initial.auth_token}).code,'unauthorized');
+  assert.equal(h.post({action:'staff_password_login',username:'kitchen02',password:create.password}).code,'invalid_credentials');
+  const refreshed=h.post({action:'staff_password_login',username:'kitchen02',password:'NewKitchenStrongPass20!'});
+  assert.equal(refreshed.ok,true);
+  assert.equal(h.post({action:'staff_account_set_active',id_token:ADMIN_TOKEN,username:'kitchen02',active:false}).updated,true);
+  assert.equal(h.post({action:'staff_session',auth_token:refreshed.auth_token}).code,'unauthorized');
+  assert.equal(h.post({action:'staff_password_login',username:'kitchen02',password:'NewKitchenStrongPass20!'}).code,'invalid_credentials');
+  const dir=h.post({action:'staff_session',id_token:ADMIN_TOKEN});
+  assert.equal(dir.staff_profiles.find((x:{username?:string})=>x.username==='kitchen02').active,false);
+  assert.equal(h.post({action:'staff_account_set_active',id_token:ADMIN_TOKEN,username:'kitchen02',active:true}).updated,true);
+  assert.equal(h.post({action:'staff_password_login',username:'kitchen02',password:'NewKitchenStrongPass20!'}).ok,true);
+});
