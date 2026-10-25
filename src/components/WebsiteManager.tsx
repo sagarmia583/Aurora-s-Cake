@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Database, RefreshCw, Plus, Save, Archive, Search } from 'lucide-react';
-import { CMS_TABLE_OPTIONS, fetchCmsTable, mutateCmsTable } from '../services/sheetStaffApi';
+import { CMS_TABLE_OPTIONS, fetchCmsTable, mutateCmsTable, uploadCmsImage } from '../services/sheetStaffApi';
 import type { CmsSnapshot, CmsTable } from '../services/sheetStaffApi';
 
 interface Props {endpoint:string;token:string;role:'super_admin'|'admin';onUpdated:()=>void}
@@ -25,6 +25,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
   const [data,setData]=useState<CmsSnapshot|null>(null);
   const [loading,setLoading]=useState(false);
   const [saving,setSaving]=useState(false);
+  const [uploading,setUploading]=useState(false);
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
   const [search,setSearch]=useState('');
@@ -72,6 +73,56 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
       onUpdated();
     }catch(e){setError(e instanceof Error?e.message:'Save failed.');}
     finally{setSaving(false);}
+  };
+  const uploadImage=async(file:File,field:string)=>{
+    if(uploading||saving)return;
+    setUploading(true);setError('');setNotice('');
+    try{
+      if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>12000000)
+        throw new Error('Select a JPG, PNG or WebP image up to 12 MB. It will be compressed for free hosting.');
+      const photo=await createImageBitmap(file);
+      const canvas=document.createElement('canvas');
+      const max=1400,scale=Math.min(1,max/Math.max(photo.width,photo.height));
+      canvas.width=Math.max(1,Math.round(photo.width*scale));
+      canvas.height=Math.max(1,Math.round(photo.height*scale));
+      const ctx=canvas.getContext('2d');
+      if(!ctx)throw new Error('Image compression is unsupported in this browser.');
+      ctx.fillStyle='#ffffff';ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.drawImage(photo,0,0,canvas.width,canvas.height);
+      photo.close();
+      let data:Blob|null=null;
+      for(let q=.85;q>=.5;q-=.1){
+        data=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',q));
+        if(data&&data.size<=640000)break;
+      }
+      if(!data||data.size>640000)throw new Error('This image is too large after compression. Choose a smaller photo.');
+      const bytes=new Uint8Array(await data.arrayBuffer());
+      let binary='';
+      for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));
+      const url=await uploadCmsImage(endpoint,token,btoa(binary));
+      setDraft(before=>{
+        const oldValue=before[field]??'';
+        if(field==='gallery_images'){
+          let links:string[]=[];
+          try{
+            const candidate=JSON.parse(String(oldValue||'[]'));
+            if(Array.isArray(candidate))links=candidate.filter((x):x is string=>typeof x==='string');
+          }catch{}
+          return {...before,[field]:JSON.stringify([...links,url])};
+        }
+        return {...before,[field]:url};
+      });
+      setNotice('Image uploaded. Click Save to Sheet to publish it on the website.');
+    }catch(e){setError(e instanceof Error?e.message:'Image upload failed.');}
+    finally{setUploading(false);}
+  };
+  const isUploadField=(field:string):boolean=>{
+    if(field==='gallery_images'||field==='image_url'||field==='logo_url'||field==='profile_image_url')return true;
+    if((table==='content'||table==='settings')&&field==='value'){
+      const key=creating?newKey:selected;
+      return /image|logo|profile/i.test(key);
+    }
+    return false;
   };
   const archive=async()=>{
     if(!data||!selected||role!=='super_admin'||saving)return;
@@ -149,6 +200,13 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
                :<textarea value={String(draft[field]??'')} rows={/description|body|content|note|address|value|_ids|gallery_images/.test(field)?3:1}
                   onChange={e=>setDraft(prev=>({...prev,[field]:e.target.value}))}
                   className="block w-full border rounded-lg p-2 mt-1 resize-y"/>}
+              {isUploadField(field)&&<span className="block mt-2 text-xs font-normal text-emerald-900">
+                <span className="font-semibold">{uploading?'Uploading image…':'Upload image from device'}</span>
+                <input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading||saving}
+                  aria-label={'Upload image for '+field} className="block mt-1 text-xs max-w-full"
+                  onChange={event=>{const file=event.target.files?.[0];if(file)void uploadImage(file,field);event.target.value='';}}/>
+                <span className="text-slate-500">Images are compressed to a maximum of 650 KB and stored in the private bakery Drive folder.</span>
+              </span>}
             </label>)}
           </div>
           <div className="flex gap-2 flex-wrap">
