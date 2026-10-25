@@ -483,3 +483,20 @@ test('single Code.gs file runs full COD, staff role, customer account, live cata
   assert.equal(publicData.ok,true);
   assert.equal(JSON.stringify(publicData).includes('Customer'),false);
 });
+
+test('single-file owner setup grants editor account admin access without a client secret',()=>{
+  const h=harness({singleFile:true});
+  const properties=new Map<string,string>();
+  h.context.Session={getEffectiveUser:()=>({getEmail:()=> 'owner@example.com'})};
+  h.context.PropertiesService={getScriptProperties:()=>({
+    getProperty:(key:string)=>properties.get(key)||null,
+    setProperty:(key:string,value:string)=>{properties.set(key,value);},
+  })};
+  const response=h.context.setupAuroraOwnerOnce();
+  assert.equal(response.configured,true);
+  assert.equal(response.owner_email,'owner@example.com');
+  assert.equal(JSON.parse(properties.get('AURORA_STAFF_USERS')||'{}')['owner@example.com'].role,'super_admin');
+  assert.match(properties.get('AURORA_GOOGLE_CLIENT_ID')||'',/\\.apps\\.googleusercontent\\.com$/);
+  assert.throws(()=>h.context.setupAuroraOwnerOnce(),/already exists/);
+  assert.equal(h.post({action:'setupAuroraOwnerOnce'}).code,'invalid_action');
+});
