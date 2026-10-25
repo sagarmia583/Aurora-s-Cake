@@ -27,9 +27,9 @@ function auroraCustomerAccountsPost_(input) {
     return {ok:true,email:identity.email,name:identity.name};
   }
   if (input.action === 'customer_orders') {
-    var table=auroraPrivateTable_(auroraSpreadsheet_(),'orders');
+    var table=auroraFastOrderTable_(auroraSpreadsheet_());
     var results=[];
-    table.rows.forEach(function(row) {
+    auroraFastOrderList_(table).forEach(function(row) {
       var order;
       try {order=JSON.parse(String(row.receipt_json || ''));} catch (_) {return;}
       if (!order || String(order.customer_google_sub||'') !== identity.sub) return;
