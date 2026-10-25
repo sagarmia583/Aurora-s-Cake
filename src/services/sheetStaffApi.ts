@@ -126,3 +126,41 @@ export async function updateLiveCatalog(endpoint:string,idToken:string,table:'pr
   await privatePost(endpoint,{action:'staff_catalog_update',...staffCredential(idToken),
     table,record_id:recordId,field,value});
 }
+
+export type CmsTable =
+  | 'settings' | 'content' | 'hero_slides' | 'highlights' | 'faqs' | 'links'
+  | 'categories' | 'products' | 'product_variants' | 'flavors' | 'product_addons'
+  | 'banners' | 'delivery_zones' | 'delivery_slots' | 'coupons' | 'reviews';
+export interface CmsSnapshot {
+  table: CmsTable;
+  columns: string[];
+  rows: Record<string, string | boolean | number>[];
+  total:number;
+  truncated:boolean;
+  can_delete:boolean;
+}
+export const CMS_TABLE_OPTIONS: {table:CmsTable,label:string}[] = [
+  {table:'settings',label:'Shop settings'},{table:'content',label:'Website text'},
+  {table:'hero_slides',label:'Hero slides'},{table:'highlights',label:'Highlights'},
+  {table:'faqs',label:'FAQs'},{table:'links',label:'Footer / social links'},
+  {table:'categories',label:'Categories'},{table:'products',label:'Products'},
+  {table:'product_variants',label:'Sizes / variants'},{table:'flavors',label:'Flavours'},
+  {table:'product_addons',label:'Product add-ons'},{table:'banners',label:'Banners'},
+  {table:'delivery_zones',label:'Delivery zones'},{table:'delivery_slots',label:'Delivery slots'},
+  {table:'coupons',label:'Coupons'},{table:'reviews',label:'Reviews / moderation'},
+];
+export async function fetchCmsTable(endpoint:string,token:string,table:CmsTable):Promise<CmsSnapshot>{
+  const response=await privatePost(endpoint,{action:'staff_cms_list',...staffCredential(token),table});
+  if(response.table!==table||!Array.isArray(response.rows)||!Array.isArray(response.columns)||
+     typeof response.total!=='number'||typeof response.can_delete!=='boolean')
+    throw new Error('Invalid website manager response. Update your Apps Script deployment.');
+  if(response.rows.length>500||response.columns.length>100||
+      response.rows.some(row=>!objectValue(row)))
+    throw new Error('Invalid website manager table.');
+  return response as unknown as CmsSnapshot;
+}
+export async function mutateCmsTable(endpoint:string,token:string,table:CmsTable,action:'create'|'update'|'delete',
+  values:Record<string,string|number|boolean>,recordId?:string,key?:string):Promise<void>{
+  await privatePost(endpoint,{action:'staff_cms_'+action,...staffCredential(token),table,
+    ...(recordId?{record_id:recordId}:{}),...(key?{key}:{}),values});
+}
