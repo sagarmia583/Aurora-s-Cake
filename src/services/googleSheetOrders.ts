@@ -107,6 +107,14 @@ export function rememberConfirmedSheetOrder(order: Order): boolean {
   return true;
 }
 
+/** Remove only receipts restored during this Google session on sign-out. */
+export function removeConfirmedSheetOrdersById(ids: readonly string[]): void {
+  const excluded = new Set(ids);
+  memoryReceipts = loadConfirmedSheetOrders().filter(receipt => !excluded.has(receipt.id));
+  try { globalThis.localStorage?.setItem(RECEIPT_KEY, JSON.stringify(memoryReceipts)); }
+  catch { /* Browser storage disabled; in-memory list has still been cleared. */ }
+}
+
 function normalizeEndpoint(raw: string): string {
   let url: URL;
   try { url = new URL(raw); } catch { throw new SheetOrderSubmissionError('The bakery order endpoint is not configured correctly.', false); }
