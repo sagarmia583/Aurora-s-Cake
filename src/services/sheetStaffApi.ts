@@ -167,7 +167,7 @@ export async function mutateCmsTable(endpoint:string,token:string,table:CmsTable
 
 export async function uploadCmsImage(endpoint:string,token:string,base64:string):Promise<string> {
   const data=await privatePost(endpoint,{action:'staff_image_upload',...staffCredential(token),mime_type:'image/jpeg',base64});
-  if(typeof data.url!=='string'||!/^\/api\/images\/[A-Za-z0-9_-]{12,150}$/.test(data.url))
+  if(typeof data.url!=='string'||!/^\/api\/image\?id=[A-Za-z0-9_-]{12,150}$/.test(data.url))
     throw new Error('Image backend returned an invalid public URL.');
   return data.url;
 }
