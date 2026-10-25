@@ -60,7 +60,9 @@ export async function mutateStaffOrder(endpoint: string, idToken: string, operat
 }
 export async function fetchCustomerOrderStatus(endpoint: string, order: Order, idToken?: string): Promise<StatusSnapshot> {
   if (order.persistence !== 'google_sheets') throw new Error('Only confirmed Sheet receipts support status updates.');
-  const data = await privatePost(endpoint, { action: 'get_order_status', order_id: order.id, customer_phone: order.customer_phone, ...(idToken ? {id_token:idToken} : {}) });
+  const data = await privatePost(endpoint, { action: 'get_order_status', order_id: order.id, customer_phone: order.customer_phone,
+    ...(order.customer_access_token ? {customer_access_token:order.customer_access_token} : {}),
+    ...(idToken ? {id_token:idToken} : {}) });
   const validStatuses: OrderStatus[] = ['pending', 'confirmed', 'preparing', 'ready', 'assigned', 'picked_up', 'out_for_delivery', 'delivered', 'cancelled'];
   if (data.order_id !== order.id || !validStatuses.includes(data.status as OrderStatus) ||
       typeof data.updated_at !== 'string' || !Array.isArray(data.history) ||
