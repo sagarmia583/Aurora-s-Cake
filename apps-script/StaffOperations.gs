@@ -196,9 +196,12 @@ function auroraOperationsPost_(input) {
       }
       order.cod_collected = order.payment_method === 'cod';
       order.payment_status = order.payment_method === 'cod' ? 'paid' : order.payment_status;
+      // Delivery codes are single-use; never persist a valid code after completion.
+      order.delivery_otp = '';
       order.otp_failed_attempts = 0;
       order.otp_locked_until = 0;
     }
+    if (action === 'cancel') order.delivery_otp = '';
     order.status = transitions[action][1];
     order.updated_at = new Date().toISOString();
     if (!Array.isArray(order.history)) order.history = [];
