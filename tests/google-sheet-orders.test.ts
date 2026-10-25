@@ -517,3 +517,65 @@ test('only authenticated super admin sees a private read-only directory of confi
   assert.equal(h.post({action:'staff_session',id_token:INTRUDER_TOKEN}).code,'forbidden');
   assert.equal(h.get('public').staff_profiles,undefined);
 });
+
+test('phone signup persists profile in Sheets, prevents phone-only order access, and safely links original receipt',()=>{
+  const h=harness({singleFile:true});
+  const account=h.post({action:'customer_phone_signup',name:'Cake Customer',phone:'01700112233',password:'SecureCakePass2026!'});
+  assert.equal(account.ok,true,JSON.stringify(account));
+  assert.equal(account.profile.phone,'01700112233');
+  assert.equal(account.profile.phone_verified,false);
+  assert.equal('password_hash' in account,false);
+  assert.equal(h.records('customer_accounts').length,1);
+  assert.equal(h.records('auth_sessions').length,1);
+  assert.equal(h.post({action:'customer_phone_orders',phone:'01700112233'}).code,'unauthorized');
+  assert.equal(h.post({action:'customer_phone_signup',name:'Other',phone:'01700112233',password:'Password2026!'}).code,'duplicate_account');
+
+  const order=h.post(request()).order;
+  assert.equal(h.post({action:'customer_phone_orders',auth_token:account.auth_token}).orders.length,0);
+  assert.equal(h.post({action:'customer_phone_claim',auth_token:account.auth_token,order_id:order.id,customer_access_token:'wrong'}).code,'forbidden');
+  assert.equal(h.post({action:'customer_phone_claim',auth_token:account.auth_token,order_id:order.id,customer_access_token:order.customer_access_token}).ok,true);
+  const recovered=h.post({action:'customer_phone_orders',auth_token:account.auth_token}).orders;
+  assert.equal(recovered.length,1);
+  assert.equal(recovered[0].id,order.id);
+  const profile=h.post({action:'customer_phone_profile',auth_token:account.auth_token,name:'New Name',email:'new@example.com',address:'Tangail'});
+  assert.equal(profile.profile.name,'New Name');
+  assert.equal(h.records('customer_accounts')[0].address,'Tangail');
+  const next=h.post({action:'customer_phone_login',phone:'01700112233',password:'SecureCakePass2026!'});
+  assert.equal(next.ok,true);
+  assert.equal(next.profile.name,'New Name');
+  assert.equal(h.post({action:'customer_phone_orders',auth_token:next.auth_token}).orders.length,1);
+  assert.equal(h.post({action:'customer_phone_logout',auth_token:account.auth_token}).ok,true);
+  assert.equal(h.post({action:'customer_phone_orders',auth_token:account.auth_token}).code,'unauthorized');
+});
+test('verified super admin creates username/password rider; only the assigned rider can deliver',()=>{
+  const h=harness({singleFile:true});
+  const details={action:'staff_account_create',id_token:ADMIN_TOKEN,username:'rider02',name:'Rider Two',
+    password:'RiderSecurePass2026!',role:'delivery_man'};
+  assert.equal(h.post(details).created,true);
+  assert.equal(h.post(details).code,'duplicate_account');
+  assert.equal(h.post({...details,id_token:INTRUDER_TOKEN,username:'rider03'}).code,'forbidden');
+  const signed=h.post({action:'staff_password_login',username:'rider02',password:'RiderSecurePass2026!'});
+  assert.equal(signed.role,'delivery_man',JSON.stringify(signed));
+  const session=h.post({action:'staff_session',auth_token:signed.auth_token});
+  assert.equal(session.role,'delivery_man');
+  assert.equal('staff_profiles' in session,false);
+  const owner=h.post({action:'staff_session',id_token:ADMIN_TOKEN});
+  assert.ok(owner.staff_profiles.some((p:{username?:string})=>p.username==='rider02'));
+  assert.ok(owner.riders.some((p:{email:string})=>p.email==='rider02'));
+  const first=h.post(request()).order;
+  const change=(operation:string,auth_token:string,more:Record<string,unknown>={})=>
+    h.post({action:'staff_mutate',auth_token,order_id:first.id,operation,...more});
+  assert.equal(change('pick_up',signed.auth_token).code,'invalid_transition');
+  const adminChange=(operation:string,more:Record<string,unknown>={})=>
+    h.post({action:'staff_mutate',id_token:ADMIN_TOKEN,order_id:first.id,operation,...more});
+  for(const op of ['confirm','start_baking','mark_ready'])assert.equal(adminChange(op).ok,true);
+  assert.equal(adminChange('assign',{rider_email:'rider02'}).ok,true);
+  assert.equal(change('pick_up',signed.auth_token).ok,true);
+  assert.equal(change('start_delivery',signed.auth_token).ok,true);
+  assert.equal(change('deliver',signed.auth_token,{delivery_otp:'0000',cash_collected:true}).code,'invalid_otp');
+  const code=JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp;
+  assert.match(code,/^\d{4}$/);
+  assert.equal(change('deliver',signed.auth_token,{delivery_otp:code,cash_collected:true}).ok,true);
+  assert.equal(h.post({action:'staff_password_logout',auth_token:signed.auth_token}).ok,true);
+  assert.equal(h.post({action:'staff_orders',auth_token:signed.auth_token}).code,'unauthorized');
+});
