@@ -1,11 +1,14 @@
 /**
- * AURORA'S CAKE — ALL-IN-ONE APPS SCRIPT (9 modules in one Code.gs)
- * Owner Gmail, Staff passwords, Customer phone accounts/secure history,
- * complete live CMS and authenticated Google Drive image uploads.
- * BACK UP SHEET; replace the old Code.gs completely. Run setupSheetDatabase()
- * preserving existing data, then Deploy → Manage deployments → New version.
- * Customer account closure retains COD ledger; CMS archives public records.
- * Google Drive private image folder created when Admin uploads the first photo.
+ * AURORA'S CAKE — ALL-IN-ONE Google Apps Script (9 modules in one Code.gs)
+ * Owner Google Login; employee username/password; Customer phone/password,
+ * private Google Sheet profile/order history; full public website CMS;
+ * ADMIN-ONLY image upload to a PRIVATE Google Drive folder (free) and
+ * public bakery image proxy URLs served by the Vercel Hobby Function.
+ *
+ * BACK UP Google Sheet; REPLACE existing Code.gs with this whole file;
+ * run setupSheetDatabase() and setupAuroraImagesOnce() under OWNER account;
+ * Deploy → Manage deployments → Edit → New version → Deploy.
+ * Do not publish the Drive image folder or share the private Google Sheet.
  */
 
 /* ===== BEGIN apps-script/Code.gs ===== */
@@ -2381,6 +2384,14 @@ function auroraImageFolder_(create){
   var folder=DriveApp.createFolder('AurorasCake_Web_Images_'+Utilities.getUuid());
   props.setProperty(AURORA_IMAGE_FOLDER_PROP_,folder.getId());
   return folder;
+}
+/**
+ * Run this ONCE from the Apps Script editor as the spreadsheet owner.
+ * This authorizes DriveApp scope and creates a private image-only folder.
+ * Existing folder is reused; the folder is never made public.
+ */
+function setupAuroraImagesOnce(){
+  return auroraImageFolder_(true).getId();
 }
 function auroraImageMime_(bytes){
   if(bytes.length>3&&bytes[0]===255&&bytes[1]===216&&bytes[2]===255)return 'image/jpeg';
