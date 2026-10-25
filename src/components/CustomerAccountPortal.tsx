@@ -3,7 +3,7 @@ import { X, ShieldCheck, RefreshCw, Link2, LogOut } from 'lucide-react';
 import type { Order } from '../types';
 import { verifyCustomerGoogle, linkCustomerReceipt, recoverCustomerReceipts } from '../services/sheetCustomerApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
-import { getPhoneCustomerProfile, signupPhoneCustomer, loginPhoneCustomer, updatePhoneCustomerProfile, phoneCustomerOrders, linkPhoneCustomerReceipt, logoutPhoneCustomer } from '../services/phoneCustomerApi';
+import { getPhoneCustomerProfile, signupPhoneCustomer, loginPhoneCustomer, updatePhoneCustomerProfile, phoneCustomerOrders, linkPhoneCustomerReceipt, logoutPhoneCustomer, changePhoneCustomerPassword, closePhoneCustomerAccount } from '../services/phoneCustomerApi';
 import type { PhoneCustomerProfile } from '../services/phoneCustomerApi';
 
 type GoogleSdk = {
@@ -35,6 +35,8 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
   const [phoneMode,setPhoneMode]=useState<'login'|'signup'>('login');
   const [phoneForm,setPhoneForm]=useState({name:'',phone:'',password:''});
   const [phoneHistory,setPhoneHistory]=useState<Order[]>([]);
+  const [passwords,setPasswords]=useState({current:'',next:''});
+  const [closingPassword,setClosingPassword]=useState('');
   const [phoneProfileDraft,setPhoneProfileDraft]=useState({name:'',email:'',address:''});
   const signIn=useCallback(async(token:string)=>{
     setBusy(true);setError('');
@@ -138,6 +140,28 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
     setPhoneAccount(null);setPhoneHistory([]);onSignOut?.();setError('');
     if(token)try{await logoutPhoneCustomer(endpoint,token);}catch{}
   };
+  const changeMyPassword=async(event:React.FormEvent)=>{
+    event.preventDefault();if(!phoneAccount||busy)return;
+    setBusy(true);setError('');
+    try{
+      const newToken=await changePhoneCustomerPassword(endpoint,phoneAccount.token,passwords.current,passwords.next);
+      try{sessionStorage.setItem('aurora_customer_phone_session_v1',newToken);}catch{}
+      setPhoneAccount(current=>current?{...current,token:newToken}:current);
+      setPasswords({current:'',next:''});
+    }catch(e){setError(e instanceof Error?e.message:'Password update failed.');}
+    finally{setBusy(false);}
+  };
+  const closeMyAccount=async(event:React.FormEvent)=>{
+    event.preventDefault();if(!phoneAccount||busy)return;
+    if(!window.confirm('Close your phone account and sign out all devices? Your previous COD order ledger must be kept for bookkeeping.'))return;
+    setBusy(true);setError('');
+    try{
+      await closePhoneCustomerAccount(endpoint,phoneAccount.token,closingPassword);
+      try{sessionStorage.removeItem('aurora_customer_phone_session_v1');}catch{}
+      setPhoneAccount(null);setPhoneHistory([]);setClosingPassword('');onSignOut?.();
+    }catch(e){setError(e instanceof Error?e.message:'Account could not be closed.');}
+    finally{setBusy(false);}
+  };
   const refresh=async()=>{
     if(!account)return;
     setBusy(true);setError('');
@@ -208,6 +232,28 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
               <textarea aria-label="Delivery address" placeholder="Saved delivery address" value={phoneProfileDraft.address} onChange={e=>setPhoneProfileDraft(p=>({...p,address:e.target.value}))} className="border rounded-xl p-2"/>
               <button disabled={busy} type="submit" className="bg-emerald-800 text-white rounded-xl p-2 disabled:opacity-50">Save profile to Sheets</button>
             </form>
+            <details className="rounded-xl border border-emerald-200 bg-white p-3">
+              <summary className="text-sm font-semibold cursor-pointer">Account security & password</summary>
+              <form onSubmit={changeMyPassword} className="mt-3 space-y-2">
+                <input type="password" required minLength={10} autoComplete="current-password"
+                  aria-label="Current customer password" placeholder="Current password" className="w-full border rounded-lg p-2"
+                  value={passwords.current} onChange={e=>setPasswords(p=>({...p,current:e.target.value}))}/>
+                <input type="password" required minLength={10} autoComplete="new-password"
+                  aria-label="New customer password" placeholder="New password (10+ characters)" className="w-full border rounded-lg p-2"
+                  value={passwords.next} onChange={e=>setPasswords(p=>({...p,next:e.target.value}))}/>
+                <button type="submit" disabled={busy} className="bg-emerald-800 text-white text-sm rounded-lg px-3 py-2">Change password and sign out other devices</button>
+              </form>
+            </details>
+            <details className="rounded-xl border border-red-200 bg-white p-3">
+              <summary className="text-sm font-semibold text-red-700 cursor-pointer">Close my phone account</summary>
+              <form onSubmit={closeMyAccount} className="mt-3 space-y-2">
+                <p className="text-xs text-slate-700">This disables account access, clears editable profile details and revokes sessions. Financial order and payment records are retained securely for COD reconciliation.</p>
+                <input type="password" required minLength={10} autoComplete="current-password" placeholder="Confirm current password"
+                  aria-label="Password to close customer account" className="w-full border rounded-lg p-2"
+                  value={closingPassword} onChange={e=>setClosingPassword(e.target.value)}/>
+                <button type="submit" disabled={busy} className="border border-red-500 text-red-700 text-sm rounded-lg px-3 py-2">Close account</button>
+              </form>
+            </details>
             <div className="space-y-2">
               <div className="flex justify-between items-center"><h4 className="font-bold">My order history ({phoneHistory.length})</h4>
                 <button onClick={()=>void refreshPhone()} disabled={busy} type="button" className="text-sm underline">Refresh</button></div>
