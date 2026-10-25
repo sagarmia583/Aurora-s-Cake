@@ -186,6 +186,39 @@ function auroraAccountCustomerPost_(input) {
   var person=auroraAccountAuthenticate_('customer',input.auth_token);
   if(action==='customer_phone_session')return {ok:true,profile:auroraAccountSafeCustomer_(person)};
   if(action==='customer_phone_logout'){auroraAccountSignOut_('customer',input.auth_token);return {ok:true};}
+  if(action==='customer_phone_password'||action==='customer_phone_close'){
+    var oldPassword=String(input.current_password||'');
+    if(oldPassword.length<10||auroraAccountHash_(oldPassword,String(person.password_salt))!==person.password_hash)
+      auroraReject_('invalid_credentials','Current password was not accepted.');
+    var accountLock=LockService.getScriptLock();
+    if(!accountLock.tryLock(10000))auroraReject_('busy','Another account update is in progress.');
+    try{
+      var accounts=auroraPrivateTable_(auroraSpreadsheet_(),'customer_accounts');
+      var current=auroraAccountValue_(accounts,person.id);
+      if(!current||!(current.active===true||String(current.active).toLowerCase()==='true'))
+        auroraReject_('unauthorized','Your account is no longer active.');
+      if(auroraAccountHash_(oldPassword,String(current.password_salt))!==current.password_hash)
+        auroraReject_('invalid_credentials','Current password was not accepted.');
+      if(action==='customer_phone_close'){
+        current.active=false;
+        current.name='Closed account';current.email='';current.address='';
+        current.updated_at=new Date().toISOString();
+        auroraAccountSave_(accounts,current);
+        auroraAccountRevokeAll_('customer',current.id);
+        // Financial records/receipts remain unchanged for COD reconciliation.
+        return {ok:true,closed:true};
+      }
+      var freshPassword=auroraAccountPassword_(input.new_password);
+      if(freshPassword===oldPassword)auroraReject_('invalid_password','Choose a new password.');
+      var salt=auroraAccountToken_();
+      current.password_salt=salt;
+      current.password_hash=auroraAccountHash_(freshPassword,salt);
+      current.updated_at=new Date().toISOString();
+      auroraAccountSave_(accounts,current);
+      auroraAccountRevokeAll_('customer',current.id);
+      return {ok:true,auth_token:auroraAccountStart_('customer',current.id)};
+    }finally{accountLock.releaseLock();}
+  }
   if(action==='customer_phone_profile'){
     var n=auroraOrderText_(input.name,'Name',2,100);
     var address=auroraOptionalText_(input.address,'Address',300);
