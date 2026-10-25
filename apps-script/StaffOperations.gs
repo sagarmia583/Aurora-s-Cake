@@ -9,10 +9,11 @@
  * {"owner@example.com":{"role":"super_admin","name":"Owner"},
  *  "rider@example.com":{"role":"delivery_man","name":"Rider"}}
  */
+var AURORA_PUBLIC_GOOGLE_CLIENT_ID = "246617121730-fssfp59nlinltkfq0rccuud74rfpccum.apps.googleusercontent.com";
 var AURORA_STAFF_ROLES_ = ['super_admin','admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'];
 function auroraStaffConfig_() {
   var props = PropertiesService.getScriptProperties();
-  var clientId = String(props.getProperty('AURORA_GOOGLE_CLIENT_ID') || '').trim();
+  var clientId = String(props.getProperty('AURORA_GOOGLE_CLIENT_ID') || AURORA_PUBLIC_GOOGLE_CLIENT_ID).trim();
   var raw = String(props.getProperty('AURORA_STAFF_USERS') || '{}');
   var people = JSON.parse(raw);
   if (!clientId || !people || typeof people !== 'object' || Array.isArray(people)) {
