@@ -1,14 +1,15 @@
 /**
- * Aurora's Cake — ALL-IN-ONE Apps Script for Google Sheets.
- * Current modules: Public catalog, COD orders, Owner Google Login,
- * Employee username/password, phone/password customers, permanent profiles
- * and receipt-linked order history, custom cakes and staff catalog tools.
- * Paste ALL into one Code.gs and remove prior module files.
- * After backing up the existing sheet, RUN setupSheetDatabase() to create
- * new private staff_accounts, customer_accounts and auth_sessions tabs.
- * This function preserves existing non-empty tabs. Redeploy NEW version.
- * Phone signup does NOT verify ownership by SMS; no historical orders are
- * disclosed by phone alone. Never disclose stored password/session hashes.
+ * Aurora's Cake — ALL-IN-ONE Google Apps Script backend.
+ * Seven source modules bundled into ONE Code.gs: Public/COD, SeedData,
+ * Staff Google + username/password, phone/password Customer Accounts,
+ * Google Customer Accounts, LiveCatalog, Custom Cake Requests.
+ *
+ * INSTALL: Copy full file into the existing Apps Script Code.gs, keeping
+ * only this one .gs file. BACK UP Google Sheet. Run setupSheetDatabase()
+ * to add 3 PRIVATE tabs while keeping existing order/catalog data. Then
+ * Deploy → Manage deployments → Edit → New version → Deploy.
+ *
+ * Phone is NOT verified with SMS. Existing orders never link by phone alone.
  */
 
 /* ==== BEGIN apps-script/Code.gs ==== */
@@ -1741,8 +1742,8 @@ function auroraAccountSave_(table,record) {
 }
 function auroraAccountProfiles_() {
   var table=auroraPrivateTable_(auroraSpreadsheet_(),'staff_accounts');
-  return table.rows.filter(function(person){return person.active===true||String(person.active).toLowerCase()==='true';})
-    .map(function(person){return {name:String(person.name||person.username),username:String(person.username),role:String(person.role),active:true};});
+  return table.rows.map(function(person){return {name:String(person.name||person.username),username:String(person.username),
+    role:String(person.role),active:person.active===true||String(person.active).toLowerCase()==='true'};});
 }
 function auroraAccountStart_(kind,id) {
   var t=auroraPrivateTable_(auroraSpreadsheet_(),'auth_sessions'),now=Date.now();
@@ -1865,6 +1866,12 @@ function auroraAccountCustomerPost_(input) {
     var name=auroraOrderText_(input.name,'Name',2,100);
     var lock=LockService.getScriptLock();if(!lock.tryLock(10000))auroraReject_('busy','Try again.');
     try {
+      // Google Apps Script has no trusted public client IP header. Limit the
+      // free anonymous signup endpoint globally and per normalized phone.
+      var cache=CacheService.getScriptCache(),key='aurora_phone_signup_'+auroraAccountDigest_(phone).slice(0,28);
+      var prior=Number(cache.get(key)||0);
+      if(prior>=3)auroraReject_('rate_limited','Too many registration attempts for this number. Retry later.');
+      cache.put(key,String(prior+1),3600);
       var t=auroraPrivateTable_(auroraSpreadsheet_(),'customer_accounts');
       if(t.rows.some(function(row){return String(row.phone)===phone;}))
         auroraReject_('duplicate_account','This phone number already has an account. Sign in or contact the shop.');
