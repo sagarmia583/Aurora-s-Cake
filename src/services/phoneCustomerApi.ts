@@ -47,3 +47,14 @@ export async function linkPhoneCustomerReceipt(endpoint:string,token:string,orde
 export async function logoutPhoneCustomer(endpoint:string,token:string):Promise<void>{
   await privatePost(endpoint,{action:'customer_phone_logout',auth_token:token});
 }
+
+export async function changePhoneCustomerPassword(endpoint:string,token:string,currentPassword:string,newPassword:string):Promise<string>{
+  const result=await privatePost(endpoint,{action:'customer_phone_password',auth_token:token,current_password:currentPassword,new_password:newPassword});
+  if(typeof result.auth_token!=='string'||! /^[a-f0-9-]{72}$/i.test(result.auth_token))
+    throw new Error('Customer password was changed but new session was not returned. Sign in again.');
+  return result.auth_token;
+}
+export async function closePhoneCustomerAccount(endpoint:string,token:string,currentPassword:string):Promise<void>{
+  const result=await privatePost(endpoint,{action:'customer_phone_close',auth_token:token,current_password:currentPassword});
+  if(result.closed!==true)throw new Error('The account could not be closed.');
+}
