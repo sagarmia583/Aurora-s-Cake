@@ -1,15 +1,12 @@
 /**
- * Aurora's Cake — ALL-IN-ONE Google Apps Script backend.
- * Seven source modules bundled into ONE Code.gs: Public/COD, SeedData,
- * Staff Google + username/password, phone/password Customer Accounts,
- * Google Customer Accounts, LiveCatalog, Custom Cake Requests.
- *
- * INSTALL: Copy full file into the existing Apps Script Code.gs, keeping
- * only this one .gs file. BACK UP Google Sheet. Run setupSheetDatabase()
- * to add 3 PRIVATE tabs while keeping existing order/catalog data. Then
- * Deploy → Manage deployments → Edit → New version → Deploy.
- *
- * Phone is NOT verified with SMS. Existing orders never link by phone alone.
+ * AURORA'S CAKE — ALL-IN-ONE APPS SCRIPT, 7 modules in one Code.gs
+ * Staff owner: Google Sign-In. Employees: username/password and role access.
+ * Customers: phone/password signup, private permanent Google Sheet profiles
+ * and receipt-linked order histories; phone numbers NOT SMS verified.
+ * INSTALL: BACK UP Sheet; replace existing Apps Script Code.gs with this entire
+ * file; remove duplicate old modules; RUN setupSheetDatabase() (preserves
+ * existing non-empty tables); Deploy → Manage deployments → New version.
+ * Private tabs added: staff_accounts, customer_accounts, auth_sessions.
  */
 
 /* ==== BEGIN apps-script/Code.gs ==== */
@@ -1568,7 +1565,7 @@ function auroraOperationsOrders_(actor, table) {
 function auroraOperationsPost_(input) {
   var actor = auroraStaffAuthenticate_(input);
   if (input.action === 'staff_session') {
-    var registered=auroraAccountProfiles_(),riders=registered.filter(function(p){return p.role==='delivery_man';})
+    var registered=auroraAccountProfiles_(),riders=registered.filter(function(p){return p.role==='delivery_man'&&p.active===true;})
       .map(function(p){return {email:p.username,name:p.name};});
     Object.keys(actor.people).filter(function(email){
       return actor.people[email]&&actor.people[email].role==='delivery_man';
@@ -1618,7 +1615,7 @@ function auroraOperationsPost_(input) {
       var rider = actor.people[riderEmail];
       if(!rider){
         var allowed=auroraAccountProfiles_().filter(function(person){
-          return person.username===riderEmail&&person.role==='delivery_man';
+          return person.username===riderEmail&&person.role==='delivery_man'&&person.active===true;
         })[0];
         if(allowed)rider={role:'delivery_man',name:allowed.name};
       }
