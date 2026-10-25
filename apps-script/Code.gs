@@ -46,6 +46,10 @@ function doGet(e) {
     return auroraResponse_({ok:false,error:'Invalid callback.'});
   }
   var action = params.action || 'public';
+  if(action==='public_image') {
+    try {return auroraResponse_(auroraPublicImage_(params.id||''));}
+    catch(error){return auroraResponse_({ok:false,error:'Image unavailable.'});}
+  }
   if (action !== 'public' && action !== 'health') {
     return auroraResponse_({ok:false,error:'Only the public and health read actions are available.'}, callback);
   }
@@ -87,9 +91,13 @@ function doPost(e) {
   var locked = false;
   try {
     var raw = e && e.postData && e.postData.contents;
-    if (typeof raw !== 'string' || !raw || raw.length > 50000) auroraReject_('invalid_request','Send a JSON order body under 50 KB.');
+    if (typeof raw !== 'string' || !raw || raw.length > 950000) auroraReject_('invalid_request','Request is too large.');
+    // Only the authenticated image-upload route can exceed normal 50 KB JSON.
+    if(raw.length>50000&&!/"action"\s*:\s*"staff_image_upload"/.test(raw.slice(0,500)))
+      auroraReject_('invalid_request','The order body must be under 50 KB.');
     var input;
     try { input = JSON.parse(raw); } catch (_) { auroraReject_('invalid_request','The order body must be valid JSON.'); }
+    if(input&&input.action==='staff_image_upload')return auroraResponse_(auroraImageUpload_(input));
     // Private operations authenticate every POST; never expose these reads via GET.
     // All credential/private account routes use POST; never exposed via public GET.
     if(input && /^(staff_password_login|staff_password_logout|staff_account_create|staff_account_set_active|staff_account_reset_password)$/.test(String(input.action||'')))
