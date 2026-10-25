@@ -466,6 +466,7 @@ export default function App() {
         onClose={() => setIsTrackOrderOpen(false)}
         orders={orders}
         currentOrderId={latestOrderId}
+        onSelectedOrderChange={setLatestOrderId}
         currency={settings.currency}
       />
 
