@@ -61,6 +61,10 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
     try{
       const values:Record<string,Cell>={};
       for(const field of columnsFor(data))values[field]=convert(field,draft[field]??'');
+      const settingsKey=creating?newKey:selected;
+      if(table==='settings'&&['accepting_orders','delivery_enabled'].includes(settingsKey)) {
+        values.value=draft.value===true||draft.value==='true';
+      }
       await mutateCmsTable(endpoint,token,table,creating?'create':'update',values,creating?undefined:selected,
         creating&&(table==='settings'||table==='content')?newKey:undefined);
       await load();setSelected('');setCreating(false);setDraft({});
@@ -133,7 +137,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
           <div className="grid sm:grid-cols-2 gap-3 max-h-[450px] overflow-y-auto pr-1">
             {columnsFor(data).map(field=><label key={field} className="block text-xs font-semibold text-slate-700">
               {field.replaceAll('_',' ')}
-              {boolFields.has(field) || ((table==='settings'||table==='content')&&field==='value'&&typeof draft[field]==='boolean') ?
+              {boolFields.has(field) || (table==='settings'&&field==='value'&&(typeof draft[field]==='boolean'||['accepting_orders','delivery_enabled'].includes(creating?newKey:selected))) ?
                 <select aria-label={field} value={String(draft[field]??false)} onChange={e=>setDraft(prev=>({...prev,[field]:e.target.value==='true'}))}
                   className="block w-full border rounded-lg p-2 mt-1"><option value="true">Yes / ON</option><option value="false">No / OFF</option></select>
                :field==='discount_type'?
