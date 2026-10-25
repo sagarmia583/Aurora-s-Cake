@@ -258,7 +258,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
           </button>
         </div>
 
-        <p className="text-xs text-slate-600 bg-rose-50 px-6 py-3">Demo order history and profile details are stored on this device. This is not a signed-in customer account.</p>
+        <p className="text-xs text-slate-600 bg-rose-50 px-6 py-3">Order receipts and profile details saved here are stored on this device. For private cross-device recovery, use My Google orders. On shared devices, sign out and clear saved data.</p>
         {/* Quick Metrics Bar */}
         <div className="grid grid-cols-3 gap-2 px-6 py-3 bg-slate-50 border-b border-slate-200/80 text-xs">
           <div className="space-y-0.5">
