@@ -827,7 +827,7 @@ test('customer phone account history only scans receipt JSON rather than the wid
   const history=h.post({action:'customer_phone_orders',auth_token:acct.auth_token});
   assert.equal(history.orders.length,1);
   assert.equal(history.orders[0].id,original.id);
-  const wide=h.rangeReads.filter(r=>r.name==='orders'&&r.height>1);
-  assert.ok(wide.length>0);
-  assert.ok(wide.every(r=>r.width===1),'Account refresh must read receipt JSON only');
+  const orderDataReads=h.rangeReads.filter(r=>r.name==='orders'&&r.row>1);
+  assert.ok(orderDataReads.length>0);
+  assert.ok(orderDataReads.every(r=>r.width===1),'Account refresh must read receipt JSON only');
 });
