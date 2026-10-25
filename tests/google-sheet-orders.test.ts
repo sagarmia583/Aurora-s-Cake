@@ -726,3 +726,51 @@ test('photo storage actions are rejected for untrusted visitors and image signat
  assert.equal(context.auroraImageMime_([137,80,78,71,13,10,26,10,0]),'image/png');
  assert.throws(()=>context.auroraImageMime_([65,65,65,65]));
 });
+
+
+test('authenticated Admin uploads a picture to a dedicated private folder, and public GET serves only that folder',()=>{
+ const h=harness({singleFile:true}),properties=new Map<string,string>(),files=new Map<string,any>();
+ const originalProps=h.context.PropertiesService;
+ h.context.PropertiesService={getScriptProperties:()=>({
+   getProperty:(key:string)=>properties.get(key)??originalProps.getScriptProperties().getProperty(key),
+   setProperty:(key:string,value:string)=>{properties.set(key,value);}
+ })};
+ const folderId='dedicated_aurora_folder_123456';
+ const folder={
+   getId:()=>folderId,isTrashed:()=>false,
+   createFile:(blob:any)=>{
+     const id='bakery_public_img_123456789abcdef';
+     const file={
+       getId:()=>id,isTrashed:()=>false,getMimeType:()=>blob.mime,
+       getSize:()=>blob.bytes.length,getBlob:()=>({getBytes:()=>blob.bytes}),
+       getParents:()=>{let seen=false;return {hasNext:()=>!seen,next:()=>{seen=true;return folder;}}}
+     };
+     files.set(id,file);
+     return file;
+   }
+ };
+ h.context.DriveApp={
+   createFolder:()=>folder,getFolderById:(id:string)=>id===folderId?folder:undefined,
+   getFileById:(id:string)=>{
+     const match=files.get(id);
+     if(!match)throw new Error('Google Drive file does not exist');
+     return match;
+   }
+ };
+ h.context.Utilities.newBlob=(bytes:number[],mime:string,name:string)=>({bytes,mime,name});
+ h.context.Utilities.base64Encode=(bytes:number[])=>Buffer.from(bytes).toString('base64');
+ const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5pvlkAAAAASUVORK5CYII=','base64');
+ const upload=h.post({action:'staff_image_upload',id_token:ADMIN_TOKEN,base64:png.toString('base64'),mime_type:'image/png'});
+ assert.equal(upload.ok,true,JSON.stringify(upload));
+ assert.equal(upload.mime_type,'image/png');
+ assert.match(upload.url,/^\/api\/images\/bakery_public_img_/);
+ assert.equal(properties.get('AURORA_PUBLIC_IMAGE_FOLDER_ID'),folderId);
+ const fileId=upload.url.slice('/api/images/'.length);
+ const response=JSON.parse(h.context.doGet({parameter:{action:'public_image',id:fileId}}).content);
+ assert.equal(response.ok,true);
+ assert.equal(response.base64,png.toString('base64'));
+ assert.equal(response.mime_type,'image/png');
+ const outside=JSON.parse(h.context.doGet({parameter:{action:'public_image',id:'not_from_aurora_folder_123'}}).content);
+ assert.equal(outside.ok,false);
+ assert.equal(h.post({action:'staff_image_upload',id_token:RIDER_TOKEN,base64:png.toString('base64'),mime_type:'image/png'}).code,'forbidden');
+});
