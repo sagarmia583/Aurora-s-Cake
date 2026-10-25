@@ -34,7 +34,7 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean}={}) {
     coupons:[['id','code','discount_type','discount_value','min_order_amount','max_discount_amount','is_active'],['c1','SAVE10','percentage',10,100,120,true]],
   };
   if(!options.withoutPrivate){tables.orders=[ORDER_HEADERS];tables.order_items=[ITEM_HEADERS];tables.custom_cake_requests=[CUSTOM_HEADERS];tables.staff_accounts=[STAFF_HEADERS];tables.customer_accounts=[CUSTOMER_HEADERS];tables.auth_sessions=[SESSION_HEADERS];}
-  const reads:string[]=[];const writes:string[]=[];
+  const reads:string[]=[];const writes:string[]=[];const rangeReads:{name:string,row:number,col:number,height:number,width:number}[]=[];
   const throttles=new Map<string,string>();
   let failNextItemWrite=false;let failAfterOrderWrite=false;let acquired=0;
   const sheet=(name:string):any=>({
@@ -43,7 +43,7 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean}={}) {
     getMaxRows:()=>1000,
     getRange:(row:number,col:number,height:number,width:number)=>{
       const range:any={
-        getValues:()=>Array.from({length:height},(_,r)=>Array.from({length:width},(_,c)=>tables[name][row+r-1]?.[col+c-1]??'')),
+        getValues:()=>{rangeReads.push({name,row,col,height,width});return Array.from({length:height},(_,r)=>Array.from({length:width},(_,c)=>tables[name][row+r-1]?.[col+c-1]??''));},
         setValues:(values:Row[])=>{
           writes.push(name);
           if(name==='order_items'&&failNextItemWrite){failNextItemWrite=false;throw new Error('simulated item write interruption');}
@@ -86,7 +86,7 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean}={}) {
   const get=(action:string)=>JSON.parse(context.doGet({parameter:{action}}).content);
   const records=(name:string)=>tables[name].slice(1).map(row=>Object.fromEntries(tables[name][0].map((key,index)=>[String(key),row[index]])));
   const change=(name:string,key:string,value:unknown)=>{const col=tables[name][0].indexOf(key);tables[name][1][col]=value;};
-  return {tables,reads,writes,context,post,get,records,change,failItems:()=>{failNextItemWrite=true;},failOrderAck:()=>{failAfterOrderWrite=true;},lockCount:()=>acquired};
+  return {tables,reads,writes,rangeReads,context,post,get,records,change,failItems:()=>{failNextItemWrite=true;},failOrderAck:()=>{failAfterOrderWrite=true;},lockCount:()=>acquired};
 }
 
 test('private COD submission recomputes Sheet sale price, add-ons per quantity, fee and capped coupon',()=>{
@@ -773,4 +773,45 @@ test('authenticated Admin uploads a picture to a dedicated private folder, and p
  const outside=JSON.parse(h.context.doGet({parameter:{action:'public_image',id:'not_from_aurora_folder_123'}}).content);
  assert.equal(outside.ok,false);
  assert.equal(h.post({action:'staff_image_upload',id_token:RIDER_TOKEN,base64:png.toString('base64'),mime_type:'image/png'}).code,'forbidden');
+});
+
+
+test('fast customer status reads only id/header/receipt columns, not the whole private Orders Sheet',()=>{
+  const h=harness({singleFile:true});
+  const placed=h.post(request()).order;
+  h.rangeReads.length=0;
+  const status=h.post({action:'get_order_status',order_id:placed.id,customer_phone:placed.customer_phone,
+    customer_access_token:placed.customer_access_token});
+  assert.equal(status.ok,true,JSON.stringify(status));
+  assert.equal(status.status,'pending');
+  const touched=h.rangeReads.filter(item=>item.name==='orders');
+  assert.ok(touched.length>=3);
+  assert.ok(touched.some(item=>item.row===1&&item.height===1));
+  assert.equal(touched.filter(item=>item.height>1).every(item=>item.width===1),true,
+    'Status polling should not read entire multi-column order sheets');
+});
+test('phone account linked to receipt receives dispatch OTP; an unlinked customer is denied',()=>{
+  const h=harness({singleFile:true});
+  const first=h.post(request()).order;
+  const owner=h.post({action:'customer_phone_signup',name:'Recipient',phone:'01700112283',password:'TestSecretPassOne2026!'});
+  const other=h.post({action:'customer_phone_signup',name:'Other',phone:'01700112284',password:'TestSecretPassTwo2026!'});
+  const status=(auth_token:string)=>h.post({action:'get_order_status',order_id:first.id,
+    customer_phone:first.customer_phone,auth_token});
+  assert.equal(status(other.auth_token).code,'forbidden');
+  assert.equal(h.post({action:'customer_phone_claim',auth_token:owner.auth_token,order_id:first.id,
+    customer_access_token:first.customer_access_token}).ok,true);
+  assert.equal(status(owner.auth_token).delivery_otp,undefined);
+  const transition=(operation:string,token:string,more:Record<string,unknown>={})=>
+    h.post({action:'staff_mutate',id_token:token,operation,order_id:first.id,...more});
+  for(const step of ['confirm','start_baking','mark_ready'])assert.equal(transition(step,ADMIN_TOKEN).ok,true);
+  assert.equal(transition('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
+  assert.equal(transition('pick_up',RIDER_TOKEN).ok,true);
+  assert.equal(transition('start_delivery',RIDER_TOKEN).ok,true);
+  const code=String(JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp);
+  assert.match(code,/^\d{4}$/);
+  assert.equal(status(owner.auth_token).delivery_otp,code);
+  assert.equal(status(other.auth_token).code,'forbidden');
+  assert.equal(transition('deliver',RIDER_TOKEN,{delivery_otp:code,cash_collected:true}).ok,true);
+  assert.equal(status(owner.auth_token).delivery_otp,undefined);
+  assert.equal(status(owner.auth_token).status,'delivered');
 });
