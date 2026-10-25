@@ -173,7 +173,7 @@ function auroraOperationsPost_(input) {
       summary.staff_profiles=Object.keys(actor.people).filter(function(email){
         var person=actor.people[email];
         return person && AURORA_STAFF_ROLES_.indexOf(person.role)!==-1 &&
-          /^[^\s@]+@[^\s@]+\\.[^\s@]+$/.test(email);
+          /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
       }).map(function(email){return {email:email,name:String(actor.people[email].name||email).slice(0,100),role:actor.people[email].role};})
         .sort(function(a,b){return a.role==='super_admin'?-1:b.role==='super_admin'?1:a.name.localeCompare(b.name);}).slice(0,200);
     }
