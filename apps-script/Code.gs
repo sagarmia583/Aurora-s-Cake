@@ -125,7 +125,7 @@ function doPost(e) {
       coupon_code:order.coupon_code || '',order_note:order.order_note || '',payment_method:'cod',payment_status:'pending',receipt_json:receiptJson
     });
     auroraRepairOrderItems_(itemTable,order);
-    return auroraResponse_({success:true,persisted:true,order:order});
+    return auroraResponse_({success:true,persisted:true,order:auroraCheckoutReceiptSafe_(order)});
   } catch (error) {
     if (error && error.auroraValidation) return auroraResponse_({ok:false,success:false,persisted:false,code:error.code,error:error.message});
     console.error(error && error.stack ? error.stack : error);
@@ -138,8 +138,21 @@ function doPost(e) {
 
 /** Best-effort burst protection, inside the existing ScriptLock. Retries of a
  * committed request ID bypass this limiter, so ambiguous writes stay safe. */
+/**
+ * A private per-order bearer capability is supplied ONCE with the confirmed
+ * checkout receipt. It is not derived from phone, order ID or customer name.
+ * Two independently issued platform UUIDs form a 244-bit-string namespace.
+ * Google Apps Script does not expose a documented CSPRNG API, so keep the
+ * supported service and operational security limitations in documentation.
+ */
+function auroraNewCustomerCapability_() {
+  return String(Utilities.getUuid()).toLowerCase() + String(Utilities.getUuid()).toLowerCase();
+}
 function auroraCheckoutReceiptSafe_(value) {
   var receipt = JSON.parse(JSON.stringify(value));
+  receipt.delivery_otp = '';
+  delete receipt.otp_failed_attempts;
+  delete receipt.otp_locked_until;
   delete receipt.customer_google_sub;
   delete receipt.otp_failed_attempts;
   delete receipt.otp_locked_until;
@@ -301,7 +314,7 @@ function auroraBuildOrder_(book,request) {
     delivery_zone:{id:String(zone.id),name:String(zone.name || ''),delivery_fee:deliveryFee,estimated_time:String(zone.estimated_time || ''),is_active:true},
     delivery_slot:request.delivery_slot,delivery_date:request.delivery_date,status:'pending',subtotal:subtotal,delivery_fee:deliveryFee,
     discount_amount:discount,total_amount:total,coupon_code:request.coupon_code,order_note:request.order_note,payment_method:'cod',payment_status:'pending',
-    delivery_otp:String(1000 + Math.floor(Math.random() * 9000)),cod_amount:total,cod_collected:false,created_at:now,updated_at:now,items:items,
+    delivery_otp:'',customer_access_token:auroraNewCustomerCapability_(),cod_amount:total,cod_collected:false,created_at:now,updated_at:now,items:items,
     history:[{id:'history_' + request.request_id,status:'pending',notes:'Order received in Google Sheets',created_at:now,actor_name:'Customer'}]
   };
 }
