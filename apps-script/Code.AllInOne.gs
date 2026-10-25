@@ -1,14 +1,13 @@
 /**
- * AURORA'S CAKE — ALL-IN-ONE Google Apps Script (9 modules in one Code.gs)
- * Owner Google Login; employee username/password; Customer phone/password,
- * private Google Sheet profile/order history; full public website CMS;
- * ADMIN-ONLY image upload to a PRIVATE Google Drive folder (free) and
- * public bakery image proxy URLs served by the Vercel Hobby Function.
- *
- * BACK UP Google Sheet; REPLACE existing Code.gs with this whole file;
- * run setupSheetDatabase() and setupAuroraImagesOnce() under OWNER account;
- * Deploy → Manage deployments → Edit → New version → Deploy.
- * Do not publish the Drive image folder or share the private Google Sheet.
+ * AURORA'S CAKE — COMPLETE ONE-FILE GOOGLE APPS SCRIPT BACKEND
+ * Nine modules combined: Public Store, COD, Staff Google/Password Roles,
+ * Customer Phone/Password + Private Order History, Website CMS, Photos,
+ * Custom Cake Requests, Live Catalog & Seed Setup.
+ * BACK UP live Sheet; replace existing project Code.gs completely.
+ * Run setupSheetDatabase() and setupAuroraImagesOnce() as Owner,
+ * authorizing DriveApp access; Deploy → Manage deployments → New version.
+ * Public images served via same-origin Vercel /api/image?id=<file ID>
+ * Do not grant visitors access to the private image folder or private Sheet.
  */
 
 /* ===== BEGIN apps-script/Code.gs ===== */
@@ -2200,7 +2199,7 @@ function auroraCmsValidate_(name,field,value){
   }
   var str=auroraCmsString_(value,5000);
   if(AURORA_CMS_URL_FIELDS_.indexOf(field)!==-1||/(_url|_image)$/.test(field)){
-    if(str&&!/^https:\/\/[^\s<>"']+$/i.test(str)&&!/^\/images\/[a-zA-Z0-9_./-]+$/.test(str)&&!/^\/api\/images\/[A-Za-z0-9_-]{12,150}$/.test(str))
+    if(str&&!/^https:\/\/[^\s<>"']+$/i.test(str)&&!/^\/images\/[a-zA-Z0-9_./-]+$/.test(str)&&!/^\/api\/image\?id=[A-Za-z0-9_-]{12,150}$/.test(str))
       auroraReject_('invalid_url','Images and links must be HTTPS or an existing /images/ path.');
   }
   if(field==='color_hex'&&str&&!/^#[0-9a-f]{6}$/i.test(str))auroraReject_('invalid_color','Use a six-digit hex color.');
@@ -2419,7 +2418,7 @@ function auroraImageUpload_(input){
   cache.put(key,String(count+1),3600);
   var folder=auroraImageFolder_(true);
   var file=folder.createFile(Utilities.newBlob(bytes,mime,'aurora_'+Utilities.getUuid()+'.'+extension));
-  return {ok:true,url:'/api/images/'+file.getId(),mime_type:mime,bytes:bytes.length};
+  return {ok:true,url:'/api/image?id='+file.getId(),mime_type:mime,bytes:bytes.length};
 }
 function auroraPublicImage_(id){
   if(!/^[A-Za-z0-9_-]{12,150}$/.test(String(id||'')))auroraReject_('not_found','Unknown image.');
