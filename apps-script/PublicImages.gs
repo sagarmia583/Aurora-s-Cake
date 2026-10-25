@@ -18,6 +18,14 @@ function auroraImageFolder_(create){
   props.setProperty(AURORA_IMAGE_FOLDER_PROP_,folder.getId());
   return folder;
 }
+/**
+ * Run this ONCE from the Apps Script editor as the spreadsheet owner.
+ * This authorizes DriveApp scope and creates a private image-only folder.
+ * Existing folder is reused; the folder is never made public.
+ */
+function setupAuroraImagesOnce(){
+  return auroraImageFolder_(true).getId();
+}
 function auroraImageMime_(bytes){
   if(bytes.length>3&&bytes[0]===255&&bytes[1]===216&&bytes[2]===255)return 'image/jpeg';
   if(bytes.length>8&&bytes.slice(0,8).join(',')==='137,80,78,71,13,10,26,10')return 'image/png';
