@@ -88,7 +88,18 @@ function auroraOperationsOrders_(actor, table) {
     if (!order || !order.id) return;
     if (actor.role === 'delivery_man' && String(order.rider_id || '').toLowerCase() !== actor.email) return;
     if (actor.role === 'kitchen_manager' && ['pending','cancelled','delivered'].indexOf(order.status) !== -1) return;
-    // Delivery OTP never leaves the private server to any staff, including administrators.
+    // Staff never receives the delivery OTP or the customer's bearer capability.
+    delete order.customer_access_token;
+    delete order.customer_google_sub;
+    if (actor.role === 'kitchen_manager') {
+      delete order.customer_phone;
+      delete order.delivery_address;
+    }
+    if (actor.role === 'accountant') {
+      delete order.customer_phone;
+      delete order.delivery_address;
+      delete order.items;
+    }
     delete order.delivery_otp;
     delete order.otp_failed_attempts;
     delete order.otp_locked_until;
@@ -134,6 +145,11 @@ function auroraOperationsPost_(input) {
       order.rider_id = riderEmail;
       order.rider_name = String(rider.name||riderEmail).slice(0,100);
     }
+    if (action === 'start_delivery' && !order.delivery_otp) {
+      // No code is issued at checkout; generate it just before delivery.
+      // Use Apps Script's platform UUID source rather than Math.random().
+      order.delivery_otp = String(1000 + (parseInt(String(Utilities.getUuid()).replace(/-/g,'').slice(0,8),16) % 9000));
+    }
     if (action === 'deliver') {
       var nowMillis = Date.now();
       if (Number(order.otp_locked_until || 0) > nowMillis) auroraReject_('otp_locked','Too many incorrect OTP entries. Try again later.');
@@ -162,6 +178,8 @@ function auroraOperationsPost_(input) {
       notes:'Updated by authorized staff',actor_name:actor.name,created_at:order.updated_at});
     auroraPrivateSaveReceipt_(table,rowNumber,order);
     var safeOrder = JSON.parse(JSON.stringify(order));
+    delete safeOrder.customer_access_token;
+    delete safeOrder.customer_google_sub;
     delete safeOrder.delivery_otp;
     delete safeOrder.otp_failed_attempts;
     delete safeOrder.otp_locked_until;
@@ -177,14 +195,22 @@ function auroraCustomerOrderStatus_(input) {
   var record = table.rows.filter(function(row){return String(row.id)===orderId;})[0];
   if (!record || String(record.customer_phone||'').replace(/\D/g,'')!==digits) auroraReject_('not_found','Order reference and phone do not match.');
   var order = JSON.parse(String(record.receipt_json));
+  var hasCapability = typeof input.customer_access_token === 'string' &&
+    order.customer_access_token &&
+    input.customer_access_token === order.customer_access_token;
+  var hasGoogleOwner = false;
+  if (!hasCapability && input.id_token && order.customer_google_sub) {
+    hasGoogleOwner = auroraCustomerIdentity_(input).sub === order.customer_google_sub;
+  }
+  // Legacy orders predate customer capabilities and may still support
+  // limited phone/reference lookup, but NEVER return an OTP on that basis.
+  if (!hasCapability && !hasGoogleOwner && order.customer_access_token) {
+    auroraReject_('forbidden','A valid receipt access key or linked Google login is required.');
+  }
   var result={ok:true,order_id:order.id,status:order.status,updated_at:order.updated_at,
     history:Array.isArray(order.history) ? order.history.slice(-20) : [],rider_name:order.rider_name||'',
     payment_status:order.payment_status,cod_collected:order.cod_collected};
-  // A recovered customer gets their OTP only while the assigned rider is
-  // out for delivery and only when the verified Google subject matches.
-  if (input.id_token && order.customer_google_sub && order.status==='out_for_delivery') {
-    var account=auroraCustomerIdentity_(input);
-    if (account.sub !== order.customer_google_sub) auroraReject_('forbidden','This order belongs to a different account.');
+  if ((hasCapability || hasGoogleOwner) && order.status==='out_for_delivery') {
     result.delivery_otp=order.delivery_otp;
   }
   return result;
