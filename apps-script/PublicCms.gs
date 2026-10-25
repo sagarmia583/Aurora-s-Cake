@@ -100,6 +100,7 @@ function auroraCmsValidateRefs_(book,name,row,oldId){
       var ids=String(row[pair[0]]||'');
       if(!ids)return;
       var values=[];try{values=JSON.parse(ids);}catch(_){auroraReject_('invalid_list','Invalid selection IDs.');}
+      if(!values.length)return;
       var linked=auroraCmsRead_(book,pair[1]).rows.map(function(item){return String(item.id);});
       if(values.some(function(id){return linked.indexOf(id)===-1;}))
         auroraReject_('invalid_reference','Selected '+pair[1]+' ID does not exist.');
