@@ -7,12 +7,19 @@
     },
     "api/image.js": {
       "maxDuration": 30
+    },
+    "api/public.js": {
+      "maxDuration": 30
     }
   },
   "rewrites": [
     {
       "source": "/api/operations",
       "destination": "/api/operations"
+    },
+    {
+      "source": "/api/public",
+      "destination": "/api/public"
     },
     {
       "source": "/api/image",
