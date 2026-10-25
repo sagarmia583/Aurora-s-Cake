@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, RefreshCw, ShieldCheck, LockKeyhole, Truck, PackageCheck } from 'lucide-react';
 import { checkStaffSession, getStaffOrders, mutateStaffOrder } from '../services/sheetStaffApi';
 import type { StaffOperation, StaffOrder, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
+import { getAuroraGoogleClientId } from '../config/googleOAuth';
 import { LiveShopEditor } from './LiveShopEditor';
 import { CustomCakeQueue } from './CustomCakeQueue';
 
@@ -41,7 +42,7 @@ interface StaffPortalProps {
   onCatalogUpdated?: () => void;
 }
 export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpoint, onCatalogUpdated }) => {
-  const oauthClientId = (import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID as string | undefined)?.trim();
+  const oauthClientId = getAuroraGoogleClientId();
   const signinRef = useRef<HTMLDivElement>(null);
   const [identity, setIdentity] = useState<(StaffSession & { token: string }) | null>(null);
   const [orders, setOrders] = useState<StaffOrder[]>([]);
