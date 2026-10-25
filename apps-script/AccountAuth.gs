@@ -38,8 +38,8 @@ function auroraAccountSave_(table,record) {
 }
 function auroraAccountProfiles_() {
   var table=auroraPrivateTable_(auroraSpreadsheet_(),'staff_accounts');
-  return table.rows.filter(function(person){return person.active===true||String(person.active).toLowerCase()==='true';})
-    .map(function(person){return {name:String(person.name||person.username),username:String(person.username),role:String(person.role),active:true};});
+  return table.rows.map(function(person){return {name:String(person.name||person.username),username:String(person.username),
+    role:String(person.role),active:person.active===true||String(person.active).toLowerCase()==='true'};});
 }
 function auroraAccountStart_(kind,id) {
   var t=auroraPrivateTable_(auroraSpreadsheet_(),'auth_sessions'),now=Date.now();
@@ -162,6 +162,12 @@ function auroraAccountCustomerPost_(input) {
     var name=auroraOrderText_(input.name,'Name',2,100);
     var lock=LockService.getScriptLock();if(!lock.tryLock(10000))auroraReject_('busy','Try again.');
     try {
+      // Google Apps Script has no trusted public client IP header. Limit the
+      // free anonymous signup endpoint globally and per normalized phone.
+      var cache=CacheService.getScriptCache(),key='aurora_phone_signup_'+auroraAccountDigest_(phone).slice(0,28);
+      var prior=Number(cache.get(key)||0);
+      if(prior>=3)auroraReject_('rate_limited','Too many registration attempts for this number. Retry later.');
+      cache.put(key,String(prior+1),3600);
       var t=auroraPrivateTable_(auroraSpreadsheet_(),'customer_accounts');
       if(t.rows.some(function(row){return String(row.phone)===phone;}))
         auroraReject_('duplicate_account','This phone number already has an account. Sign in or contact the shop.');
