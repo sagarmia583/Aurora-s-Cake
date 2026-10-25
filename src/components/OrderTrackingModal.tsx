@@ -21,6 +21,7 @@ interface OrderTrackingModalProps {
   currentOrderId?: string;
   currency: string;
   onReorder?: (order: Order) => void;
+  onSelectedOrderChange?: (orderId: string) => void;
 }
 
 const STAGES: { status: OrderStatus; label: string; icon: string; desc: string }[] = [
@@ -44,6 +45,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
   currentOrderId,
   currency,
   onReorder,
+  onSelectedOrderChange,
 }) => {
   const [selectedOrderId, setSelectedOrderId] = useState(currentOrderId || orders[0]?.id);
   useEffect(() => {
@@ -125,7 +127,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
               {orders.map((o) => (
                 <button
                   key={o.id}
-                  onClick={() => setSelectedOrderId(o.id)} aria-pressed={selectedOrder.id === o.id}
+                  onClick={() => { setSelectedOrderId(o.id); onSelectedOrderChange?.(o.id); }} aria-pressed={selectedOrder.id === o.id}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer ${
                     selectedOrder.id === o.id
                       ? 'bg-rose-600 text-white'
@@ -155,7 +157,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
               </div>
             </div>
             <div className="bg-white px-5 py-2.5 rounded-xl border-2 border-amber-400 font-mono text-2xl font-black text-amber-900 tracking-widest shadow-sm">
-              {selectedOrder.delivery_otp}
+              {selectedOrder.delivery_otp || 'Available after dispatch'}
             </div>
           </div>
 
