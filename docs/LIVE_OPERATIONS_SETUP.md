@@ -33,14 +33,15 @@ not exposed through the role selector in production.
    ```text
    VITE_GOOGLE_OAUTH_CLIENT_ID = <same public Web Client ID>
    VITE_GOOGLE_SHEETS_URL = <current /exec Apps Script URL>
-   # On Netlify Free only, optional for same-origin browser POST reliability:
+   # On Vercel Hobby or Netlify Free, optional same-origin browser POST:
    VITE_SHEETS_POST_PROXY = /api/operations
    ```
 
-   If using the optional Netlify relay, also set the **Netlify server-side** environment variable
+   On Vercel or Netlify, also configure the **server-side** environment variable
    `AURORA_SCRIPT_POST_URL` to the same trusted Google Script `/exec` URL.
-   Deployments to Vercel/local without Netlify Functions should leave
-   `VITE_SHEETS_POST_PROXY` empty.
+   Vercel uses `api/operations.js`; Netlify uses `netlify/functions/operations.mjs`.
+   Read the [Vercel-specific setup](VERCEL_FREE_DEPLOYMENT.md) before deploying.
+   Local Vite without a function should leave `VITE_SHEETS_POST_PROXY` empty.
 
    Then **rebuild/redeploy the website**. The Google OAuth client ID is public;
    Script Properties remain private.
@@ -120,7 +121,7 @@ not exposed through the role selector in production.
   usage limit. You must keep the site on the Free plan; do not enable paid upgrades
   or add-ons. See [Netlify pricing](https://www.netlify.com/pricing/) and
   [Free credit limits](https://docs.netlify.com/manage/accounts-and-billing/billing/billing-for-credit-based-plans/credit-based-pricing-plans/).
-- **Same-origin fallback:** The optional `netlify/functions/operations.mjs` route forwards only allowlisted private POST actions to the fixed HTTPS Google Script URL. It can avoid Apps Script browser CORS/redirect issues, but it consumes Netlify Free function credits; this still requires a real-browser deployment test and does not bypass Apps Script authorization.
+- **Same-origin fallback:** Vercel Hobby uses `api/operations.js` and Netlify Free uses `netlify/functions/operations.mjs`. They forward only allowlisted POST actions to a fixed HTTPS Apps Script URL, reducing browser CORS/redirect issues. Real-browser tests remain required, and both free tiers have usage limits.
 - **Backend:** Google Apps Script + Sheets uses the shop owner's own Google account,
   not Supabase paid compute or a paid hosted server. Google's published consumer
   quotas include **20,000 URL Fetch calls/day**, **6 min per execution**, and
@@ -151,7 +152,7 @@ not exposed through the role selector in production.
 - **OTP is now server-only:** new confirmed checkout receipts have an empty `delivery_otp`. A delivery code is issued when an assigned rider starts delivery, available to the original receipt capability holder or the linked verified Google account, then cleared on delivery or cancellation. Older copies created by previous deployments may still contain previously exposed codes.
 - **Receipt ownership:** customer account linking requires the original private receipt access token in addition to the order ID, checkout phone and verified Google login. Do not publish any original receipt or access token.
 - **Google login:** Google's token verification response is cached server-side for at most five minutes, within token expiry. Staff permission lookups are not cached. The implementation still depends on Google's tokeninfo verification service; validate the production integration and its availability before launch.
-- **Netlify same-origin POST fallback:** optional Netlify Free function at `/api/operations` forwards only allowlisted actions to one configured Google Script HTTPS URL. Set `VITE_SHEETS_POST_PROXY=/api/operations` for the frontend and set the Netlify *server-side* `AURORA_SCRIPT_POST_URL` to the same Google Script `/exec` URL. Leave the proxy disabled on Vercel or local Vite unless a matching backend relay is implemented. Netlify functions count toward Free usage.
+- **Vercel/Netlify same-origin POST fallback:** set `VITE_SHEETS_POST_PROXY=/api/operations` on your hosting site and set server-only `AURORA_SCRIPT_POST_URL` to the same Google Script `/exec` URL. Vercel uses `api/operations.js`; Netlify uses `netlify/functions/operations.mjs`. Leave it disabled in standalone local Vite. Free quotas still apply.
 - **Privacy:** signing out removes Google-recovered receipts restored during the current session, but does not delete original guest receipts deliberately stored on the device. Clear browser site data on shared devices.
 - **Runtime limits:** Apps Script has no documented dedicated cryptographic random-byte API. This version uses platform-generated UUIDs rather than JavaScript `Math.random()` for receipt keys and dispatch codes, but a launch with stricter security requirements should separately verify the platform's randomness guarantees.
 - **Production hold remains:** secure browser POST forwarding, real Google OAuth, a real Google Sheet deployment and a paid-service-free full order-to-delivery acceptance test still require an authorized shop owner to configure and verify those external services.
@@ -164,4 +165,4 @@ not exposed through the role selector in production.
 - Confirm staff order lists and mutation responses never return `customer_access_token` or `delivery_otp`.
 - Confirm the rider cannot mark delivered without the dispatched OTP and actual COD cash confirmation.
 - Confirm delivery/cancellation clears OTP and that changing staff roles revokes permissions even during a cached token's lifetime.
-- On Netlify, verify `/api/operations` rejects requests from other Origins and GET requests, then test a real browser POST through the deployed relay.
+- On Vercel or Netlify, verify `/api/operations` rejects requests from other Origins and GET requests, then test a real browser POST through the deployed relay.
