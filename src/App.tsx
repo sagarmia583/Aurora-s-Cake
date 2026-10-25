@@ -221,7 +221,7 @@ export default function App() {
           ...selected, status: next.status, history: next.history,
           updated_at: next.updated_at, rider_name: next.rider_name,
           payment_status: next.payment_status, cod_collected: next.cod_collected,
-          ...(next.delivery_otp ? {delivery_otp:next.delivery_otp} : {}),
+          delivery_otp: next.delivery_otp || '',
         };
         if (rememberConfirmedSheetOrder(updated)) {
           setOrders(previous => [updated, ...previous.filter(order => order.id !== updated.id)]);
