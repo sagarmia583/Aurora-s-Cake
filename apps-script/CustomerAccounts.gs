@@ -7,7 +7,7 @@
  * Requires Code.gs and StaffOperations.gs (private receipt save helper).
  */
 function auroraCustomerIdentity_(input) {
-  var clientId=String(PropertiesService.getScriptProperties().getProperty('AURORA_GOOGLE_CLIENT_ID')||'').trim();
+  var clientId=String(PropertiesService.getScriptProperties().getProperty('AURORA_GOOGLE_CLIENT_ID')||AURORA_PUBLIC_GOOGLE_CLIENT_ID).trim();
   var claims=auroraVerifiedGoogleClaims_(input && input.id_token,clientId);
   return {sub:claims.sub,email:String(claims.email||'').toLowerCase(),
     name:String(claims.name||claims.email||'Customer').slice(0,100)};
