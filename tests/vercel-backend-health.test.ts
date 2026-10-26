@@ -14,7 +14,7 @@ test('new backend health check confirms exact Apps Script version without privat
   process.env.AURORA_SCRIPT_POST_URL=SCRIPT;
   globalThis.fetch=(async()=>({ok:true,url:'https://script.googleusercontent.com/macros/echo',
     json:async()=>({ok:true,service:'aurora_public_content',schema_version:1,
-      release:'aurora-2026-10-26-cms-otp-speed-r1',private_key:'never-output'})})) as typeof fetch;
+      release:'aurora-2026-10-26-cms-otp-speed-r1',private_key:'never-output'})})) as unknown as typeof fetch;
   try{
     const result=await check();
     assert.equal(result.status,200);
@@ -33,7 +33,7 @@ test('old Apps Script deployment is reported as outdated, not mistakenly marked 
   const old=process.env.AURORA_SCRIPT_POST_URL,fetchBefore=globalThis.fetch;
   process.env.AURORA_SCRIPT_POST_URL=SCRIPT;
   globalThis.fetch=(async()=>({ok:true,url:'https://script.googleusercontent.com/macros/echo',
-    json:async()=>({ok:true,service:'aurora_public_content',schema_version:1})})) as typeof fetch;
+    json:async()=>({ok:true,service:'aurora_public_content',schema_version:1})})) as unknown as typeof fetch;
   try{
     const status=await check();
     assert.equal(status.status,200);
