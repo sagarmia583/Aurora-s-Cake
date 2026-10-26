@@ -1,14 +1,14 @@
 /**
- * AURORA'S CAKE — SINGLE-FILE APPS SCRIPT BACKEND
- * aurora-2026-10-26-customer-master-r2
- * Customer phone VLOOKUP / unique private Customer Master / COD history;
- * Google Owner & Staff passwords, Phone Customer Accounts, Delivery OTP,
- * Public CMS, private Drive image storage and catalog/custom cakes.
- * INSTALL: Back up the Spreadsheet; replace existing Code.gs ENTIRELY;
- * remove duplicate old .gs files; run setupSheetDatabase(), then
- * backfillCustomerMasterOnce() one time to import older COD orders.
- * Deploy → Manage deployments → Edit → New version → Deploy.
- * Do not share private Sheet with website visitors or employees.
+ * AURORA'S CAKE — COMPLETE ONE-FILE GOOGLE APPS SCRIPT
+ * Release aurora-2026-10-26-customer-master-r2
+ * Phone-keyed private Customer Master, idempotent COD orders, Staff VLOOKUP,
+ * customer phone login, owner/staff roles, OTP, CMS, Drive image storage.
+ * Back up the current Google Spreadsheet before installing.
+ * Replace existing Code.gs entirely, remove duplicate older .gs modules.
+ * RUN setupSheetDatabase() and (once for historic COD orders)
+ * backfillCustomerMasterOnce() as owner. For image uploads run
+ * setupAuroraImagesOnce() if needed. Deploy NEW Web App version.
+ * Existing COD orders and linked customer accounts must not be deleted.
  */
 
 /* ===== BEGIN apps-script/Code.gs ===== */
@@ -19,7 +19,7 @@
 // Leave blank when this script is bound to the intended Sheet through Extensions > Apps Script.
 var AURORA_SPREADSHEET_ID = '18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4';
 var AURORA_SCHEMA_VERSION = 1;
-var AURORA_BACKEND_RELEASE = 'aurora-2026-10-26-cms-otp-speed-r1';
+var AURORA_BACKEND_RELEASE = 'aurora-2026-10-26-customer-master-r2';
 var PUBLIC_TABLE_SCHEMAS = {
   settings: ['key','value'],
   content: ['key','value'],
@@ -2074,7 +2074,7 @@ function auroraCustomerPhoneKey_(value) {
   if(/^8801[3-9]\d{8}$/.test(digits))return '0'+digits.slice(3);
   if(/^01[3-9]\d{8}$/.test(digits))return digits;
   // Preserve international guest phone numbers in a stable, bounded form.
-  if(digits.length>=7&&digits.length<=15)return '+'+digits;
+  if(digits.length>=7&&digits.length<=15)return 'intl_'+digits;
   auroraReject_('invalid_phone','Enter a valid phone number.');
 }
 function auroraCustomerMasterRow_(table,phone){
