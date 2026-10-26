@@ -90,7 +90,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [otp, setOtp] = useState('');
   const [cashCollected, setCashCollected] = useState(false);
   const [updatedAt, setUpdatedAt] = useState('');
-  const ordersRefreshInFlight=useRef(false);
+  const ordersRefreshInFlight=useRef<string|null>(null);
   const queuedOrderRefresh=useRef(false);
   const [loadingOrders,setLoadingOrders]=useState(false);
   const [viewingSavedOrders,setViewingSavedOrders]=useState(false);
@@ -240,6 +240,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     try{
       const profile=await checkStaffSession(endpoint,token);
       if(!isActive())return;
+      setOrders(loadStaffOrdersSnapshot(getBrowserWorkspaceStorage(),{...profile,token}));
+      setViewingSavedOrders(true);
       setIdentity({...profile,token});
       setStaffProfiles(profile.staff_profiles??[]);
       setRiderEmail(profile.riders[0]?.email||'');
@@ -273,19 +275,20 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   };
 
   useEffect(()=>{
-    if(identity&&orders.length>0)
+    if(identity&&!viewingSavedOrders)
       saveStaffOrdersSnapshot(getBrowserWorkspaceStorage(),identity,orders);
-  },[orders,identity?.token,identity?.role,identity?.email]);
+  },[orders,identity?.token,identity?.role,identity?.email,viewingSavedOrders]);
 
   const refresh = useCallback(async () => {
     if (!identity || !isOpen) return;
-    if (ordersRefreshInFlight.current) {
-      // A mutation may complete while an older poll is still reading Sheets.
-      // Never drop that explicit post-mutation refresh.
+    if (ordersRefreshInFlight.current===identity.token) {
+      // An explicit mutation refresh must run after an older poll completes.
       queuedOrderRefresh.current=true;
       return;
     }
-    ordersRefreshInFlight.current=true;
+    // A new user/session can refresh immediately without waiting for an
+    // old session's in-flight request to time out.
+    ordersRefreshInFlight.current=identity.token;
     setLoadingOrders(true);
     try {
       const fresh = await getStaffOrders(endpoint, identity.token);
@@ -299,12 +302,14 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       if(liveIdentityToken.current===identity.token&&liveIsOpen.current)
         setError((caught instanceof Error ? caught.message : 'Unable to load orders.')+' Your previous order list has been kept.');
     } finally {
-      ordersRefreshInFlight.current=false;
-      setLoadingOrders(false);
-      if (queuedOrderRefresh.current) {
-        queuedOrderRefresh.current=false;
-        // Avoid blocking the rendered confirmed action on another Sheet read.
-        window.setTimeout(() => { void refresh(); }, 0);
+      if(ordersRefreshInFlight.current===identity.token){
+        ordersRefreshInFlight.current=null;
+        setLoadingOrders(false);
+        if (queuedOrderRefresh.current) {
+          queuedOrderRefresh.current=false;
+          // Avoid blocking the rendered confirmed action on another Sheet read.
+          window.setTimeout(() => { void refresh(); }, 0);
+        }
       }
     }
   }, [endpoint, identity?.token, isOpen]);
