@@ -222,7 +222,7 @@ export async function uploadCmsImage(endpoint:string,token:string,base64:string)
 }
 
 export interface StaffCustomerMatch {
-  phone:string; name:string; delivery_address:string; order_count:number; last_order_at:string;
+  phone:string; name:string; delivery_address:string; order_count:number; last_order_at:string; unverified?:boolean;
 }
 export async function lookupStaffCustomer(endpoint:string,token:string,phone:string):Promise<StaffCustomerMatch|null> {
   const result=await privatePost(endpoint,{action:'staff_customer_lookup',...staffCredential(token),phone});
