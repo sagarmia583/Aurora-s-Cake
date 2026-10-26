@@ -152,6 +152,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
       ownedCustomerRef.current=verified;
       setCustomerPhone(previous=>{
         if(!previous){setCustomerName(n=>n||profile.name);setDeliveryAddress(a=>a||profile.address);
+          currentPrefillRef.current={name:profile.name,address:profile.address};
           setAutofillNotice('Your saved phone-account profile was loaded from Google Sheets.');return profile.phone;}
         return previous;
       });
@@ -309,7 +310,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handlePlaceOrder} className="overflow-y-auto p-6 space-y-6 flex-1">
-          <fieldset disabled={isSubmitting || unconfirmed} className="min-w-0 space-y-6 border-0 p-0 m-0">
+          <fieldset disabled={isSubmitting || unconfirmed || savedDetailsBusy} className="min-w-0 space-y-6 border-0 p-0 m-0">
           <p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">{isLiveOrder ? 'Place your order with the bakery and pay cash on delivery. No online payment is collected. Confirmation appears only after Google Sheets confirms your order was saved.' : 'Live Google Sheets ordering is not activated yet. This demo checkout stays on this device; it is not sent to the bakery and no payment is collected.'}</p>
           {errorMessage && (
             <div role="alert" className="bg-red-50 text-red-700 p-3.5 rounded-xl border border-red-200 text-xs flex items-center gap-2">
