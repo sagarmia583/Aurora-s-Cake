@@ -261,7 +261,7 @@ function auroraOperationsPost_(input) {
     }finally{originalLock.releaseLock();}
   }
   var book = auroraSpreadsheet_(), table = auroraFastOrderTable_(book);
-  if (input.action === 'staff_orders') return {ok:true,orders:auroraOperationsOrders_(actor,{rows:auroraFastOrderList_(table)}),role:actor.role};
+  if (input.action === 'staff_orders') return {ok:true,snapshot_complete:true,snapshot_at:new Date().toISOString(),orders:auroraOperationsOrders_(actor,{rows:auroraFastOrderList_(table)}),role:actor.role};
   if (input.action !== 'staff_mutate') auroraReject_('invalid_action','Unknown staff action.');
   var action = String(input.operation || '');
   if (!auroraStaffCan_(actor,action)) auroraReject_('forbidden','Your role cannot perform this operation.');
