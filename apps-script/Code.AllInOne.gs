@@ -1,14 +1,14 @@
 /**
- * AURORA'S CAKE - Complete Apps Script, single Code.gs
- * Release aurora-2026-10-26-cms-otp-speed-r1
- * COD workflow, fast rider/customer updates, private receipt/OTP recovery,
- * verified staff roles, phone customer accounts, full CMS, image storage.
- *
- * Back up Google Sheet; replace existing Code.gs with this ENTIRE file;
- * keep no old duplicated .gs files. Run setupSheetDatabase() and (for
- * picture uploads) setupAuroraImagesOnce() as Owner; authorize scopes.
- * Deploy -> Manage deployments -> Edit -> New version -> Deploy.
- * Verify new release at /api/backend-health on the Vercel Preview.
+ * AURORA'S CAKE — SINGLE-FILE APPS SCRIPT BACKEND
+ * aurora-2026-10-26-customer-master-r2
+ * Customer phone VLOOKUP / unique private Customer Master / COD history;
+ * Google Owner & Staff passwords, Phone Customer Accounts, Delivery OTP,
+ * Public CMS, private Drive image storage and catalog/custom cakes.
+ * INSTALL: Back up the Spreadsheet; replace existing Code.gs ENTIRELY;
+ * remove duplicate old .gs files; run setupSheetDatabase(), then
+ * backfillCustomerMasterOnce() one time to import older COD orders.
+ * Deploy → Manage deployments → Edit → New version → Deploy.
+ * Do not share private Sheet with website visitors or employees.
  */
 
 /* ===== BEGIN apps-script/Code.gs ===== */
@@ -97,7 +97,8 @@ var PRIVATE_ORDER_SCHEMAS = {
   custom_cake_requests: ['id','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','cake_type','approx_size','flavor','color_theme','writing_text','instructions','reference_image_url','status','estimated_price','quoted_price','receipt_json'],
   staff_accounts: ['id','username','name','role','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'],
   customer_accounts: ['id','phone','name','address','email','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'],
-  auth_sessions: ['token_hash','account_type','account_id','created_at','expires_at','revoked']
+  auth_sessions: ['token_hash','account_type','account_id','created_at','expires_at','revoked'],
+  customer_master: ['id','phone_key','name','delivery_address','created_at','updated_at','order_count','last_order_id','last_order_at']
 };
 
 // This handler creates a private COD receipt. GET never calls these functions.
@@ -120,6 +121,7 @@ function doPost(e) {
     if(input && /^customer_phone_(signup|login|session|logout|orders|profile|claim|password|close)$/.test(String(input.action||'')))
       return auroraResponse_(auroraAccountCustomerPost_(input));
     if (input && (input.action === 'create_custom_cake' || input.action === 'get_custom_cake_status' || input.action === 'staff_custom_cakes' || input.action === 'staff_custom_quote')) return auroraResponse_(auroraCustomCakePost_(input));
+    if (input && input.action === 'staff_customer_lookup') return auroraResponse_(auroraStaffCustomerLookup_(input));
     if (input && input.action === 'get_order_status') return auroraResponse_(auroraCustomerOrderStatus_(input));
     if (input && /^staff_cms_(list|create|update|delete)$/.test(String(input.action||''))) return auroraResponse_(auroraCmsPost_(input));
     if (input && (input.action==='staff_catalog'||input.action==='staff_catalog_update')) return auroraResponse_(auroraCatalogPost_(input));
@@ -140,6 +142,7 @@ function doPost(e) {
       var receipt = JSON.parse(String(previous[0].receipt_json));
       if (!receipt || !receipt.id || !Array.isArray(receipt.items) || receipt.id !== String(previous[0].id)) throw new Error('Incomplete committed receipt.');
       auroraRepairOrderItems_(itemTable,receipt);
+      auroraCustomerMasterUpsert_(book,orders,receipt);
       return auroraResponse_({success:true,persisted:true,order:auroraCheckoutReceiptSafe_(receipt)});
     }
     if (!request.checkout_proof) auroraReject_('upgrade_required','Refresh the website before placing a new order.');
@@ -158,6 +161,7 @@ function doPost(e) {
       coupon_code:order.coupon_code || '',order_note:order.order_note || '',payment_method:'cod',payment_status:'pending',receipt_json:receiptJson
     });
     auroraRepairOrderItems_(itemTable,order);
+    auroraCustomerMasterUpsert_(book,orders,order);
     return auroraResponse_({success:true,persisted:true,order:auroraCheckoutReceiptSafe_(order)});
   } catch (error) {
     if (error && error.auroraValidation) return auroraResponse_({ok:false,success:false,persisted:false,code:error.code,error:error.message});
@@ -2058,6 +2062,106 @@ function auroraAccountCustomerPost_(input) {
   auroraReject_('invalid_action','Unknown customer phone account action.');
 }
 /* ===== END apps-script/AccountAuth.gs ===== */
+
+/* ===== BEGIN apps-script/CustomerMaster.gs ===== */
+/**
+ * Phone-as-unique-key customer register. No public phone lookup.
+ * Not a verified identity: customers can only read their own proven account
+ * or locally held receipt; authenticated staff can look up the private register.
+ */
+function auroraCustomerPhoneKey_(value) {
+  var digits=String(value||'').replace(/\D/g,'');
+  if(/^8801[3-9]\d{8}$/.test(digits))return '0'+digits.slice(3);
+  if(/^01[3-9]\d{8}$/.test(digits))return digits;
+  // Preserve international guest phone numbers in a stable, bounded form.
+  if(digits.length>=7&&digits.length<=15)return '+'+digits;
+  auroraReject_('invalid_phone','Enter a valid phone number.');
+}
+function auroraCustomerMasterRow_(table,phone){
+  var matches=table.rows.filter(function(row){return String(row.phone_key||'')===phone;});
+  if(matches.length>1)auroraReject_('duplicate_customer','Duplicate customer master records require owner reconciliation.');
+  return matches[0]||null;
+}
+function auroraCustomerMasterUpsert_(book,orders,order){
+  var phone=auroraCustomerPhoneKey_(order.customer_phone);
+  var table=auroraPrivateTable_(book,'customer_master');
+  var previous=auroraCustomerMasterRow_(table,phone);
+  var all=orders.rows.filter(function(item){
+    try{return auroraCustomerPhoneKey_(item.customer_phone)===phone;}catch(_){return false;}
+  });
+  // Count each original COD order ID once. Idempotent retries cannot inflate.
+  var unique=Object.create(null),count=0;
+  all.forEach(function(item){var id=String(item.id||'');if(id&&!unique[id]){unique[id]=true;count++;}});
+  var latest=all.reduce(function(prev,item){
+    return !prev||String(item.created_at||'')>String(prev.created_at||'')?item:prev;
+  },null);
+  var row=previous?Object.assign({},previous):{
+    id:'customer_'+Utilities.getUuid(),phone_key:phone,
+    name:String(order.customer_name||'').slice(0,100),
+    delivery_address:String(order.delivery_address||'').slice(0,1000),
+    created_at:String(order.created_at||new Date().toISOString())
+  };
+  // Never overwrite a saved customer's name/address from an unverified
+  // guest checkout. Each order stores its own actual delivery address.
+  row.order_count=count;
+  row.last_order_id=latest?String(latest.id):String(order.id);
+  row.last_order_at=latest?String(latest.created_at):String(order.created_at);
+  row.updated_at=new Date().toISOString();
+  if(previous){
+    var ids=table.sheet.getRange(2,table.headers.indexOf('id')+1,table.sheet.getLastRow()-1,1).getValues();
+    var at=ids.findIndex(function(r){return String(r[0])===String(previous.id);});
+    if(at<0)auroraReject_('not_found','Customer master row could not be updated.');
+    table.sheet.getRange(at+2,1,1,table.headers.length).setValues([table.headers.map(function(key){return auroraSheetCell_(row[key]);})]);
+  }else auroraAppendPrivate_(table,row);
+  return {id:row.id,created:!previous};
+}
+/** Only authentic staff roles can retrieve contact details using phone VLOOKUP. */
+function auroraStaffCustomerLookup_(input){
+  var actor=auroraStaffAuthenticate_(input);
+  if(['super_admin','admin','order_manager','delivery_manager'].indexOf(actor.role)===-1)
+    auroraReject_('forbidden','Customer lookup is restricted to authorized sales staff.');
+  var phone=auroraCustomerPhoneKey_(input.phone),table=auroraPrivateTable_(auroraSpreadsheet_(),'customer_master');
+  var row=auroraCustomerMasterRow_(table,phone);
+  if(!row)return {ok:true,found:false};
+  return {ok:true,found:true,customer:{
+    phone:row.phone_key,name:row.name,delivery_address:row.delivery_address,
+    order_count:Number(row.order_count||0),last_order_at:String(row.last_order_at||'')
+  }};
+}
+/** Manual one-time import of orders placed before the Customer Master feature.
+ * Run in the Apps Script EDITOR only after backing up the existing spreadsheet.
+ * Does not call external endpoints, send any SMS or alter saved COD orders.
+ */
+function backfillCustomerMasterOnce(){
+  var lock=LockService.getScriptLock();
+  if(!lock.tryLock(10000))throw new Error('Other bakery updates are running. Retry.');
+  try{
+    var book=auroraSpreadsheet_(),orders=auroraPrivateTable_(book,'orders');
+    var table=auroraPrivateTable_(book,'customer_master');
+    var known=Object.create(null),newCount=0,updatedCount=0,skipped=0;
+    orders.rows.forEach(function(row){
+      var key;try{key=auroraCustomerPhoneKey_(row.customer_phone);}catch(_){skipped++;return;}
+      if(!known[key]||String(row.created_at||'')>String(known[key].created_at||''))known[key]=row;
+    });
+    Object.keys(known).forEach(function(phone){
+      // Reuse upsert's existing duplicate detection; backfill doesn't
+      // issue receipts or change financial ledger rows.
+      var order=known[phone];
+      var existed=!!auroraCustomerMasterRow_(table,phone);
+      auroraCustomerMasterUpsert_(book,orders,{
+        id:String(order.id),created_at:String(order.created_at),
+        customer_phone:String(order.customer_phone),
+        customer_name:String(order.customer_name||''),
+        delivery_address:String(order.delivery_address||'')
+      });
+      if(existed)updatedCount++;else newCount++;
+      // Keep the in-memory copy current to avoid duplicates within the same run.
+      table=auroraPrivateTable_(book,'customer_master');
+    });
+    return {created:newCount,updated:updatedCount,skipped:skipped,total_customers:Object.keys(known).length};
+  }finally{lock.releaseLock();}
+}
+/* ===== END apps-script/CustomerMaster.gs ===== */
 
 /* ===== BEGIN apps-script/CustomerAccounts.gs ===== */
 /**
