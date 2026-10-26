@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, RefreshCw, ShieldCheck, LockKeyhole, Truck, PackageCheck } from 'lucide-react';
+import { X, RefreshCw, ShieldCheck, LockKeyhole, Truck, PackageCheck, LayoutDashboard, ShoppingBag, UsersRound, CakeSlice, Store, Search, ChevronDown, ChevronUp, LogOut, Clock3, BadgeCheck, ArrowRight, AlertCircle, CreditCard, MapPin, Filter } from 'lucide-react';
 import { checkStaffSession, getStaffOrders, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword } from '../services/sheetStaffApi';
 import type { StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
@@ -35,6 +35,12 @@ const actionForStatus: Record<string, { operation: StaffOperation; label: string
   delivered: null, cancelled: null,
 };
 
+type StaffTab = 'overview' | 'orders' | 'cakes' | 'team' | 'website';
+type OrderFilter = 'actionable' | 'active' | 'completed' | 'all';
+const terminalStatuses = new Set(['delivered','cancelled']);
+const stageNames:Record<string,string>={pending:'New order',confirmed:'Confirmed',preparing:'Baking',ready:'Ready for rider',assigned:'Rider assigned',picked_up:'Picked up',out_for_delivery:'On the way',delivered:'Delivered',cancelled:'Cancelled'};
+const stageClass=(stage:string) => stage==='delivered'?'bg-emerald-100 text-emerald-900 ring-emerald-200':stage==='cancelled'?'bg-rose-100 text-rose-800 ring-rose-200':stage==='pending'?'bg-amber-100 text-amber-900 ring-amber-200':stage==='out_for_delivery'?'bg-sky-100 text-sky-900 ring-sky-200':'bg-violet-100 text-violet-900 ring-violet-200';
+const roleName=(role:StaffRoleName) => role.replaceAll('_',' ').replace(/\b\w/g,char=>char.toUpperCase());
 interface StaffPortalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -45,6 +51,11 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const oauthClientId = getAuroraGoogleClientId();
   const signinRef = useRef<HTMLDivElement>(null);
   const [identity, setIdentity] = useState<(StaffSession & { token: string }) | null>(null);
+  const [activeTab,setActiveTab]=useState<StaffTab>('overview');
+  const [orderFilter,setOrderFilter]=useState<OrderFilter>('actionable');
+  const [orderSearch,setOrderSearch]=useState('');
+  const [expandedOrders,setExpandedOrders]=useState<string[]>([]);
+  const [loginChoice,setLoginChoice]=useState<'employee'|'owner'>('employee');
   const [username,setUsername]=useState('');
   const [password,setPassword]=useState('');
   const [newStaff,setNewStaff]=useState({name:'',username:'',password:'',role:'kitchen_manager' as StaffRoleName});
@@ -84,6 +95,33 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     return()=>controller.abort();
   },[isOpen,endpoint]);
   const [legacyKey,setLegacyKey]=useState<{orderId:string;key:string}|null>(null);
+  const isActionable=(order:StaffOrder,role:StaffRoleName):boolean=>{
+    const next=actionForStatus[order.status];
+    return Boolean(next&&canOperate(role,next.operation));
+  };
+  const actionableCount=identity?orders.filter(order=>isActionable(order,identity.role)).length:0;
+  const activeCount=orders.filter(order=>!terminalStatuses.has(order.status)).length;
+  const deliveryCount=orders.filter(order=>['assigned','picked_up','out_for_delivery'].includes(order.status)).length;
+  const collectedCOD=orders.filter(order=>order.payment_method==='cod'&&order.payment_status==='paid'&&order.cod_collected)
+    .reduce((total,order)=>total+order.total_amount,0);
+  const roleTabs:{id:StaffTab;label:string;hint:string;icon:typeof LayoutDashboard;show:boolean}[]=[
+    {id:'overview',label:'Overview',hint:'Shop pulse',icon:LayoutDashboard,show:true},
+    {id:'orders',label:'Orders & delivery',hint:'Live workflow',icon:ShoppingBag,show:true},
+    {id:'cakes',label:'Custom cake requests',hint:'Quotes & approvals',icon:CakeSlice,show:['super_admin','admin','order_manager'].includes(identity?.role||'')},
+    {id:'team',label:'Staff & access',hint:'People and roles',icon:UsersRound,show:identity?.role==='super_admin'},
+    {id:'website',label:'Website manager',hint:'Shop content',icon:Store,show:identity?.role==='super_admin'||identity?.role==='admin'},
+  ];
+  const tabs=roleTabs.filter(tab=>tab.show);
+  const matchingOrders=identity?orders.filter(order=>{
+    const query=orderSearch.trim().toLowerCase();
+    const matches=!query||[order.order_number,order.customer_name,order.customer_phone,order.delivery_address,order.rider_name]
+      .some(value=>String(value||'').toLowerCase().includes(query));
+    const filterMatch=orderFilter==='all'||(orderFilter==='actionable'&&isActionable(order,identity.role))||
+      (orderFilter==='active'&&!terminalStatuses.has(order.status))||
+      (orderFilter==='completed'&&terminalStatuses.has(order.status));
+    return matches&&filterMatch;
+  }).sort((a,b)=>Number(isActionable(b,identity.role))-Number(isActionable(a,identity.role))||
+    Date.parse(b.updated_at||'')-Date.parse(a.updated_at||'')):[];
 
   const signIn = useCallback(async (idToken: string) => {
     setLoading(true); setError('');
