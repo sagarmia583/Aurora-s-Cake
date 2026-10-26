@@ -12,6 +12,7 @@ const STAFF_HEADERS=['id','username','name','role','password_salt','password_has
 const CUSTOMER_HEADERS=['id','phone','name','address','email','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'];
 const SESSION_HEADERS=['token_hash','account_type','account_id','created_at','expires_at','revoked'];
 const MASTER_HEADERS=['id','phone_key','name','delivery_address','created_at','updated_at','order_count','last_order_id','last_order_at'];
+const CONTACT_HEADERS=['id','phone_key','name','delivery_address','created_at','status'];
 const futureDate=()=>new Date(Date.now()+2*86400000).toISOString().slice(0,10);
 const ADMIN_TOKEN='admin_'+ 'a'.repeat(130);
 const RIDER_TOKEN='rider_'+ 'b'.repeat(130);
@@ -34,7 +35,7 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean}={}) {
     delivery_slots:[['id','slot_label','is_active'],['s1','10 AM - 12 PM',true]],
     coupons:[['id','code','discount_type','discount_value','min_order_amount','max_discount_amount','is_active'],['c1','SAVE10','percentage',10,100,120,true]],
   };
-  if(!options.withoutPrivate){tables.orders=[ORDER_HEADERS];tables.order_items=[ITEM_HEADERS];tables.custom_cake_requests=[CUSTOM_HEADERS];tables.staff_accounts=[STAFF_HEADERS];tables.customer_accounts=[CUSTOMER_HEADERS];tables.auth_sessions=[SESSION_HEADERS];tables.customer_master=[MASTER_HEADERS];}
+  if(!options.withoutPrivate){tables.orders=[ORDER_HEADERS];tables.order_items=[ITEM_HEADERS];tables.custom_cake_requests=[CUSTOM_HEADERS];tables.staff_accounts=[STAFF_HEADERS];tables.customer_accounts=[CUSTOMER_HEADERS];tables.auth_sessions=[SESSION_HEADERS];tables.customer_master=[MASTER_HEADERS];tables.customer_contact_requests=[CONTACT_HEADERS];}
   const reads:string[]=[];const writes:string[]=[];const rangeReads:{name:string,row:number,col:number,height:number,width:number}[]=[];
   const throttles=new Map<string,string>();
   let failNextItemWrite=false;let failAfterOrderWrite=false;let acquired=0;
@@ -1050,4 +1051,37 @@ test('staff order refresh marks corrupt Sheet rows incomplete instead of replaci
   assert.equal(partial.snapshot_complete,false);
   assert.equal(partial.orders.length,1);
   assert.equal(partial.orders[0].id,good.orders[0].id);
+});
+
+
+test('password-free guest contact is stored privately; only authorized staff can find it by phone',()=>{
+  const h=harness({singleFile:true});
+  const payload={action:'customer_contact_submit',name:'Sample Customer',phone:'01700112233',address:'Tangail, Main Road'};
+  const result=h.post(payload);
+  assert.equal(result.saved,true,JSON.stringify(result));
+  assert.equal(result.phone_verified,false);
+  assert.equal(h.records('customer_contact_requests').length,1);
+  const stored=h.records('customer_contact_requests')[0];
+  assert.equal(stored.phone_key,'01700112233');
+  assert.equal(stored.status,'unverified');
+  assert.equal(h.post({action:'staff_customer_lookup',phone:payload.phone}).code,'unauthorized');
+  assert.equal(h.post({action:'staff_customer_lookup',id_token:RIDER_TOKEN,phone:payload.phone}).code,'forbidden');
+  const staff=h.post({action:'staff_customer_lookup',id_token:ADMIN_TOKEN,phone:payload.phone});
+  assert.equal(staff.customer.name,'Sample Customer');
+  assert.equal(staff.customer.unverified,true);
+  assert.equal(h.get('public').customer_contact_requests,undefined);
+});
+test('password-free receipt recovery needs both original long key and phone; OTP only after dispatch',()=>{
+  const h=harness({singleFile:true});
+  const created=h.post(request()).order;
+  const req={action:'customer_receipt_recover',order_id:created.id,customer_phone:created.customer_phone};
+  assert.equal(h.post(req).code,'forbidden');
+  assert.equal(h.post({...req,customer_access_token:'0'.repeat(72)}).code,'forbidden');
+  assert.equal(h.post({...req,customer_phone:'01700555444',customer_access_token:created.customer_access_token}).code,'forbidden');
+  const recovered=h.post({...req,customer_access_token:created.customer_access_token});
+  assert.equal(recovered.ok,true,JSON.stringify(recovered));
+  assert.equal(recovered.order.id,created.id);
+  assert.equal(recovered.order.delivery_otp,'');
+  assert.equal(recovered.order.customer_access_token,created.customer_access_token);
+  assert.equal('password_hash' in recovered.order,false);
 });
