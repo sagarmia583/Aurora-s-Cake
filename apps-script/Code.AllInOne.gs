@@ -1,9 +1,14 @@
 /**
- * Aurora's Cake — COMPLETE ONE FILE Apps Script (nine modules).
- * Fast customer OTP lookup, owner-only verified legacy receipt recovery,
- * live COD delivery, private staff/customer sessions, public CMS & images.
- * Back up your Sheet, replace old Code.gs, run setupSheetDatabase(),
- * run setupAuroraImagesOnce() if using image storage, then Deploy NEW version.
+ * AURORA'S CAKE - Complete Apps Script, single Code.gs
+ * Release aurora-2026-10-26-cms-otp-speed-r1
+ * COD workflow, fast rider/customer updates, private receipt/OTP recovery,
+ * verified staff roles, phone customer accounts, full CMS, image storage.
+ *
+ * Back up Google Sheet; replace existing Code.gs with this ENTIRE file;
+ * keep no old duplicated .gs files. Run setupSheetDatabase() and (for
+ * picture uploads) setupAuroraImagesOnce() as Owner; authorize scopes.
+ * Deploy -> Manage deployments -> Edit -> New version -> Deploy.
+ * Verify new release at /api/backend-health on the Vercel Preview.
  */
 
 /* ===== BEGIN apps-script/Code.gs ===== */
@@ -14,6 +19,7 @@
 // Leave blank when this script is bound to the intended Sheet through Extensions > Apps Script.
 var AURORA_SPREADSHEET_ID = '18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4';
 var AURORA_SCHEMA_VERSION = 1;
+var AURORA_BACKEND_RELEASE = 'aurora-2026-10-26-cms-otp-speed-r1';
 var PUBLIC_TABLE_SCHEMAS = {
   settings: ['key','value'],
   content: ['key','value'],
@@ -64,7 +70,7 @@ function doGet(e) {
   }
   try {
     if (action === 'health') {
-      return auroraResponse_({ok:true,schema_version:AURORA_SCHEMA_VERSION,service:'aurora_public_content'}, callback);
+      return auroraResponse_({ok:true,schema_version:AURORA_SCHEMA_VERSION,service:'aurora_public_content',release:AURORA_BACKEND_RELEASE}, callback);
     }
     var cache = CacheService.getScriptCache();
     var cacheKey = auroraCacheKey_();
