@@ -254,11 +254,12 @@ export default function App() {
           updated_at:next.updated_at,rider_name:next.rider_name,
           payment_status:next.payment_status,cod_collected:next.cod_collected,
           delivery_otp:next.delivery_otp||''};
-        if(rememberConfirmedSheetOrder(updated)){
-          setOrders(previous=>[updated,...previous.filter(order=>order.id!==updated.id)]);
-        }
+        // Always render the server-confirmed update. An unavailable/corrupted
+        // localStorage must never freeze an otherwise valid delivery progress.
+        const cached=rememberConfirmedSheetOrder(updated);
+        setOrders(previous=>[updated,...previous.filter(order=>order.id!==updated.id)]);
         setTrackingCheckedAt(new Date().toLocaleTimeString());
-        setTrackingSyncError('');
+        setTrackingSyncError(cached?'':'Live status updated, but this device could not cache your receipt. Keep your original receipt or sign in to My orders.');
       }catch(error){
         if(!stopped)setTrackingSyncError(error instanceof Error?error.message:'Could not load live delivery status.');
       }finally{
