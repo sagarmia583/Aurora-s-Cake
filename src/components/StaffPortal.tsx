@@ -68,6 +68,21 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const queuedOrderRefresh=useRef(false);
   const [loadingOrders,setLoadingOrders]=useState(false);
   const [orderUpdateMessage,setOrderUpdateMessage]=useState('');
+  const [backendWarning,setBackendWarning]=useState('');
+  useEffect(()=>{
+    if(!isOpen||typeof window==='undefined'||!window.location.hostname.endsWith('.vercel.app'))return;
+    const controller=new AbortController();
+    fetch('/api/backend-health',{credentials:'same-origin',cache:'no-store',signal:controller.signal})
+      .then(async response=>response.ok?await response.json():null)
+      .then(data=>{
+        if(controller.signal.aborted)return;
+        if(data?.ok===true&&data?.up_to_date===false)
+          setBackendWarning('The Google Apps Script deployment is outdated. Delivery OTP, the Website Manager and faster order updates require the latest All-in-One Code.gs and a New version deployment.');
+        else setBackendWarning('');
+      })
+      .catch(()=>{});
+    return()=>controller.abort();
+  },[isOpen,endpoint]);
   const [legacyKey,setLegacyKey]=useState<{orderId:string;key:string}|null>(null);
 
   const signIn = useCallback(async (idToken: string) => {
@@ -289,6 +304,12 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
           <button type="button" onClick={onClose} aria-label="Close staff operations" className="p-2 rounded-full hover:bg-slate-700"><X /></button>
         </header>
         <div className="p-5 space-y-5">
+          {backendWarning&&<p role="alert" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-sm font-medium text-amber-950">
+            {backendWarning} <a className="underline font-bold" target="_blank" rel="noreferrer"
+              href="https://github.com/sagarmia583/Aurora-s-Cake/blob/fix/secure-demo-roles-and-delivery-20261024/apps-script/Code.AllInOne.gs">
+              Open complete backend code
+            </a>
+          </p>}
           {!oauthClientId ? (
             <div role="alert" className="rounded-xl bg-amber-50 p-5 text-amber-900">Staff portal is not configured. Set VITE_GOOGLE_OAUTH_CLIENT_ID, and configure the matching Google client ID and authorized staff users in Apps Script Properties.</div>
           ) : !identity ? (
