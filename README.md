@@ -50,3 +50,15 @@ When the configured endpoint supports live COD checkout, custom cake requests ar
 The former SweetDelight branding and placeholder contact links have been removed from the rebuilt storefront. Stored data from a previous version in the same browser may still use its old catalogue or settings. Fresh browsers start with the Aurora catalogue and an empty order history.
 
 Photography is illustrative catalogue imagery. Source references and the generated floral cake provenance are in `public/images/image-sources.md`.
+
+## Android + iOS Staff Application (Expo)
+
+The separate native Staff app is in [apps/staff-mobile](apps/staff-mobile/README.md).
+It uses the existing role-verified Apps Script and Vercel `/api/operations` API,
+with employee Username/Password, encrypted session persistence, fast order
+list, Kitchen, Rider, COD OTP and staff-specific permissions.
+
+The source is under the draft branch; it is **not** a signed APK/IPA.
+Vercel Production must expose `/api/operations` and the latest Apps Script
+must be deployed before native staff login works. See the app README for
+Expo SDK 58, Android APK and iOS test/build instructions.
