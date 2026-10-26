@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { Navbar, ViewMode } from './components/Navbar';
+import { ArrowRight } from 'lucide-react';
 import { CustomerStorefront } from './components/CustomerStorefront';
 const MobileAppExperience = lazy(() => import('./components/MobileAppExperience').then(m => ({default: m.MobileAppExperience})));
 const ProductDetailModal = lazy(() => import('./components/ProductDetailModal').then(m=>({default:m.ProductDetailModal})));
