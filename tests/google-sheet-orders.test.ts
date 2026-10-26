@@ -831,3 +831,55 @@ test('customer phone account history only scans receipt JSON rather than the wid
   assert.ok(orderDataReads.length>0);
   assert.ok(orderDataReads.every(r=>r.width===1),'Account refresh must read receipt JSON only');
 });
+
+test('legacy dispatch OTP requires owner-verified one-time receipt recovery; phone number alone never reveals OTP',()=>{
+  const h=harness({singleFile:true}),order=h.post(request()).order;
+  const staff=(action:string,id_token:string,other:Record<string,unknown>={})=>
+    h.post({action:'staff_mutate',id_token,operation:action,order_id:order.id,...other});
+  for(const action of ['confirm','start_baking','mark_ready'])assert.equal(staff(action,ADMIN_TOKEN).ok,true);
+  assert.equal(staff('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
+  assert.equal(staff('pick_up',RIDER_TOKEN).ok,true);
+  assert.equal(staff('start_delivery',RIDER_TOKEN).ok,true);
+  const original=JSON.parse(String(h.records('orders')[0].receipt_json));
+  const otp=String(original.delivery_otp);
+  assert.match(otp,/^\d{4}$/);
+  // Simulate an authentic order from the original, pre-capability checkout.
+  delete original.customer_access_token;
+  h.tables.orders[1][ORDER_HEADERS.indexOf('receipt_json')]=JSON.stringify(original);
+  const customer={action:'get_order_status',order_id:order.id,customer_phone:order.customer_phone};
+  assert.equal(h.post(customer).delivery_otp,undefined);
+  assert.equal(h.post({action:'staff_session',id_token:RIDER_TOKEN}).staff_profiles,undefined);
+  const orderList=h.post({action:'staff_orders',id_token:ADMIN_TOKEN}).orders;
+  assert.equal(orderList[0].legacy_receipt_missing,true);
+  assert.equal(h.post({action:'staff_orders',id_token:RIDER_TOKEN}).orders[0].legacy_receipt_missing,undefined);
+  const cmd={action:'staff_legacy_receipt',order_id:order.id,manually_verified:true};
+  assert.equal(h.post({...cmd,id_token:RIDER_TOKEN}).code,'forbidden');
+  assert.equal(h.post({...cmd,id_token:INTRUDER_TOKEN}).code,'forbidden');
+  assert.equal(h.post({...cmd,id_token:ADMIN_TOKEN,manually_verified:false}).code,'verification_required');
+  const issued=h.post({...cmd,id_token:ADMIN_TOKEN});
+  assert.equal(issued.ok,true,JSON.stringify(issued));
+  assert.match(issued.customer_access_token,/^[a-f0-9-]{72}$/i);
+  assert.equal(issued.delivery_otp,undefined);
+  assert.equal(h.post({...cmd,id_token:ADMIN_TOKEN}).code,'already_secured');
+  assert.equal(h.post({...customer,customer_access_token:'wrong'}).code,'forbidden');
+  assert.equal(h.post({...customer,customer_access_token:issued.customer_access_token}).delivery_otp,otp);
+  assert.equal(h.records('orders').length,1);
+  assert.equal(h.records('order_items').length,1);
+});
+test('private order lookup uses native exact-cell TextFinder when supported',()=>{
+  const h=harness({singleFile:true});
+  let textFinderUsed=false;
+  const fakeSheet={
+    getLastRow:()=>8000,
+    getRange:(_r:number,_c:number,_n:number,_w:number)=>({
+      createTextFinder:(value:string)=>{
+        assert.equal(value,'ord_test');
+        textFinderUsed=true;
+        return {matchEntireCell:(v:boolean)=>{assert.equal(v,true);return {findNext:()=>({getRow:()=>340})}}};
+      },
+      getValues:()=>{throw new Error('Should not read 8,000 IDs into Apps Script');}
+    })
+  };
+  assert.equal(h.context.auroraPrivateFindRow_({sheet:fakeSheet,headers:['id']},'ord_test'),340);
+  assert.equal(textFinderUsed,true);
+});
