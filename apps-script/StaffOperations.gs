@@ -181,11 +181,12 @@ function auroraFastOrderList_(table){
   return table.sheet.getRange(2,index,last-1,1).getValues().map(function(values){return {receipt_json:values[0]};});
 }
 function auroraOperationsOrders_(actor, table) {
-  var list = [];
+  var list = [], complete = true;
   table.rows.forEach(function(row) {
     var order;
-    try { order = JSON.parse(String(row.receipt_json || '')); } catch (_) { return; }
-    if (!order || !order.id) return;
+    try { order = JSON.parse(String(row.receipt_json || '')); }
+    catch (_) { complete = false; return; }
+    if (!order || !order.id) { complete = false; return; }
     if (actor.role === 'delivery_man' && String(order.rider_id || '').toLowerCase() !== actor.email) return;
     if (actor.role === 'kitchen_manager' && ['pending','cancelled','delivered'].indexOf(order.status) !== -1) return;
     // Staff never receives the delivery OTP or the customer's bearer capability.
@@ -208,7 +209,7 @@ function auroraOperationsOrders_(actor, table) {
     list.push(order);
   });
   list.sort(function(a,b){return String(b.created_at||'').localeCompare(String(a.created_at||''));});
-  return list.slice(0,100);
+  return {orders:list.slice(0,100),complete:complete};
 }
 function auroraOperationsPost_(input) {
   var actor = auroraStaffAuthenticate_(input);
@@ -261,7 +262,11 @@ function auroraOperationsPost_(input) {
     }finally{originalLock.releaseLock();}
   }
   var book = auroraSpreadsheet_(), table = auroraFastOrderTable_(book);
-  if (input.action === 'staff_orders') return {ok:true,snapshot_complete:true,snapshot_at:new Date().toISOString(),orders:auroraOperationsOrders_(actor,{rows:auroraFastOrderList_(table)}),role:actor.role};
+  if (input.action === 'staff_orders') {
+    var snapshot=auroraOperationsOrders_(actor,{rows:auroraFastOrderList_(table)});
+    return {ok:true,snapshot_complete:snapshot.complete,snapshot_at:new Date().toISOString(),
+      orders:snapshot.orders,role:actor.role};
+  }
   if (input.action !== 'staff_mutate') auroraReject_('invalid_action','Unknown staff action.');
   var action = String(input.operation || '');
   if (!auroraStaffCan_(actor,action)) auroraReject_('forbidden','Your role cannot perform this operation.');
