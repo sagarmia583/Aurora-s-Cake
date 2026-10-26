@@ -15,7 +15,7 @@ import {
 import { CartItem, DeliveryZone, DeliverySlot, Order, PaymentMethod } from '../types';
 import { mockDb } from '../services/mockDatabase';
 import { calculateSheetOrderEstimate, createSheetOrderAttempt, submitSheetOrder, SheetOrderSubmissionError, loadConfirmedSheetOrders } from '../services/googleSheetOrders';
-import { getPhoneCustomerProfile, loginPhoneCustomer } from '../services/phoneCustomerApi';
+import { getPhoneCustomerProfile } from '../services/phoneCustomerApi';
 import { matchCheckoutCustomer, normalizeCheckoutPhone } from '../services/customerPhoneLookup';
 import type { CheckoutCustomerInfo } from '../services/customerPhoneLookup';
 import type { SheetOrderAttempt } from '../services/googleSheetOrders';
@@ -55,10 +55,6 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [autofillNotice, setAutofillNotice] = useState('');
-  const [savedDetailsOpen, setSavedDetailsOpen] = useState(false);
-  const [savedDetailsPassword, setSavedDetailsPassword] = useState('');
-  const [savedDetailsBusy, setSavedDetailsBusy] = useState(false);
-  const [savedDetailsError, setSavedDetailsError] = useState('');
   const ownedCustomerRef = useRef<CheckoutCustomerInfo | null>(null);
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [selectedZoneId, setSelectedZoneId] = useState(zones[0]?.id || '');
@@ -97,7 +93,6 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const onPhoneChanged = (value:string) => {
     const previous=normalizeCheckoutPhone(customerPhone), next=normalizeCheckoutPhone(value);
     if(previous!==next){
-      setSavedDetailsError('');
       // An authenticated phone profile is only valid for the original number.
       if(ownedCustomerRef.current && normalizeCheckoutPhone(ownedCustomerRef.current.phone)!==next)
         ownedCustomerRef.current=null;
@@ -112,34 +107,6 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     }
     setCustomerPhone(value);
     fillFromPhone(value,ownedCustomerRef.current);
-  };
-  const signInForSavedDetails = async () => {
-    if(savedDetailsBusy || !sheetOrderEndpoint)return;
-    if(!/^01[3-9]\d{8}$/.test(normalizeCheckoutPhone(customerPhone))){
-      setSavedDetailsError('Enter a valid Bangladesh mobile number to access your saved profile.');
-      return;
-    }
-    if(savedDetailsPassword.length<10){
-      setSavedDetailsError('Enter the password for this phone account (at least 10 characters).');
-      return;
-    }
-    setSavedDetailsBusy(true);setSavedDetailsError('');
-    try{
-      const account=await loginPhoneCustomer(sheetOrderEndpoint,customerPhone,savedDetailsPassword);
-      if(normalizeCheckoutPhone(account.profile.phone)!==normalizeCheckoutPhone(customerPhone))
-        throw new Error('The account phone does not match this checkout number.');
-      ownedCustomerRef.current={name:account.profile.name,phone:account.profile.phone,
-        address:account.profile.address,source:'account'};
-      currentPrefillRef.current={name:account.profile.name,address:account.profile.address};
-      setCustomerPhone(account.profile.phone);
-      setCustomerName(account.profile.name);
-      setDeliveryAddress(account.profile.address);
-      setAutofillNotice('Verified! Your saved name and address were loaded from Google Sheets. You can edit them for this order.');
-      try{sessionStorage.setItem('aurora_customer_phone_session_v1',account.token);}catch{}
-      setSavedDetailsPassword('');setSavedDetailsOpen(false);
-    }catch(e){
-      setSavedDetailsError(e instanceof Error?e.message:'Could not load saved details. Please check your password.');
-    }finally{setSavedDetailsBusy(false);}
   };
   useEffect(()=>{
     if(!isOpen||!sheetOrderEndpoint)return;
@@ -310,7 +277,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handlePlaceOrder} className="overflow-y-auto p-6 space-y-6 flex-1">
-          <fieldset disabled={isSubmitting || unconfirmed || savedDetailsBusy} className="min-w-0 space-y-6 border-0 p-0 m-0">
+          <fieldset disabled={isSubmitting || unconfirmed} className="min-w-0 space-y-6 border-0 p-0 m-0">
           <p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">{isLiveOrder ? 'Place your order with the bakery and pay cash on delivery. No online payment is collected. Confirmation appears only after Google Sheets confirms your order was saved.' : 'Live Google Sheets ordering is not activated yet. This demo checkout stays on this device; it is not sent to the bakery and no payment is collected.'}</p>
           {errorMessage && (
             <div role="alert" className="bg-red-50 text-red-700 p-3.5 rounded-xl border border-red-200 text-xs flex items-center gap-2">
@@ -355,44 +322,12 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
             {autofillNotice && <p role="status" className="text-xs text-emerald-900 bg-emerald-50 border border-emerald-200 p-3 rounded-xl">
               {autofillNotice}
             </p>}
-            {isLiveOrder && (
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-3 space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-emerald-950 text-sm flex items-center gap-1.5">
-                      <ShieldCheck size={16}/> Returning customer?
-                    </p>
-                    <p className="text-xs text-slate-600">Already have a phone account? Get your saved name and delivery address from Google Sheets.</p>
-                  </div>
-                  <button type="button" onClick={()=>{setSavedDetailsOpen(v=>!v);setSavedDetailsError('');}}
-                    className="rounded-xl bg-emerald-800 px-3 py-2 text-xs font-bold text-white">
-                    {savedDetailsOpen?'Hide sign-in':'Use my saved details'}
-                  </button>
-                </div>
-                {savedDetailsOpen&&(
-                  <div className="rounded-xl bg-white p-3 space-y-2">
-                    <p className="text-xs text-slate-700">Phone number above + your account password are required. Another customer's number alone cannot reveal their address.</p>
-                    <label className="block text-xs font-semibold text-slate-700">
-                      Phone account password
-                      <input type="password" value={savedDetailsPassword} minLength={10} autoComplete="current-password"
-                        onChange={e=>setSavedDetailsPassword(e.target.value)}
-                        onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();void signInForSavedDetails();}}}
-                        placeholder="Enter your saved account password" aria-label="Password to load saved customer details"
-                        className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"/>
-                    </label>
-                    <button type="button" disabled={savedDetailsBusy||isSubmitting} onClick={()=>void signInForSavedDetails()}
-                      className="w-full rounded-xl bg-emerald-800 text-white font-semibold px-4 py-2 text-sm disabled:opacity-50">
-                      {savedDetailsBusy?'Checking Google Sheets…':'Verify & autofill name and address'}
-                    </button>
-                    {savedDetailsError&&<p role="alert" className="text-xs rounded-lg bg-red-50 text-red-800 p-2">{savedDetailsError}</p>}
-                  </div>
-                )}
-                <p className="text-[11px] text-slate-600">
-                  Own-device saved details may autofill automatically. On another device, sign in with Phone + Password.
-                  New customer? Create a phone account from <strong>Sign up / My orders</strong>. No SMS or paid service is required.
-                </p>
-              </div>
-            )}
+            {isLiveOrder&&<p className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-950">
+              <ShieldCheck size={14} className="inline mr-1"/>
+              No customer password needed. Your details from this device can autofill.
+              After checkout, your name, number, address and COD order are saved to the private bakery Google Sheet.
+              For privacy, entering someone else's phone number never loads their address.
+            </p>}
             <div>
               <label className="text-xs font-semibold text-slate-600 block mb-1">Detailed Street Address / Landmark</label>
               <textarea
