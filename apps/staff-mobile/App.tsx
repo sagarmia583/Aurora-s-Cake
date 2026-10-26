@@ -229,7 +229,7 @@ export default function App(){
     active:orders.filter(o=>!['delivered','cancelled'].includes(o.status)).length,
     done:orders.filter(o=>o.status==='delivered').length
   }),[orders,session]);
-  if(initializing)return <View style={s.center}><StatusBar barStyle="dark-content" backgroundColor={C.bg}/>
+  if(initializing)return <View style={s.center}><StatusBar barStyle="dark-content"/>
     <Text style={s.logo}>AURORA'S</Text><Text style={s.logoSub}>CAKE · STAFF</Text>
     <ActivityIndicator color={C.brand} size="large" style={{marginTop:22}}/>
     <SmallLabel>Restoring secure session…</SmallLabel>
@@ -254,7 +254,7 @@ export default function App(){
   </KeyboardAvoidingView>;
   const readyToAssign=session.riders.filter(x=>x.email);
   return <View style={s.root}>
-    <StatusBar backgroundColor={C.dark} barStyle="light-content"/>
+    <StatusBar barStyle="light-content"/>
     <View style={s.top}>
       <View><Text style={s.topEyebrow}>AURORA'S CAKE</Text><Text style={s.topTitle}>{roleLabel[session.role]} Workspace</Text>
         <Text style={s.topSub}>Hello, {session.name}</Text></View>
