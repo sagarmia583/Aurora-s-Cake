@@ -4,6 +4,7 @@ import { checkStaffSession, getStaffOrders, mutateStaffOrder, issueLegacyReceipt
 import type { StaffCustomerMatch, StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
 import { getBrowserWorkspaceStorage, loadStaffCredential, saveStaffCredential, clearStaffCredential, loadStaffTab, saveStaffTab } from '../services/staffWorkspaceSession';
+import { reconcileStaffOrders, loadStaffOrdersSnapshot, saveStaffOrdersSnapshot, clearStaffOrdersSnapshot } from '../services/staffOrderSnapshot';
 // Download the larger forms only if the user opens those workspaces.
 const WebsiteManager=React.lazy(()=>import('./WebsiteManager').then(m=>({default:m.WebsiteManager})));
 const CustomCakeQueue=React.lazy(()=>import('./CustomCakeQueue').then(m=>({default:m.CustomCakeQueue})));
@@ -53,6 +54,10 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const oauthClientId = getAuroraGoogleClientId();
   const signinRef = useRef<HTMLDivElement>(null);
   const [identity, setIdentity] = useState<(StaffSession & { token: string }) | null>(null);
+  const liveIdentityToken=useRef<string|undefined>(undefined);
+  liveIdentityToken.current=identity?.token;
+  const liveIsOpen=useRef(isOpen);
+  liveIsOpen.current=isOpen;
   const [restoringSession, setRestoringSession] = useState(() => Boolean(loadStaffCredential(getBrowserWorkspaceStorage())));
   const [activeTab,setActiveTab]=useState<StaffTab>(() => {
     const saved=loadStaffTab(getBrowserWorkspaceStorage());
@@ -88,6 +93,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const ordersRefreshInFlight=useRef(false);
   const queuedOrderRefresh=useRef(false);
   const [loadingOrders,setLoadingOrders]=useState(false);
+  const [viewingSavedOrders,setViewingSavedOrders]=useState(false);
   const [orderUpdateMessage,setOrderUpdateMessage]=useState('');
   const [backendWarning,setBackendWarning]=useState('');
   useEffect(()=>{
@@ -161,6 +167,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     try {
       const profile = await checkStaffSession(endpoint, idToken);
       saveStaffCredential(getBrowserWorkspaceStorage(),idToken);
+      setOrders(loadStaffOrdersSnapshot(getBrowserWorkspaceStorage(),{...profile,token:idToken}));
+      setViewingSavedOrders(true);
       setIdentity({ ...profile, token: idToken });
       setStaffProfiles(profile.staff_profiles ?? []);
       setRiderEmail(profile.riders[0]?.email || '');
@@ -208,6 +216,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       const token=await signInStaffPassword(endpoint,username,password);
       const profile=await checkStaffSession(endpoint,token);
       saveStaffCredential(getBrowserWorkspaceStorage(),token);
+      setOrders(loadStaffOrdersSnapshot(getBrowserWorkspaceStorage(),{...profile,token}));
+      setViewingSavedOrders(true);
       setIdentity({...profile,token});
       setStaffProfiles(profile.staff_profiles??[]);
       setPassword('');
@@ -238,8 +248,10 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       if(!isActive())return;
       const message=caught instanceof Error?caught.message:'Could not restore your staff session.';
       // Do not discard credentials during a temporary network failure.
-      if(/sign in again|login expired|not authorized|not active|invalid google|token expired/i.test(message))
+      if(/sign in again|login expired|not authorized|not active|invalid google|token expired/i.test(message)) {
         clearStaffCredential(getBrowserWorkspaceStorage());
+        clearStaffOrdersSnapshot(getBrowserWorkspaceStorage());
+      }
       setError('Previous staff session could not be verified: '+message);
     }finally{if(isActive())setRestoringSession(false);}
   },[endpoint]);
@@ -260,6 +272,11 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     void restoreStaffSession(token,()=>true);
   };
 
+  useEffect(()=>{
+    if(identity&&orders.length>0)
+      saveStaffOrdersSnapshot(getBrowserWorkspaceStorage(),identity,orders);
+  },[orders,identity?.token,identity?.role,identity?.email]);
+
   const refresh = useCallback(async () => {
     if (!identity || !isOpen) return;
     if (ordersRefreshInFlight.current) {
@@ -272,18 +289,15 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     setLoadingOrders(true);
     try {
       const fresh = await getStaffOrders(endpoint, identity.token);
-      setOrders(previous=>{
-        // Avoid replacing a just-confirmed local status with an older in-flight
-        // Sheet snapshot when a rider updates during this refresh.
-        const latest=new Map(previous.map(order=>[order.id,order]));
-        return fresh.map(order=>{
-          const prior=latest.get(order.id);
-          return prior && Date.parse(prior.updated_at)>Date.parse(order.updated_at) ? prior : order;
-        });
-      });
+      // A response from an old identity/request must never overwrite the
+      // currently signed-in employee's orders.
+      if(liveIdentityToken.current!==identity.token||!liveIsOpen.current)return;
+      setOrders(previous=>reconcileStaffOrders(previous,fresh));
       setUpdatedAt(new Date().toLocaleTimeString());
+      setViewingSavedOrders(false);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Unable to load orders.');
+      if(liveIdentityToken.current===identity.token&&liveIsOpen.current)
+        setError((caught instanceof Error ? caught.message : 'Unable to load orders.')+' Your previous order list has been kept.');
     } finally {
       ordersRefreshInFlight.current=false;
       setLoadingOrders(false);
@@ -293,7 +307,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
         window.setTimeout(() => { void refresh(); }, 0);
       }
     }
-  }, [endpoint, identity, isOpen]);
+  }, [endpoint, identity?.token, isOpen]);
 
   useEffect(() => {
     if (!isOpen || !identity || !['overview','orders'].includes(activeTab)) return;
@@ -371,7 +385,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
         operation === 'deliver' ? { delivery_otp: otp, cash_collected: cashCollected } : {});
       // Display the server-confirmed stage immediately; don't block the rider
       // for another costly full Sheet list request.
-      setOrders(previous=>previous.map(item=>item.id===confirmed.id?{...item,...confirmed}:item));
+      setOrders(previous=>reconcileStaffOrders(previous,previous.map(item=>item.id===confirmed.id?{...item,...confirmed}:item)));
       setUpdatedAt(new Date().toLocaleTimeString());
       setOrderUpdateMessage('Order '+order.order_number+' updated to '+confirmed.status.replaceAll('_',' ')+'.');
       setOtp(''); setOtpOrderId(''); setCashCollected(false);
@@ -523,12 +537,12 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                     <p className="text-sm text-slate-500 mt-1">Hello, {identity.name}. Here's what needs attention.</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span aria-live="polite" className="hidden sm:block text-xs text-slate-500">{loadingOrders?'Syncing…':'Updated '+(updatedAt||'—')}</span>
+                    <span aria-live="polite" className="hidden sm:block text-xs text-slate-500">{loadingOrders?'Syncing · keeping current data…':viewingSavedOrders?'Saved orders · updating…':'Updated '+(updatedAt||'—')}</span>
                     <button type="button" disabled={loadingOrders} onClick={()=>void refresh()}
                       className="min-h-11 flex items-center gap-2 rounded-xl bg-white border px-3 text-sm font-semibold text-slate-700 disabled:opacity-60">
                       <RefreshCw size={16} className={loadingOrders?'animate-spin':''}/> Refresh
                     </button>
-                    <button type="button" onClick={()=>{setIdentity(null);setOrders([]);setStaffProfiles([]);setActiveTab('overview');setError('');clearStaffCredential(getBrowserWorkspaceStorage());}}
+                    <button type="button" onClick={()=>{setIdentity(null);setOrders([]);setStaffProfiles([]);setActiveTab('overview');setError('');clearStaffCredential(getBrowserWorkspaceStorage());clearStaffOrdersSnapshot(getBrowserWorkspaceStorage());}}
                       aria-label="Sign out" className="min-h-11 flex items-center gap-2 rounded-xl border bg-white px-3 text-sm text-slate-700">
                       <LogOut size={16}/><span className="hidden sm:inline">Sign out</span>
                     </button>
