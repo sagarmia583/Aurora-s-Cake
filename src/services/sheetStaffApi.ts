@@ -34,6 +34,15 @@ export interface StatusSnapshot {
 function objectValue(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
+/** Preserves backend error codes so a deleted Sheet row is distinguishable
+ * from an unavailable network, invalid session or rate limit.
+ */
+export class BakeryOperationsError extends Error {
+  constructor(message: string, readonly code: string) {
+    super(message);
+    this.name = 'BakeryOperationsError';
+  }
+}
 export async function privatePost(endpoint: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const url = resolveSheetsPostEndpoint(endpoint);
   const controller = new AbortController();
@@ -47,7 +56,7 @@ export async function privatePost(endpoint: string, body: Record<string, unknown
     if (!response.ok) throw new Error('The bakery operations endpoint is unavailable.');
     const data: unknown = await response.json().catch(() => null);
     if (!objectValue(data)) throw new Error('Invalid bakery operations response. Check the Apps Script deployment.');
-    if (data.ok !== true) throw new Error(typeof data.error === 'string' ? data.error : 'Bakery operation was not accepted.');
+    if (data.ok !== true) throw new BakeryOperationsError(typeof data.error === 'string' ? data.error : 'Bakery operation was not accepted.', typeof data.code === 'string' ? data.code : 'unknown_error');
     return data;
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw new Error('Connection timed out. Refresh and retry.');
