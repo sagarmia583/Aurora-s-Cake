@@ -12,7 +12,7 @@ const noop = () => {};
 function navigation(data: PublicSiteData) {
   return renderToStaticMarkup(<Navbar
     settings={data.settings} publicData={data} activeRole="customer" onRoleChange={noop}
-    viewMode="web" onViewModeChange={noop} cartCount={0} onOpenCart={noop} onOpenProfile={noop}
+    viewMode="web" onViewModeChange={noop} cartCount={0} onOpenCart={noop} onOrderNow={noop} onOpenProfile={noop}
     onOpenCacheHub={noop} onOpenDbViewer={noop} onOpenSupabaseSync={noop} isSupabaseConnected={false}
     onOpenTrackOrder={noop} onOpenCustomCake={noop} searchQuery="" onSearchChange={noop}
     onOpenSheetSettings={noop} isSheetConnected
