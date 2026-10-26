@@ -127,12 +127,12 @@ function auroraPrivateFindRow_(table, orderId) {
   if (lastRow < 2) return 0;
   // Native TextFinder avoids transferring the whole ID column to Apps Script
   // on a single-order customer poll. Fallback supports older test/mocks.
-  if (typeof table.sheet.createTextFinder === 'function') {
-    var match=table.sheet.getRange(2,index+1,lastRow-1,1)
-      .createTextFinder(String(orderId)).matchEntireCell(true).findNext();
+  var idRange=table.sheet.getRange(2,index+1,lastRow-1,1);
+  if (typeof idRange.createTextFinder === 'function') {
+    var match=idRange.createTextFinder(String(orderId)).matchEntireCell(true).findNext();
     return match ? match.getRow() : 0;
   }
-  var data = table.sheet.getRange(2,index+1,lastRow-1,1).getValues();
+  var data = idRange.getValues();
   for (var i=0;i<data.length;i++) if (String(data[i][0]) === orderId) return i+2;
   return 0;
 }
