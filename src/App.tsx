@@ -501,7 +501,7 @@ export default function App() {
             className="flex flex-col items-center gap-1 text-slate-600 hover:text-rose-600 cursor-pointer"
           >
             <User className="w-5 h-5 text-rose-600" />
-            <span className="text-[10px] font-semibold">Orders</span>
+            <span className="text-[10px] font-semibold">Profile</span>
           </button>
           <button
             onClick={() => setIsTrackOrderOpen(true)}
