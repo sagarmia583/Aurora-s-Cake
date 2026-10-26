@@ -7,24 +7,24 @@ import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { Navbar, ViewMode } from './components/Navbar';
 import { CustomerStorefront } from './components/CustomerStorefront';
 const MobileAppExperience = lazy(() => import('./components/MobileAppExperience').then(m => ({default: m.MobileAppExperience})));
-import { ProductDetailModal } from './components/ProductDetailModal';
-import { CartDrawer } from './components/CartDrawer';
-import { CheckoutModal } from './components/CheckoutModal';
-import { OrderTrackingModal } from './components/OrderTrackingModal';
+const ProductDetailModal = lazy(() => import('./components/ProductDetailModal').then(m=>({default:m.ProductDetailModal})));
+const CartDrawer = lazy(() => import('./components/CartDrawer').then(m=>({default:m.CartDrawer})));
+const CheckoutModal = lazy(() => import('./components/CheckoutModal').then(m=>({default:m.CheckoutModal})));
+const OrderTrackingModal = lazy(() => import('./components/OrderTrackingModal').then(m=>({default:m.OrderTrackingModal})));
 import { KitchenDisplay } from './components/KitchenDisplay';
 import { DeliveryRiderPortal } from './components/DeliveryRiderPortal';
 const AdminPanel = lazy(() => import('./components/AdminPanel').then(m => ({default: m.AdminPanel})));
 const StaffPortal = lazy(() => import('./components/StaffPortal').then(m => ({default: m.StaffPortal})));
 const CustomerAccountPortal = lazy(() => import('./components/CustomerAccountPortal').then(m => ({default: m.CustomerAccountPortal})));
-import { CachePerformanceHub } from './components/CachePerformanceHub';
-import { DatabaseSchemaViewer } from './components/DatabaseSchemaViewer';
-import { SupabaseSyncModal } from './components/SupabaseSyncModal';
-import { CustomCakeModal } from './components/CustomCakeModal';
-import { CustomerProfileModal } from './components/CustomerProfileModal';
+const CachePerformanceHub = lazy(() => import('./components/CachePerformanceHub').then(m=>({default:m.CachePerformanceHub})));
+const DatabaseSchemaViewer = lazy(() => import('./components/DatabaseSchemaViewer').then(m=>({default:m.DatabaseSchemaViewer})));
+const SupabaseSyncModal = lazy(() => import('./components/SupabaseSyncModal').then(m=>({default:m.SupabaseSyncModal})));
+const CustomCakeModal = lazy(() => import('./components/CustomCakeModal').then(m=>({default:m.CustomCakeModal})));
+const CustomerProfileModal = lazy(() => import('./components/CustomerProfileModal').then(m=>({default:m.CustomerProfileModal})));
 import { mockDb } from './services/mockDatabase';
 import { supabaseDataService } from './services/supabaseDataService';
 import { useGoogleSheetContent } from './hooks/useGoogleSheetContent';
-import { SheetContentPanel } from './components/SheetContentPanel';
+const SheetContentPanel = lazy(() => import('./components/SheetContentPanel').then(m=>({default:m.SheetContentPanel})));
 import { loadConfirmedSheetOrders, rememberConfirmedSheetOrder, removeConfirmedSheetOrdersById } from './services/googleSheetOrders';
 import { fetchCustomerOrderStatus, redeemLegacyReceiptAccess } from './services/sheetStaffApi';
 import { linkPhoneCustomerReceipt } from './services/phoneCustomerApi';
@@ -465,11 +465,12 @@ export default function App() {
 
       {activeRole !== 'customer' && <div className="mx-auto my-3 w-full max-w-6xl px-5 text-xs text-slate-500">Website content is managed in Google Sheets. These Studio tools are local demonstrations. Manage real orders in the private orders and order_items Sheet tabs. Content edits here are replaced on the next Sheet refresh.</div>}
 
-      <Suspense fallback={null}><StaffPortal isOpen={isStaffPortalOpen} onClose={() => setIsStaffPortalOpen(false)} endpoint={sheetContent.endpoint} onCatalogUpdated={() => { void sheetContent.refresh(); }} /></Suspense>
-      <Suspense fallback={null}><CustomerAccountPortal open={isCustomerAccountOpen} onClose={() => setIsCustomerAccountOpen(false)} endpoint={sheetContent.endpoint} localReceipts={orders.filter(o => o.persistence === 'google_sheets')} onIdentityToken={setCustomerGoogleToken} onSignOut={() => { removeConfirmedSheetOrdersById(restoredSessionOrderIds); setOrders(previous => previous.filter(order => !restoredSessionOrderIds.includes(order.id))); setRestoredSessionOrderIds([]); }} onRecover={recovered => { const existing = new Set(loadConfirmedSheetOrders().map(order => order.id)); setRestoredSessionOrderIds(previous => [...new Set([...previous, ...recovered.filter(order => !existing.has(order.id)).map(order => order.id)])]); recovered.forEach(rememberConfirmedSheetOrder); setOrders(previous => { const byId = new Map(previous.map(o => [o.id,o])); recovered.forEach(o => byId.set(o.id,o)); return Array.from(byId.values()); }); }} /></Suspense>
-      <SheetContentPanel isOpen={isSheetContentOpen} onClose={() => setIsSheetContentOpen(false)} endpoint={sheetContent.endpoint} status={sheetContent.status} orderSubmissionEnabled={publicData.order_submission_enabled} onRefresh={sheetContent.refresh} onSaveEndpoint={sheetContent.updateEndpoint}/>
+      {isStaffPortalOpen && <Suspense fallback={null}><StaffPortal isOpen={isStaffPortalOpen} onClose={() => setIsStaffPortalOpen(false)} endpoint={sheetContent.endpoint} onCatalogUpdated={() => { void sheetContent.refresh(); }} /></Suspense>}
+      {isCustomerAccountOpen && <Suspense fallback={null}><CustomerAccountPortal open={isCustomerAccountOpen} onClose={() => setIsCustomerAccountOpen(false)} endpoint={sheetContent.endpoint} localReceipts={orders.filter(o => o.persistence === 'google_sheets')} onIdentityToken={setCustomerGoogleToken} onSignOut={() => { removeConfirmedSheetOrdersById(restoredSessionOrderIds); setOrders(previous => previous.filter(order => !restoredSessionOrderIds.includes(order.id))); setRestoredSessionOrderIds([]); }} onRecover={recovered => { const existing = new Set(loadConfirmedSheetOrders().map(order => order.id)); setRestoredSessionOrderIds(previous => [...new Set([...previous, ...recovered.filter(order => !existing.has(order.id)).map(order => order.id)])]); recovered.forEach(rememberConfirmedSheetOrder); setOrders(previous => { const byId = new Map(previous.map(o => [o.id,o])); recovered.forEach(o => byId.set(o.id,o)); return Array.from(byId.values()); }); }} /></Suspense>}
+      {isSheetContentOpen && <Suspense fallback={null}><SheetContentPanel isOpen={isSheetContentOpen} onClose={() => setIsSheetContentOpen(false)} endpoint={sheetContent.endpoint} status={sheetContent.status} orderSubmissionEnabled={publicData.order_submission_enabled} onRefresh={sheetContent.refresh} onSaveEndpoint={sheetContent.updateEndpoint}/></Suspense>}
       {/* Modals & Slide-outs */}
-      <ProductDetailModal
+      <Suspense fallback={null}>
+      {selectedProductForDetail && <ProductDetailModal
         acceptingOrders={settings.accepting_orders}
         product={selectedProductForDetail}
         allFlavors={flavors}
@@ -477,9 +478,9 @@ export default function App() {
         currency={settings.currency}
         onClose={() => setSelectedProductForDetail(null)}
         onAddToCart={handleAddToCart}
-      />
+      />}
 
-      <CustomerProfileModal
+      {isProfileOpen && <CustomerProfileModal
         isOpen={isProfileOpen}
         accountEndpoint={sheetContent.endpoint}
         onClose={() => setIsProfileOpen(false)}
@@ -491,9 +492,9 @@ export default function App() {
           setLatestOrderId(orderId);
           setIsTrackOrderOpen(true);
         }}
-      />
+      />}
 
-      <CartDrawer
+      {isCartOpen && <CartDrawer
         isOpen={isCartOpen}
         onClose={() => setIsCartOpen(false)}
         items={cartItems}
@@ -501,9 +502,9 @@ export default function App() {
         onUpdateQuantity={handleUpdateCartQuantity}
         onRemoveItem={handleRemoveCartItem}
         onProceedToCheckout={() => { setIsCartOpen(false); setIsCheckoutOpen(true); }}
-      />
+      />}
 
-      <CheckoutModal
+      {isCheckoutOpen && <CheckoutModal
         isOpen={isCheckoutOpen}
         onClose={() => setIsCheckoutOpen(false)}
         items={cartItems}
@@ -512,9 +513,9 @@ export default function App() {
         slots={slots}
         sheetOrderEndpoint={publicData.order_submission_enabled ? sheetContent.endpoint : undefined}
         onOrderSuccess={handleOrderSuccess}
-      />
+      />}
 
-      <OrderTrackingModal
+      {isTrackOrderOpen && <OrderTrackingModal
         isOpen={isTrackOrderOpen}
         syncing={trackingSyncing}
         syncError={trackingSyncError}
@@ -526,16 +527,16 @@ export default function App() {
         currentOrderId={latestOrderId}
         onSelectedOrderChange={setLatestOrderId}
         currency={settings.currency}
-      />
+      />}
 
-      <CustomCakeModal
+      {isCustomCakeOpen && <CustomCakeModal
         sheetOrderEndpoint={publicData.order_submission_enabled ? sheetContent.endpoint : undefined}
         isOpen={isCustomCakeOpen}
         onClose={() => setIsCustomCakeOpen(false)}
         currency={settings.currency}
-      />
+      />}
 
-      <SupabaseSyncModal
+      {isSupabaseSyncOpen && <SupabaseSyncModal
         isOpen={isSupabaseSyncOpen}
         onClose={() => setIsSupabaseSyncOpen(false)}
         settings={settings}
@@ -549,17 +550,18 @@ export default function App() {
         coupons={coupons}
         reviews={reviews}
         onDataRefreshed={refreshData}
-      />
+      />}
 
-      <CachePerformanceHub
+      {isCacheHubOpen && <CachePerformanceHub
         isOpen={isCacheHubOpen}
         onClose={() => setIsCacheHubOpen(false)}
-      />
+      />}
 
-      <DatabaseSchemaViewer
+      {isDbViewerOpen && <DatabaseSchemaViewer
         isOpen={isDbViewerOpen}
         onClose={() => setIsDbViewerOpen(false)}
-      />
+      />}
+      </Suspense>
     </div>
   );
 }
