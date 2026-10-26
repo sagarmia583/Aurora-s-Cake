@@ -387,3 +387,23 @@ function auroraCustomerOrderStatus_(input) {
   }
   return result;
 }
+
+/**
+ * Password-free customer recovery. A phone number is NOT an authentication
+ * credential. The original long random checkout receipt key is required.
+ */
+function auroraCustomerReceiptRecover_(input){
+  var id=auroraOrderText_(input.order_id,'Order reference',10,150);
+  var key=String(input.customer_access_token||'');
+  if(!/^ord_[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id)||!/^[0-9a-f-]{72}$/i.test(key))
+    auroraReject_('forbidden','Original order reference and private receipt key are required.');
+  var digits=auroraCustomerPhoneKey_(input.customer_phone);
+  var table=auroraFastOrderTable_(auroraSpreadsheet_());
+  var row=auroraPrivateFindRow_(table,id);
+  if(!row)auroraReject_('not_found','Receipt not found or access key incorrect.');
+  var order=auroraFastReceipt_(table,row);
+  if(order.id!==id||String(order.customer_access_token||'')!==key||
+      auroraCustomerPhoneKey_(order.customer_phone)!==digits)
+    auroraReject_('forbidden','Receipt not found or access key incorrect.');
+  return {ok:true,order:auroraCustomerSafeReceipt_(order)};
+}
