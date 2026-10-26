@@ -675,6 +675,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                       </form>
                       {customerLookupMessage&&<p role="status" className="text-sm text-slate-700">{customerLookupMessage}</p>}
                       {customerLookupResult&&<div className="grid gap-2 sm:grid-cols-2 text-sm bg-white p-4 rounded-xl">
+                        {customerLookupResult.unverified&&<p role="status" className="sm:col-span-2 rounded-lg bg-amber-50 border border-amber-200 p-2 text-amber-900 font-semibold">Unverified phone submission. Confirm customer details directly before acting.</p>}
                         <p><strong>Name:</strong> {customerLookupResult.name}</p>
                         <p><strong>Phone:</strong> {customerLookupResult.phone}</p>
                         <p className="sm:col-span-2"><strong>Saved first address:</strong> {customerLookupResult.delivery_address}</p>
