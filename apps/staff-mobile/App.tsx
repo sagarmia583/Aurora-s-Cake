@@ -361,7 +361,7 @@ const s=StyleSheet.create({
   inputLabel:{fontSize:13,fontWeight:'800',color:C.ink},
   input:{backgroundColor:C.paper,borderColor:'#CFDCD2',borderWidth:1,borderRadius:13,paddingHorizontal:13,paddingVertical:13,fontSize:16,color:C.ink,minHeight:51},
   button:{backgroundColor:C.brand,paddingVertical:15,paddingHorizontal:16,borderRadius:14,alignItems:'center',justifyContent:'center',minHeight:52,marginTop:7},
-  buttonText:{color:'#FFF',fontSize:14,fontWeight:'850',textAlign:'center'},
+  buttonText:{color:'#FFF',fontSize:14,fontWeight:'800',textAlign:'center'},
   secondaryButton:{backgroundColor:'#F8FBF8',borderWidth:1,borderColor:'#B9CEBE'},
   secondaryButtonText:{color:C.brand},
   dangerButton:{backgroundColor:'#FFF7F6',borderWidth:1,borderColor:'#EAC5BF'},
