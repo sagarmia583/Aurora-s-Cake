@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, RefreshCw, ShieldCheck, LockKeyhole, Truck, PackageCheck, LayoutDashboard, ShoppingBag, UsersRound, CakeSlice, Store, Search, ChevronDown, ChevronUp, LogOut, Clock3, BadgeCheck, ArrowRight, AlertCircle, CreditCard, MapPin, Filter } from 'lucide-react';
+import { X, RefreshCw, ShieldCheck, Truck, PackageCheck, LayoutDashboard, ShoppingBag, UsersRound, CakeSlice, Store, Search, ChevronDown, ChevronUp, LogOut, Clock3, BadgeCheck, ArrowRight, AlertCircle, CreditCard, MapPin } from 'lucide-react';
 import { checkStaffSession, getStaffOrders, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword } from '../services/sheetStaffApi';
 import type { StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
-import { WebsiteManager } from './WebsiteManager';
-import { CustomCakeQueue } from './CustomCakeQueue';
+// Download the larger forms only if the user opens those workspaces.
+const WebsiteManager=React.lazy(()=>import('./WebsiteManager').then(m=>({default:m.WebsiteManager})));
+const CustomCakeQueue=React.lazy(()=>import('./CustomCakeQueue').then(m=>({default:m.CustomCakeQueue})));
 
 type GoogleSdk = {
   initialize: (options: { client_id: string; callback: (response: { credential?: string }) => void; ux_mode?: 'popup'; use_fedcm_for_button?: boolean; auto_select?: boolean }) => void;
@@ -252,11 +253,12 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   }, [endpoint, identity, isOpen]);
 
   useEffect(() => {
-    if (!isOpen || !identity) return;
+    if (!isOpen || !identity || !['overview','orders'].includes(activeTab)) return;
     void refresh();
+    const refreshMs=identity.role==='delivery_man'?8000:12000;
     const interval = window.setInterval(() => {
       if (document.visibilityState === 'visible') void refresh();
-    }, 12000);
+    }, refreshMs);
     const visible=()=>{if(document.visibilityState==='visible')void refresh();};
     document.addEventListener('visibilitychange',visible);
     window.addEventListener('focus',visible);
@@ -265,7 +267,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       document.removeEventListener('visibilitychange',visible);
       window.removeEventListener('focus',visible);
     };
-  }, [isOpen, identity, refresh]);
+  }, [isOpen, identity, activeTab, refresh]);
 
   const toggleStaff=async(username:string,active:boolean)=>{
     if(!identity||identity.role!=='super_admin'||!window.confirm(active?'Enable this staff account?':'Disable this staff account and revoke its sessions?'))return;
@@ -681,9 +683,11 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                   </div>
                 </section>
               )}
-              {activeTab==='cakes'&&(['super_admin','admin','order_manager'] as string[]).includes(identity.role) && <CustomCakeQueue endpoint={endpoint} token={identity.token} />}
-              {activeTab==='website'&&(identity.role === 'super_admin' || identity.role === 'admin') && <WebsiteManager endpoint={endpoint} token={identity.token}
-                role={identity.role} onUpdated={() => onCatalogUpdated?.()} />}
+              <React.Suspense fallback={<div className="rounded-2xl bg-white border p-8 text-center text-slate-500" role="status">Opening your workspace…</div>}>
+                {activeTab==='cakes'&&(['super_admin','admin','order_manager'] as string[]).includes(identity.role) && <CustomCakeQueue endpoint={endpoint} token={identity.token} />}
+                {activeTab==='website'&&(identity.role === 'super_admin' || identity.role === 'admin') && <WebsiteManager endpoint={endpoint} token={identity.token}
+                  role={identity.role} onUpdated={() => onCatalogUpdated?.()} />}
+              </React.Suspense>
               </div>
             </div>
           )}
