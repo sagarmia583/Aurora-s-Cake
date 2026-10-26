@@ -99,6 +99,12 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     const next=actionForStatus[order.status];
     return Boolean(next&&canOperate(role,next.operation));
   };
+  useEffect(()=>{
+    if(!identity)return;
+    const operational=['kitchen_manager','delivery_manager','delivery_man','order_manager'].includes(identity.role);
+    setActiveTab(operational?'orders':'overview');
+    setOrderFilter(identity.role==='accountant'?'all':'actionable');
+  },[identity?.role]);
   const actionableCount=identity?orders.filter(order=>isActionable(order,identity.role)).length:0;
   const activeCount=orders.filter(order=>!terminalStatuses.has(order.status)).length;
   const deliveryCount=orders.filter(order=>['assigned','picked_up','out_for_delivery'].includes(order.status)).length;
@@ -554,16 +560,39 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                   </form>
                 </section>
               )}
-              {orderUpdateMessage && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-emerald-900 text-sm">{orderUpdateMessage}</p>}
-              <p className="text-sm text-slate-600">Showing up to 100 recent authorized orders. Status updates are written to the same private Sheet used by Customer checkout.</p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-                <div className="bg-white border rounded-xl p-3"><strong className="text-xl">{orders.length}</strong><p className="text-slate-500">Orders in visible queue</p></div>
-                <div className="bg-white border rounded-xl p-3"><strong className="text-xl">{orders.filter(o=>o.status==='pending').length}</strong><p className="text-slate-500">Awaiting confirmation</p></div>
-                <div className="bg-white border rounded-xl p-3"><strong className="text-xl">৳{orders.filter(o=>o.payment_method==='cod'&&o.payment_status==='paid'&&o.cod_collected).reduce((total,o)=>total+o.total_amount,0).toLocaleString()}</strong><p className="text-slate-500">Reported COD collected (visible orders only)</p></div>
-              </div>
-              {orders.length === 0 && <div className="bg-white rounded-xl p-8 text-center">No orders available for your role.</div>}
-              <div className="grid gap-4">
-                {orders.map(order => {
+              {(activeTab==='orders'||activeTab==='overview')&&(
+                <section aria-label="Order queue" className="space-y-4">
+                  {orderUpdateMessage&&<p role="status" className="flex items-center gap-2 rounded-xl bg-emerald-50 ring-1 ring-emerald-200 p-4 text-emerald-950 text-sm"><BadgeCheck size={17}/>{orderUpdateMessage}</p>}
+                  <div className="flex flex-wrap items-end justify-between gap-3">
+                    <div><h4 className="text-lg font-black text-[#173b32]">{activeTab==='overview'?'Next actions':'Live order queue'}</h4>
+                      <p className="text-sm text-slate-500">Showing your latest {orders.length} authorized orders.</p></div>
+                    {activeTab==='overview'&&<button type="button" className="rounded-xl px-4 py-3 bg-[#1b493d] text-white text-sm font-bold flex items-center gap-2"
+                      onClick={()=>{setActiveTab('orders');setOrderFilter('all');}}>View all orders <ArrowRight size={15}/></button>}
+                  </div>
+                  <div className="rounded-2xl bg-white border border-slate-200 p-3 sm:p-4 space-y-3">
+                    <div className="flex flex-wrap gap-2" aria-label="Filter orders">
+                      {([{value:'actionable',label:'Needs my action'},{value:'active',label:'In progress'},{value:'completed',label:'Finished'},{value:'all',label:'All orders'}] as const).map(option=>(
+                        <button type="button" key={option.value} aria-pressed={orderFilter===option.value} onClick={()=>setOrderFilter(option.value)}
+                          className={'rounded-lg px-3 py-2.5 text-xs sm:text-sm font-bold '+(orderFilter===option.value?'bg-[#1b493d] text-white':'bg-slate-100 text-slate-700 hover:bg-slate-200')}>{option.label}</button>
+                      ))}
+                    </div>
+                    <label className="flex gap-2 items-center rounded-xl border bg-slate-50 px-3 py-2" aria-label="Search orders">
+                      <Search size={18} className="text-slate-400"/>
+                      <input type="search" value={orderSearch} onChange={e=>setOrderSearch(e.target.value)}
+                        className="w-full bg-transparent py-1 outline-none text-sm" placeholder="Search order, customer, phone or rider"/>
+                    </label>
+                  </div>
+                  {loadingOrders&&!orders.length&&<div role="status" className="rounded-2xl bg-white p-8 text-center text-slate-500">Loading live orders…</div>}
+                  {!loadingOrders&&matchingOrders.length===0&&
+                    <div className="rounded-2xl border border-dashed border-emerald-200 bg-white px-5 py-10 text-center">
+                      <PackageCheck size={34} className="mx-auto text-emerald-700 mb-3"/>
+                      <h5 className="font-bold text-[#173b32]">{orders.length===0?'No orders assigned yet':'No orders match this view'}</h5>
+                      <p className="text-sm text-slate-500 mt-1">Try another filter or refresh the Sheet.</p>
+                      <button type="button" className="mt-3 font-semibold text-sm underline text-emerald-800"
+                        onClick={()=>{setOrderFilter('all');setOrderSearch('');}}>Show all orders</button>
+                    </div>}
+                  <div className="grid gap-3">
+                    {matchingOrders.slice(0,activeTab==='overview'?5:100).map(order => {
                   const next = actionForStatus[order.status] || null;
                   const canCancel = canOperate(identity.role, 'cancel') && ['pending','confirmed','preparing','ready','assigned'].includes(order.status);
                   return <article key={order.id} className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
@@ -621,7 +650,9 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                     </div>
                   </article>;
                 })}
-              </div>
+                  </div>
+                </section>
+              )}
               {activeTab==='cakes'&&(['super_admin','admin','order_manager'] as string[]).includes(identity.role) && <CustomCakeQueue endpoint={endpoint} token={identity.token} />}
               {activeTab==='website'&&(identity.role === 'super_admin' || identity.role === 'admin') && <WebsiteManager endpoint={endpoint} token={identity.token}
                 role={identity.role} onUpdated={() => onCatalogUpdated?.()} />}
