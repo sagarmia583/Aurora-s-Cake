@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "Aurora's Cake Staff",
+    "slug": "auroras-cake-staff",
+    "scheme": "aurorastaff",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "bundleIdentifier": "com.aurorascake.staff",
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.aurorascake.staff",
+      "edgeToEdgeEnabled": true
+    },
+    "plugins": [
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {}
+    }
+  }
+}
