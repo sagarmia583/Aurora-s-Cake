@@ -10,6 +10,9 @@
     },
     "api/public.js": {
       "maxDuration": 30
+    },
+    "api/backend-health.js": {
+      "maxDuration": 30
     }
   },
   "rewrites": [
@@ -24,6 +27,10 @@
     {
       "source": "/api/image",
       "destination": "/api/image"
+    },
+    {
+      "source": "/api/backend-health",
+      "destination": "/api/backend-health"
     },
     {
       "source": "/(.*)",
