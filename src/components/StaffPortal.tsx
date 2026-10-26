@@ -119,6 +119,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     {id:'website',label:'Website manager',hint:'Shop content',icon:Store,show:identity?.role==='super_admin'||identity?.role==='admin'},
   ];
   const tabs=roleTabs.filter(tab=>tab.show);
+  const pipeline=['pending','confirmed','preparing','ready','assigned','picked_up','out_for_delivery','delivered'];
   const matchingOrders=identity?orders.filter(order=>{
     const query=orderSearch.trim().toLowerCase();
     const matches=!query||[order.order_number,order.customer_name,order.customer_phone,order.delivery_address,order.rider_name]
@@ -355,6 +356,10 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
             className="min-w-11 min-h-11 rounded-xl grid place-items-center bg-white/10 hover:bg-white/20 focus-visible:ring-2 focus-visible:ring-white"><X size={21}/></button>
         </header>
         <div className="space-y-4">
+          {error&&<div role="alert" className="mx-4 sm:mx-6 mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900 flex items-start gap-2">
+            <AlertCircle size={18} className="shrink-0"/><p className="flex-1">{error}</p>
+            <button aria-label="Dismiss error" type="button" onClick={()=>setError('')} className="p-1 rounded-lg hover:bg-rose-100"><X size={16}/></button>
+          </div>}
           {backendWarning&&<p role="alert" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-sm font-medium text-amber-950">
             {backendWarning} <a className="underline font-bold" target="_blank" rel="noreferrer"
               href="https://github.com/sagarmia583/Aurora-s-Cake/blob/fix/secure-demo-roles-and-delivery-20261024/apps-script/Code.AllInOne.gs">
@@ -624,6 +629,14 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                       <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900">
                         Your next step: {next.label}. Customer progress updates after a successful save.
                       </p>}
+                    {order.status!=='cancelled'&&
+                      <div className="space-y-1.5" aria-label={`Delivery progress: ${stageNames[order.status]||order.status}`}>
+                        <div className="flex gap-1.5">{pipeline.map((stage,index)=>(
+                          <span key={stage} title={stageNames[stage]} aria-hidden="true"
+                            className={'h-1.5 flex-1 rounded-full '+(index<=pipeline.indexOf(order.status)?'bg-emerald-700':'bg-slate-200')}/>
+                        ))}</div>
+                        <p className="text-[11px] text-slate-500">Order journey · {stageNames[order.status]||order.status}</p>
+                      </div>}
                     <button type="button" aria-expanded={expanded} onClick={()=>setExpandedOrders(ids=>expanded?ids.filter(id=>id!==order.id):[...ids,order.id])}
                       className="w-full flex items-center justify-between border-t pt-3 text-sm font-bold text-slate-700 hover:text-emerald-800">
                       <span>{expanded?'Hide order details':'Show items and order details'}</span>
@@ -691,7 +704,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
               </div>
             </div>
           )}
-          {error && <p role="alert" className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-800 text-sm">{error}</p>}
+
         </div>
       </section>
     </div>
