@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, RefreshCw, ShieldCheck, LockKeyhole, Truck, PackageCheck } from 'lucide-react';
-import { checkStaffSession, getStaffOrders, mutateStaffOrder, signInStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword } from '../services/sheetStaffApi';
+import { checkStaffSession, getStaffOrders, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword } from '../services/sheetStaffApi';
 import type { StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
 import { WebsiteManager } from './WebsiteManager';
@@ -67,6 +67,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const ordersRefreshInFlight=useRef(false);
   const [loadingOrders,setLoadingOrders]=useState(false);
   const [orderUpdateMessage,setOrderUpdateMessage]=useState('');
+  const [legacyKey,setLegacyKey]=useState<{orderId:string;key:string}|null>(null);
 
   const signIn = useCallback(async (idToken: string) => {
     setLoading(true); setError('');
@@ -227,6 +228,18 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to refresh staff profiles.'); }
     finally { setRefreshingStaff(false); }
   }, [endpoint, identity]);
+
+  const recoverLegacy=async(order:StaffOrder)=>{
+    if(!identity||identity.role!=='super_admin'||busyOrderId)return;
+    if(!window.confirm('Only continue after independently verifying the original customer in person or through a trusted prior contact. This creates a private receipt key; send it ONLY to that customer. Continue?'))return;
+    setBusyOrderId(order.id);setError('');setLegacyKey(null);
+    try{
+      const key=await issueLegacyReceiptAccess(endpoint,identity.token,order.id);
+      setLegacyKey({orderId:order.id,key});
+      setOrders(previous=>previous.map(item=>item.id===order.id?{...item,legacy_receipt_missing:false}:item));
+    }catch(error){setError(error instanceof Error?error.message:'Could not restore this legacy order receipt.');}
+    finally{setBusyOrderId('');}
+  };
 
   const mutate = async (order: StaffOrder, operation: StaffOperation) => {
     if (!identity || busyOrderId) return;
@@ -422,6 +435,23 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                             <button type="button" disabled={!!busyOrderId} onClick={() => void mutate(order,'deliver')} className="bg-emerald-700 text-white rounded-xl px-4 py-2 text-sm">Verify & deliver</button>
                           </div>
                         ) : <button type="button" onClick={() => { setOtpOrderId(order.id); setOtp(''); setCashCollected(false); }} className="bg-emerald-700 text-white rounded-xl px-4 py-2 text-sm">Verify customer OTP</button>
+                      )}
+                      {identity.role==='super_admin'&&order.legacy_receipt_missing&&order.status==='out_for_delivery'&&(
+                        <button type="button" disabled={!!busyOrderId} onClick={()=>void recoverLegacy(order)}
+                          className="rounded-xl border border-amber-400 bg-amber-50 text-amber-900 px-4 py-2 text-sm font-bold disabled:opacity-50">
+                          Recover old customer OTP access
+                        </button>
+                      )}
+                      {legacyKey?.orderId===order.id&&(
+                        <div className="w-full rounded-xl border border-amber-300 bg-amber-50 p-3 space-y-2" role="status">
+                          <strong className="block text-sm">Private recovery key — show only to the verified customer</strong>
+                          <p className="text-xs">Ask the customer to paste this under Track Order → Restore older receipt access. The key is shown here only once; it is NOT the 4-digit delivery OTP.</p>
+                          <input readOnly aria-label="Customer receipt recovery key" value={legacyKey.key} onFocus={e=>e.currentTarget.select()}
+                            className="w-full rounded-lg border p-2 text-xs font-mono bg-white" />
+                          <button type="button" onClick={()=>{void navigator.clipboard?.writeText(legacyKey.key).catch(()=>setError('Select and copy the key manually.'));}}
+                            className="rounded-lg border bg-white px-3 py-2 text-xs">Copy private key</button>
+                          <button type="button" onClick={()=>setLegacyKey(null)} className="rounded-lg px-3 py-2 text-xs underline">Dismiss key</button>
+                        </div>
                       )}
                       {canCancel && <button type="button" disabled={!!busyOrderId} onClick={() => void mutate(order,'cancel')} className="rounded-xl border border-red-200 text-red-700 px-4 py-2 text-sm">Cancel</button>}
                     </div>
