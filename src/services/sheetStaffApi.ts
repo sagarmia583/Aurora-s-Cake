@@ -214,3 +214,17 @@ export async function uploadCmsImage(endpoint:string,token:string,base64:string)
     throw new Error('Image backend returned an invalid public URL.');
   return data.url;
 }
+
+export interface StaffCustomerMatch {
+  phone:string; name:string; delivery_address:string; order_count:number; last_order_at:string;
+}
+export async function lookupStaffCustomer(endpoint:string,token:string,phone:string):Promise<StaffCustomerMatch|null> {
+  const result=await privatePost(endpoint,{action:'staff_customer_lookup',...staffCredential(token),phone});
+  if(result.found===false)return null;
+  const record=result.customer;
+  if(result.found!==true||!objectValue(record)||typeof record.name!=='string'||
+     typeof record.phone!=='string'||typeof record.delivery_address!=='string'||
+     typeof record.order_count!=='number'||typeof record.last_order_at!=='string')
+    throw new Error('Customer directory returned an invalid response. Update the Apps Script Code.gs.');
+  return record as unknown as StaffCustomerMatch;
+}
