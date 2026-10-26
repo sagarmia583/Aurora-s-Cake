@@ -1,14 +1,13 @@
 /**
- * AURORA'S CAKE — COMPLETE ONE-FILE GOOGLE APPS SCRIPT
- * Release aurora-2026-10-26-customer-master-r2
- * Phone-keyed private Customer Master, idempotent COD orders, Staff VLOOKUP,
- * customer phone login, owner/staff roles, OTP, CMS, Drive image storage.
- * Back up the current Google Spreadsheet before installing.
- * Replace existing Code.gs entirely, remove duplicate older .gs modules.
- * RUN setupSheetDatabase() and (once for historic COD orders)
- * backfillCustomerMasterOnce() as owner. For image uploads run
- * setupAuroraImagesOnce() if needed. Deploy NEW Web App version.
- * Existing COD orders and linked customer accounts must not be deleted.
+ * AURORA'S CAKE — COMPLETE ONE-FILE GOOGLE APPS SCRIPT BACKEND
+ * Nine modules combined: Public Store, COD, Staff Google/Password Roles,
+ * Customer Phone/Password + Private Order History, Website CMS, Photos,
+ * Custom Cake Requests, Live Catalog & Seed Setup.
+ * BACK UP live Sheet; replace existing project Code.gs completely.
+ * Run setupSheetDatabase() and setupAuroraImagesOnce() as Owner,
+ * authorizing DriveApp access; Deploy → Manage deployments → New version.
+ * Staff order auto-refresh now returns explicit snapshot_complete and never
+ * claims corrupt/incomplete rows are a complete list.
  */
 
 /* ===== BEGIN apps-script/Code.gs ===== */
@@ -1590,11 +1589,12 @@ function auroraFastOrderList_(table){
   return table.sheet.getRange(2,index,last-1,1).getValues().map(function(values){return {receipt_json:values[0]};});
 }
 function auroraOperationsOrders_(actor, table) {
-  var list = [];
+  var list = [], complete = true;
   table.rows.forEach(function(row) {
     var order;
-    try { order = JSON.parse(String(row.receipt_json || '')); } catch (_) { return; }
-    if (!order || !order.id) return;
+    try { order = JSON.parse(String(row.receipt_json || '')); }
+    catch (_) { complete = false; return; }
+    if (!order || !order.id) { complete = false; return; }
     if (actor.role === 'delivery_man' && String(order.rider_id || '').toLowerCase() !== actor.email) return;
     if (actor.role === 'kitchen_manager' && ['pending','cancelled','delivered'].indexOf(order.status) !== -1) return;
     // Staff never receives the delivery OTP or the customer's bearer capability.
@@ -1617,7 +1617,7 @@ function auroraOperationsOrders_(actor, table) {
     list.push(order);
   });
   list.sort(function(a,b){return String(b.created_at||'').localeCompare(String(a.created_at||''));});
-  return list.slice(0,100);
+  return {orders:list.slice(0,100),complete:complete};
 }
 function auroraOperationsPost_(input) {
   var actor = auroraStaffAuthenticate_(input);
@@ -1670,7 +1670,11 @@ function auroraOperationsPost_(input) {
     }finally{originalLock.releaseLock();}
   }
   var book = auroraSpreadsheet_(), table = auroraFastOrderTable_(book);
-  if (input.action === 'staff_orders') return {ok:true,orders:auroraOperationsOrders_(actor,{rows:auroraFastOrderList_(table)}),role:actor.role};
+  if (input.action === 'staff_orders') {
+    var snapshot=auroraOperationsOrders_(actor,{rows:auroraFastOrderList_(table)});
+    return {ok:true,snapshot_complete:snapshot.complete,snapshot_at:new Date().toISOString(),
+      orders:snapshot.orders,role:actor.role};
+  }
   if (input.action !== 'staff_mutate') auroraReject_('invalid_action','Unknown staff action.');
   var action = String(input.operation || '');
   if (!auroraStaffCan_(actor,action)) auroraReject_('forbidden','Your role cannot perform this operation.');
@@ -2062,106 +2066,6 @@ function auroraAccountCustomerPost_(input) {
   auroraReject_('invalid_action','Unknown customer phone account action.');
 }
 /* ===== END apps-script/AccountAuth.gs ===== */
-
-/* ===== BEGIN apps-script/CustomerMaster.gs ===== */
-/**
- * Phone-as-unique-key customer register. No public phone lookup.
- * Not a verified identity: customers can only read their own proven account
- * or locally held receipt; authenticated staff can look up the private register.
- */
-function auroraCustomerPhoneKey_(value) {
-  var digits=String(value||'').replace(/\D/g,'');
-  if(/^8801[3-9]\d{8}$/.test(digits))return '0'+digits.slice(3);
-  if(/^01[3-9]\d{8}$/.test(digits))return digits;
-  // Preserve international guest phone numbers in a stable, bounded form.
-  if(digits.length>=7&&digits.length<=15)return 'intl_'+digits;
-  auroraReject_('invalid_phone','Enter a valid phone number.');
-}
-function auroraCustomerMasterRow_(table,phone){
-  var matches=table.rows.filter(function(row){return String(row.phone_key||'')===phone;});
-  if(matches.length>1)auroraReject_('duplicate_customer','Duplicate customer master records require owner reconciliation.');
-  return matches[0]||null;
-}
-function auroraCustomerMasterUpsert_(book,orders,order){
-  var phone=auroraCustomerPhoneKey_(order.customer_phone);
-  var table=auroraPrivateTable_(book,'customer_master');
-  var previous=auroraCustomerMasterRow_(table,phone);
-  var all=orders.rows.filter(function(item){
-    try{return auroraCustomerPhoneKey_(item.customer_phone)===phone;}catch(_){return false;}
-  });
-  // Count each original COD order ID once. Idempotent retries cannot inflate.
-  var unique=Object.create(null),count=0;
-  all.forEach(function(item){var id=String(item.id||'');if(id&&!unique[id]){unique[id]=true;count++;}});
-  var latest=all.reduce(function(prev,item){
-    return !prev||String(item.created_at||'')>String(prev.created_at||'')?item:prev;
-  },null);
-  var row=previous?Object.assign({},previous):{
-    id:'customer_'+Utilities.getUuid(),phone_key:phone,
-    name:String(order.customer_name||'').slice(0,100),
-    delivery_address:String(order.delivery_address||'').slice(0,1000),
-    created_at:String(order.created_at||new Date().toISOString())
-  };
-  // Never overwrite a saved customer's name/address from an unverified
-  // guest checkout. Each order stores its own actual delivery address.
-  row.order_count=count;
-  row.last_order_id=latest?String(latest.id):String(order.id);
-  row.last_order_at=latest?String(latest.created_at):String(order.created_at);
-  row.updated_at=new Date().toISOString();
-  if(previous){
-    var ids=table.sheet.getRange(2,table.headers.indexOf('id')+1,table.sheet.getLastRow()-1,1).getValues();
-    var at=ids.findIndex(function(r){return String(r[0])===String(previous.id);});
-    if(at<0)auroraReject_('not_found','Customer master row could not be updated.');
-    table.sheet.getRange(at+2,1,1,table.headers.length).setValues([table.headers.map(function(key){return auroraSheetCell_(row[key]);})]);
-  }else auroraAppendPrivate_(table,row);
-  return {id:row.id,created:!previous};
-}
-/** Only authentic staff roles can retrieve contact details using phone VLOOKUP. */
-function auroraStaffCustomerLookup_(input){
-  var actor=auroraStaffAuthenticate_(input);
-  if(['super_admin','admin','order_manager','delivery_manager'].indexOf(actor.role)===-1)
-    auroraReject_('forbidden','Customer lookup is restricted to authorized sales staff.');
-  var phone=auroraCustomerPhoneKey_(input.phone),table=auroraPrivateTable_(auroraSpreadsheet_(),'customer_master');
-  var row=auroraCustomerMasterRow_(table,phone);
-  if(!row)return {ok:true,found:false};
-  return {ok:true,found:true,customer:{
-    phone:row.phone_key,name:row.name,delivery_address:row.delivery_address,
-    order_count:Number(row.order_count||0),last_order_at:String(row.last_order_at||'')
-  }};
-}
-/** Manual one-time import of orders placed before the Customer Master feature.
- * Run in the Apps Script EDITOR only after backing up the existing spreadsheet.
- * Does not call external endpoints, send any SMS or alter saved COD orders.
- */
-function backfillCustomerMasterOnce(){
-  var lock=LockService.getScriptLock();
-  if(!lock.tryLock(10000))throw new Error('Other bakery updates are running. Retry.');
-  try{
-    var book=auroraSpreadsheet_(),orders=auroraPrivateTable_(book,'orders');
-    var table=auroraPrivateTable_(book,'customer_master');
-    var known=Object.create(null),newCount=0,updatedCount=0,skipped=0;
-    orders.rows.forEach(function(row){
-      var key;try{key=auroraCustomerPhoneKey_(row.customer_phone);}catch(_){skipped++;return;}
-      if(!known[key]||String(row.created_at||'')>String(known[key].created_at||''))known[key]=row;
-    });
-    Object.keys(known).forEach(function(phone){
-      // Reuse upsert's existing duplicate detection; backfill doesn't
-      // issue receipts or change financial ledger rows.
-      var order=known[phone];
-      var existed=!!auroraCustomerMasterRow_(table,phone);
-      auroraCustomerMasterUpsert_(book,orders,{
-        id:String(order.id),created_at:String(order.created_at),
-        customer_phone:String(order.customer_phone),
-        customer_name:String(order.customer_name||''),
-        delivery_address:String(order.delivery_address||'')
-      });
-      if(existed)updatedCount++;else newCount++;
-      // Keep the in-memory copy current to avoid duplicates within the same run.
-      table=auroraPrivateTable_(book,'customer_master');
-    });
-    return {created:newCount,updated:updatedCount,skipped:skipped,total_customers:Object.keys(known).length};
-  }finally{lock.releaseLock();}
-}
-/* ===== END apps-script/CustomerMaster.gs ===== */
 
 /* ===== BEGIN apps-script/CustomerAccounts.gs ===== */
 /**
