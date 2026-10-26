@@ -3,6 +3,7 @@ import { X, RefreshCw, ShieldCheck, Truck, PackageCheck, LayoutDashboard, Shoppi
 import { checkStaffSession, getStaffOrders, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword } from '../services/sheetStaffApi';
 import type { StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
+import { getBrowserWorkspaceStorage, loadStaffCredential, saveStaffCredential, clearStaffCredential, loadStaffTab, saveStaffTab } from '../services/staffWorkspaceSession';
 // Download the larger forms only if the user opens those workspaces.
 const WebsiteManager=React.lazy(()=>import('./WebsiteManager').then(m=>({default:m.WebsiteManager})));
 const CustomCakeQueue=React.lazy(()=>import('./CustomCakeQueue').then(m=>({default:m.CustomCakeQueue})));
@@ -52,7 +53,11 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const oauthClientId = getAuroraGoogleClientId();
   const signinRef = useRef<HTMLDivElement>(null);
   const [identity, setIdentity] = useState<(StaffSession & { token: string }) | null>(null);
-  const [activeTab,setActiveTab]=useState<StaffTab>('overview');
+  const [restoringSession, setRestoringSession] = useState(() => Boolean(loadStaffCredential(getBrowserWorkspaceStorage())));
+  const [activeTab,setActiveTab]=useState<StaffTab>(() => {
+    const saved=loadStaffTab(getBrowserWorkspaceStorage());
+    return ['overview','orders','cakes','team','website'].includes(saved)?saved as StaffTab:'overview';
+  });
   const [orderFilter,setOrderFilter]=useState<OrderFilter>('actionable');
   const [orderSearch,setOrderSearch]=useState('');
   const [expandedOrders,setExpandedOrders]=useState<string[]>([]);
@@ -103,9 +108,15 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   useEffect(()=>{
     if(!identity)return;
     const operational=['kitchen_manager','delivery_manager','delivery_man','order_manager'].includes(identity.role);
-    setActiveTab(operational?'orders':'overview');
+    const stored=loadStaffTab(getBrowserWorkspaceStorage());
+    const allowed=['orders','overview',...(['super_admin','admin','order_manager'].includes(identity.role)?['cakes']:[]),
+      ...(identity.role==='super_admin'?['team']:[]),
+      ...(['super_admin','admin'].includes(identity.role)?['website']:[])];
+    const next=allowed.includes(stored)?stored as StaffTab:operational?'orders':'overview';
+    setActiveTab(next);
     setOrderFilter(identity.role==='accountant'?'all':'actionable');
   },[identity?.role]);
+  useEffect(()=>{if(identity)saveStaffTab(getBrowserWorkspaceStorage(),activeTab);},[activeTab,identity]);
   const actionableCount=identity?orders.filter(order=>isActionable(order,identity.role)).length:0;
   const activeCount=orders.filter(order=>!terminalStatuses.has(order.status)).length;
   const deliveryCount=orders.filter(order=>['assigned','picked_up','out_for_delivery'].includes(order.status)).length;
@@ -135,6 +146,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     setLoading(true); setError('');
     try {
       const profile = await checkStaffSession(endpoint, idToken);
+      saveStaffCredential(getBrowserWorkspaceStorage(),idToken);
       setIdentity({ ...profile, token: idToken });
       setStaffProfiles(profile.staff_profiles ?? []);
       setRiderEmail(profile.riders[0]?.email || '');
@@ -181,6 +193,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     try{
       const token=await signInStaffPassword(endpoint,username,password);
       const profile=await checkStaffSession(endpoint,token);
+      saveStaffCredential(getBrowserWorkspaceStorage(),token);
       setIdentity({...profile,token});
       setStaffProfiles(profile.staff_profiles??[]);
       setPassword('');
@@ -199,25 +212,40 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     }catch(caught){setError(caught instanceof Error?caught.message:'Staff account could not be created.');}
     finally{setCreatingStaff(false);}
   };
-  useEffect(()=>{
-    if(!isOpen||identity)return;
-    let token='';try{token=sessionStorage.getItem('aurora_staff_session_v1')||'';}catch{}
-    if(!token)return;
-    let active=true;
-    checkStaffSession(endpoint,token).then(profile=>{
-      if(!active)return;
+  const restoreStaffSession=useCallback(async(token:string,isActive:()=>boolean)=>{
+    try{
+      const profile=await checkStaffSession(endpoint,token);
+      if(!isActive())return;
       setIdentity({...profile,token});
       setStaffProfiles(profile.staff_profiles??[]);
       setRiderEmail(profile.riders[0]?.email||'');
-    }).catch(()=>{try{sessionStorage.removeItem('aurora_staff_session_v1');}catch{}});
-    return()=>{active=false;};
-  },[isOpen,identity,endpoint]);
+      setError('');
+    }catch(caught){
+      if(!isActive())return;
+      const message=caught instanceof Error?caught.message:'Could not restore your staff session.';
+      // Do not discard credentials during a temporary network failure.
+      if(/sign in again|login expired|not authorized|not active|invalid google|token expired/i.test(message))
+        clearStaffCredential(getBrowserWorkspaceStorage());
+      setError('Previous staff session could not be verified: '+message);
+    }finally{if(isActive())setRestoringSession(false);}
+  },[endpoint]);
   useEffect(()=>{
-    try{
-      if(identity && /^[a-f0-9-]{72}$/i.test(identity.token))sessionStorage.setItem('aurora_staff_session_v1',identity.token);
-    }catch{}
-  },[identity]);
-  
+    if(!isOpen||identity){setRestoringSession(false);return;}
+    const token=loadStaffCredential(getBrowserWorkspaceStorage());
+    if(!token){setRestoringSession(false);return;}
+    let active=true;
+    setRestoringSession(true);
+    void restoreStaffSession(token,()=>active);
+    return()=>{active=false;};
+  },[isOpen,endpoint,restoreStaffSession]);
+  const retryStaffSession=()=>{
+    if(restoringSession)return;
+    const token=loadStaffCredential(getBrowserWorkspaceStorage());
+    if(!token)return;
+    setRestoringSession(true);setError('');
+    void restoreStaffSession(token,()=>true);
+  };
+
   const refresh = useCallback(async () => {
     if (!identity || !isOpen) return;
     if (ordersRefreshInFlight.current) {
@@ -358,6 +386,9 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
         <div className="space-y-4">
           {error&&<div role="alert" className="mx-4 sm:mx-6 mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900 flex items-start gap-2">
             <AlertCircle size={18} className="shrink-0"/><p className="flex-1">{error}</p>
+            {!identity&&Boolean(loadStaffCredential(getBrowserWorkspaceStorage()))&&
+              <button type="button" onClick={retryStaffSession} disabled={restoringSession}
+                className="rounded-lg bg-white border px-3 py-2 text-sm font-bold text-emerald-800 disabled:opacity-50">Retry session</button>}
             <button aria-label="Dismiss error" type="button" onClick={()=>setError('')} className="p-1 rounded-lg hover:bg-rose-100"><X size={16}/></button>
           </div>}
           {backendWarning&&<p role="alert" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-sm font-medium text-amber-950">
@@ -368,6 +399,12 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
           </p>}
           {!oauthClientId ? (
             <div role="alert" className="m-6 rounded-2xl bg-amber-50 p-6 text-amber-900">Google OAuth is not configured for the bakery owner. Check project settings.</div>
+          ) : restoringSession && !identity ? (
+            <div className="max-w-lg mx-auto my-12 rounded-2xl bg-white shadow-sm border p-8 text-center" role="status">
+              <RefreshCw className="animate-spin mx-auto mb-4 text-emerald-700" size={28}/>
+              <h3 className="font-bold text-xl text-emerald-950">Restoring your secure staff session…</h3>
+              <p className="text-sm text-slate-500 mt-2">Checking permissions before opening your workspace.</p>
+            </div>
           ) : !identity ? (
             <div className="max-w-5xl mx-auto p-4 sm:p-8 lg:py-12">
               <div className="grid lg:grid-cols-2 gap-5">
@@ -477,7 +514,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                       className="min-h-11 flex items-center gap-2 rounded-xl bg-white border px-3 text-sm font-semibold text-slate-700 disabled:opacity-60">
                       <RefreshCw size={16} className={loadingOrders?'animate-spin':''}/> Refresh
                     </button>
-                    <button type="button" onClick={()=>{setIdentity(null);setOrders([]);setStaffProfiles([]);setActiveTab('overview');setError('');try{sessionStorage.removeItem('aurora_staff_session_v1');}catch{}}}
+                    <button type="button" onClick={()=>{setIdentity(null);setOrders([]);setStaffProfiles([]);setActiveTab('overview');setError('');clearStaffCredential(getBrowserWorkspaceStorage());}}
                       aria-label="Sign out" className="min-h-11 flex items-center gap-2 rounded-xl border bg-white px-3 text-sm text-slate-700">
                       <LogOut size={16}/><span className="hidden sm:inline">Sign out</span>
                     </button>
