@@ -40,6 +40,8 @@ interface CustomerProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   accountEndpoint: string;
+  historySyncing: boolean;
+  onSyncHistory: () => void;
   orders: Order[];
   products: Product[];
   currency: string;
@@ -54,6 +56,8 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
   isOpen,
   onClose,
   accountEndpoint,
+  historySyncing,
+  onSyncHistory,
   orders,
   products,
   currency,
@@ -381,12 +385,11 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
                   </p>
                 </div>
 
-                {isFetchingOrders && (
-                  <div className="flex items-center gap-1.5 text-xs text-rose-600 font-semibold animate-pulse">
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Fetching orders...</span>
-                  </div>
-                )}
+                <button type="button" disabled={historySyncing} onClick={onSyncHistory}
+                  className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 flex gap-1.5 items-center disabled:opacity-60">
+                  <RefreshCw className={`w-3.5 h-3.5 ${historySyncing ? 'animate-spin' : ''}`} />
+                  {historySyncing ? 'Checking Google Sheets…' : 'Sync history'}
+                </button>
               </div>
 
               {filteredOrders.length === 0 ? (
