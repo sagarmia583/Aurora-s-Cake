@@ -1,16 +1,9 @@
 /**
- * AURORA'S CAKE — COMPLETE ONE-FILE APPS SCRIPT BACKEND
- * Nine original modules combined into ONE Code.gs. Includes owner Google login,
- * staff password authentication, Customer phone & Google accounts, order history,
- * live OTP/status, fast order lookup, protected CMS, Drive-hosted photos,
- * custom cake requests and checkout.
- *
- * Setup: Back up production Google Sheet. Replace existing Code.gs entirely.
- * Run setupSheetDatabase() and setupAuroraImagesOnce() as owner when required;
- * authorize scopes; Deploy -> Manage deployments -> New version.
- *
- * Legacy orders without private receipt capabilities require verified owner
- * recovery. Customer OTPs are never exposed by phone/order number alone.
+ * Aurora's Cake — COMPLETE ONE FILE Apps Script (nine modules).
+ * Fast customer OTP lookup, owner-only verified legacy receipt recovery,
+ * live COD delivery, private staff/customer sessions, public CMS & images.
+ * Back up your Sheet, replace old Code.gs, run setupSheetDatabase(),
+ * run setupAuroraImagesOnce() if using image storage, then Deploy NEW version.
  */
 
 /* ===== BEGIN apps-script/Code.gs ===== */
@@ -1533,12 +1526,12 @@ function auroraPrivateFindRow_(table, orderId) {
   if (lastRow < 2) return 0;
   // Native TextFinder avoids transferring the whole ID column to Apps Script
   // on a single-order customer poll. Fallback supports older test/mocks.
-  if (typeof table.sheet.createTextFinder === 'function') {
-    var match=table.sheet.getRange(2,index+1,lastRow-1,1)
-      .createTextFinder(String(orderId)).matchEntireCell(true).findNext();
+  var idRange=table.sheet.getRange(2,index+1,lastRow-1,1);
+  if (typeof idRange.createTextFinder === 'function') {
+    var match=idRange.createTextFinder(String(orderId)).matchEntireCell(true).findNext();
     return match ? match.getRow() : 0;
   }
-  var data = table.sheet.getRange(2,index+1,lastRow-1,1).getValues();
+  var data = idRange.getValues();
   for (var i=0;i<data.length;i++) if (String(data[i][0]) === orderId) return i+2;
   return 0;
 }
