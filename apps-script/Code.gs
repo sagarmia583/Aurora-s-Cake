@@ -83,7 +83,8 @@ var PRIVATE_ORDER_SCHEMAS = {
   custom_cake_requests: ['id','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','cake_type','approx_size','flavor','color_theme','writing_text','instructions','reference_image_url','status','estimated_price','quoted_price','receipt_json'],
   staff_accounts: ['id','username','name','role','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'],
   customer_accounts: ['id','phone','name','address','email','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'],
-  auth_sessions: ['token_hash','account_type','account_id','created_at','expires_at','revoked']
+  auth_sessions: ['token_hash','account_type','account_id','created_at','expires_at','revoked'],
+  customer_master: ['id','phone_key','name','delivery_address','created_at','updated_at','order_count','last_order_id','last_order_at']
 };
 
 // This handler creates a private COD receipt. GET never calls these functions.
@@ -106,6 +107,7 @@ function doPost(e) {
     if(input && /^customer_phone_(signup|login|session|logout|orders|profile|claim|password|close)$/.test(String(input.action||'')))
       return auroraResponse_(auroraAccountCustomerPost_(input));
     if (input && (input.action === 'create_custom_cake' || input.action === 'get_custom_cake_status' || input.action === 'staff_custom_cakes' || input.action === 'staff_custom_quote')) return auroraResponse_(auroraCustomCakePost_(input));
+    if (input && input.action === 'staff_customer_lookup') return auroraResponse_(auroraStaffCustomerLookup_(input));
     if (input && input.action === 'get_order_status') return auroraResponse_(auroraCustomerOrderStatus_(input));
     if (input && /^staff_cms_(list|create|update|delete)$/.test(String(input.action||''))) return auroraResponse_(auroraCmsPost_(input));
     if (input && (input.action==='staff_catalog'||input.action==='staff_catalog_update')) return auroraResponse_(auroraCatalogPost_(input));
@@ -126,6 +128,7 @@ function doPost(e) {
       var receipt = JSON.parse(String(previous[0].receipt_json));
       if (!receipt || !receipt.id || !Array.isArray(receipt.items) || receipt.id !== String(previous[0].id)) throw new Error('Incomplete committed receipt.');
       auroraRepairOrderItems_(itemTable,receipt);
+      auroraCustomerMasterUpsert_(book,orders,receipt);
       return auroraResponse_({success:true,persisted:true,order:auroraCheckoutReceiptSafe_(receipt)});
     }
     if (!request.checkout_proof) auroraReject_('upgrade_required','Refresh the website before placing a new order.');
@@ -144,6 +147,7 @@ function doPost(e) {
       coupon_code:order.coupon_code || '',order_note:order.order_note || '',payment_method:'cod',payment_status:'pending',receipt_json:receiptJson
     });
     auroraRepairOrderItems_(itemTable,order);
+    auroraCustomerMasterUpsert_(book,orders,order);
     return auroraResponse_({success:true,persisted:true,order:auroraCheckoutReceiptSafe_(order)});
   } catch (error) {
     if (error && error.auroraValidation) return auroraResponse_({ok:false,success:false,persisted:false,code:error.code,error:error.message});
