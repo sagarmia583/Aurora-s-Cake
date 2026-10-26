@@ -5,6 +5,7 @@
 // Leave blank when this script is bound to the intended Sheet through Extensions > Apps Script.
 var AURORA_SPREADSHEET_ID = '18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4';
 var AURORA_SCHEMA_VERSION = 1;
+var AURORA_BACKEND_RELEASE = 'aurora-2026-10-26-cms-otp-speed-r1';
 var PUBLIC_TABLE_SCHEMAS = {
   settings: ['key','value'],
   content: ['key','value'],
@@ -55,7 +56,7 @@ function doGet(e) {
   }
   try {
     if (action === 'health') {
-      return auroraResponse_({ok:true,schema_version:AURORA_SCHEMA_VERSION,service:'aurora_public_content'}, callback);
+      return auroraResponse_({ok:true,schema_version:AURORA_SCHEMA_VERSION,service:'aurora_public_content',release:AURORA_BACKEND_RELEASE}, callback);
     }
     var cache = CacheService.getScriptCache();
     var cacheKey = auroraCacheKey_();
