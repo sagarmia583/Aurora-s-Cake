@@ -1,11 +1,16 @@
 /**
- * AURORA'S CAKE — ALL-IN-ONE GOOGLE APPS SCRIPT
- * Free Google Sheets order/COD, staff roles, secure delivery OTP,
- * phone/Google customer accounts, fast order-history/status lookup,
- * live storefront CMS, images, custom cakes and initial seed data.
- * BACK UP the existing Spreadsheet first; replace your old single Code.gs
- * with the entire file, without duplicate source modules. Run setupSheetDatabase()
- * only if required Sheet headers are missing. Then DEPLOY A NEW WEB APP VERSION.
+ * AURORA'S CAKE — COMPLETE ONE-FILE APPS SCRIPT BACKEND
+ * Nine original modules combined into ONE Code.gs. Includes owner Google login,
+ * staff password authentication, Customer phone & Google accounts, order history,
+ * live OTP/status, fast order lookup, protected CMS, Drive-hosted photos,
+ * custom cake requests and checkout.
+ *
+ * Setup: Back up production Google Sheet. Replace existing Code.gs entirely.
+ * Run setupSheetDatabase() and setupAuroraImagesOnce() as owner when required;
+ * authorize scopes; Deploy -> Manage deployments -> New version.
+ *
+ * Legacy orders without private receipt capabilities require verified owner
+ * recovery. Customer OTPs are never exposed by phone/order number alone.
  */
 
 /* ===== BEGIN apps-script/Code.gs ===== */
@@ -1526,6 +1531,13 @@ function auroraPrivateFindRow_(table, orderId) {
   if (index < 0) throw new Error('Private orders ID header missing.');
   var lastRow = table.sheet.getLastRow();
   if (lastRow < 2) return 0;
+  // Native TextFinder avoids transferring the whole ID column to Apps Script
+  // on a single-order customer poll. Fallback supports older test/mocks.
+  if (typeof table.sheet.createTextFinder === 'function') {
+    var match=table.sheet.getRange(2,index+1,lastRow-1,1)
+      .createTextFinder(String(orderId)).matchEntireCell(true).findNext();
+    return match ? match.getRow() : 0;
+  }
   var data = table.sheet.getRange(2,index+1,lastRow-1,1).getValues();
   for (var i=0;i<data.length;i++) if (String(data[i][0]) === orderId) return i+2;
   return 0;
@@ -1583,6 +1595,8 @@ function auroraOperationsOrders_(actor, table) {
     if (actor.role === 'delivery_man' && String(order.rider_id || '').toLowerCase() !== actor.email) return;
     if (actor.role === 'kitchen_manager' && ['pending','cancelled','delivered'].indexOf(order.status) !== -1) return;
     // Staff never receives the delivery OTP or the customer's bearer capability.
+    if(actor.role==='super_admin'&&!order.customer_access_token&&order.status==='out_for_delivery')
+      order.legacy_receipt_missing=true;
     delete order.customer_access_token;
     delete order.customer_google_sub;
     if (actor.role === 'kitchen_manager') {
@@ -1622,6 +1636,35 @@ function auroraOperationsPost_(input) {
         .sort(function(a,b){return a.role==='super_admin'?-1:b.role==='super_admin'?1:a.name.localeCompare(b.name);}).concat(registered.map(function(p){return {email:'',username:p.username,name:p.name,role:p.role,active:p.active};})).slice(0,200);
     }
     return summary;
+  }
+  if(input.action==='staff_legacy_receipt') {
+    if(actor.role!=='super_admin')auroraReject_('forbidden','Only the shop owner can restore legacy customer receipt access.');
+    if(input.manually_verified!==true)
+      auroraReject_('verification_required','Confirm independent verification of the original customer.');
+    var legacyOrderId=auroraOrderText_(input.order_id,'Order ID',10,150);
+    var originalLock=LockService.getScriptLock();
+    if(!originalLock.tryLock(10000))auroraReject_('busy','Another order update is in progress.');
+    try{
+      var legacyTable=auroraFastOrderTable_(auroraSpreadsheet_());
+      var legacyRow=auroraPrivateFindRow_(legacyTable,legacyOrderId);
+      if(!legacyRow)auroraReject_('not_found','Order does not exist.');
+      var legacyOrder=auroraFastReceipt_(legacyTable,legacyRow);
+      if(legacyOrder.id!==legacyOrderId||legacyOrder.customer_access_token)
+        auroraReject_('already_secured','This order already has a private receipt key.');
+      if(legacyOrder.customer_account_id||legacyOrder.customer_google_sub)
+        auroraReject_('already_linked','An account already owns this order.');
+      if(legacyOrder.status!=='out_for_delivery')
+        auroraReject_('invalid_transition','Restore access only after delivery has started.');
+      legacyOrder.customer_access_token=auroraNewCustomerCapability_();
+      legacyOrder.updated_at=new Date().toISOString();
+      if(!Array.isArray(legacyOrder.history))legacyOrder.history=[];
+      legacyOrder.history.push({id:'recovery_'+Utilities.getUuid(),status:legacyOrder.status,
+        notes:'Legacy receipt key issued by shop owner after independent customer verification',
+        actor_name:actor.name,created_at:legacyOrder.updated_at});
+      auroraPrivateSaveReceipt_(legacyTable,legacyRow,legacyOrder);
+      // One-time bearer recovery key; never return the delivery OTP itself.
+      return {ok:true,order_id:legacyOrderId,customer_access_token:legacyOrder.customer_access_token};
+    }finally{originalLock.releaseLock();}
   }
   var book = auroraSpreadsheet_(), table = auroraFastOrderTable_(book);
   if (input.action === 'staff_orders') return {ok:true,orders:auroraOperationsOrders_(actor,{rows:auroraFastOrderList_(table)}),role:actor.role};
