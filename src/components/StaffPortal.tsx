@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, RefreshCw, ShieldCheck, Truck, PackageCheck, LayoutDashboard, ShoppingBag, UsersRound, CakeSlice, Store, Search, ChevronDown, ChevronUp, LogOut, Clock3, BadgeCheck, ArrowRight, AlertCircle, CreditCard, MapPin } from 'lucide-react';
-import { checkStaffSession, getStaffOrders, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword } from '../services/sheetStaffApi';
-import type { StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
+import { checkStaffSession, getStaffOrders, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword, lookupStaffCustomer } from '../services/sheetStaffApi';
+import type { StaffCustomerMatch, StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
 import { getBrowserWorkspaceStorage, loadStaffCredential, saveStaffCredential, clearStaffCredential, loadStaffTab, saveStaffTab } from '../services/staffWorkspaceSession';
 // Download the larger forms only if the user opens those workspaces.
@@ -60,6 +60,10 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   });
   const [orderFilter,setOrderFilter]=useState<OrderFilter>('actionable');
   const [orderSearch,setOrderSearch]=useState('');
+  const [customerLookupPhone,setCustomerLookupPhone]=useState('');
+  const [customerLookupResult,setCustomerLookupResult]=useState<StaffCustomerMatch|null>(null);
+  const [customerLookupMessage,setCustomerLookupMessage]=useState('');
+  const [customerLookupBusy,setCustomerLookupBusy]=useState(false);
   const [expandedOrders,setExpandedOrders]=useState<string[]>([]);
   const [loginChoice,setLoginChoice]=useState<'employee'|'owner'>('employee');
   const [username,setUsername]=useState('');
@@ -101,6 +105,16 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     return()=>controller.abort();
   },[isOpen,endpoint]);
   const [legacyKey,setLegacyKey]=useState<{orderId:string;key:string}|null>(null);
+  const lookupCustomer=async(event:React.FormEvent)=>{
+    event.preventDefault();if(!identity||customerLookupBusy)return;
+    setCustomerLookupBusy(true);setCustomerLookupMessage('');setCustomerLookupResult(null);
+    try{
+      const record=await lookupStaffCustomer(endpoint,identity.token,customerLookupPhone);
+      setCustomerLookupResult(record);
+      setCustomerLookupMessage(record?'Existing Customer Master record found.':'No customer yet; a first confirmed COD order creates one.');
+    }catch(error){setCustomerLookupMessage(error instanceof Error?error.message:'Customer search failed.');}
+    finally{setCustomerLookupBusy(false);}
+  };
   const isActionable=(order:StaffOrder,role:StaffRoleName):boolean=>{
     const next=actionForStatus[order.status];
     return Boolean(next&&canOperate(role,next.operation));
@@ -626,6 +640,28 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                         className="w-full bg-transparent py-1 outline-none text-sm" placeholder="Search order, customer, phone or rider"/>
                     </label>
                   </div>
+                  {activeTab==='orders'&&['super_admin','admin','order_manager','delivery_manager'].includes(identity.role)&&(
+                    <section className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4 space-y-3" aria-label="Customer Master Lookup">
+                      <h4 className="font-bold text-emerald-950">Customer Master · Phone VLOOKUP</h4>
+                      <form className="flex flex-wrap gap-2" onSubmit={lookupCustomer}>
+                        <input type="tel" aria-label="Customer phone lookup" value={customerLookupPhone} required
+                          onChange={e=>{setCustomerLookupPhone(e.target.value);setCustomerLookupResult(null);setCustomerLookupMessage('');}}
+                          placeholder="01XXXXXXXXX / +8801…" className="rounded-xl border bg-white p-3 flex-1 min-w-40"/>
+                        <button type="submit" disabled={customerLookupBusy} className="rounded-xl bg-emerald-800 text-white px-5 py-3 font-semibold disabled:opacity-50">
+                          {customerLookupBusy?'Searching…':'Find customer'}
+                        </button>
+                      </form>
+                      {customerLookupMessage&&<p role="status" className="text-sm text-slate-700">{customerLookupMessage}</p>}
+                      {customerLookupResult&&<div className="grid gap-2 sm:grid-cols-2 text-sm bg-white p-4 rounded-xl">
+                        <p><strong>Name:</strong> {customerLookupResult.name}</p>
+                        <p><strong>Phone:</strong> {customerLookupResult.phone}</p>
+                        <p className="sm:col-span-2"><strong>Saved first address:</strong> {customerLookupResult.delivery_address}</p>
+                        <p><strong>Total orders:</strong> {customerLookupResult.order_count}</p>
+                        <p><strong>Last order:</strong> {customerLookupResult.last_order_at||'—'}</p>
+                      </div>}
+                      <p className="text-xs text-slate-500">Private customer details are visible only to authorized staff. Public checkout does not reveal addresses by entering a phone number.</p>
+                    </section>
+                  )}
                   {loadingOrders&&!orders.length&&<div role="status" className="rounded-2xl bg-white p-8 text-center text-slate-500">Loading live orders…</div>}
                   {!loadingOrders&&matchingOrders.length===0&&
                     <div className="rounded-2xl border border-dashed border-emerald-200 bg-white px-5 py-10 text-center">
