@@ -28,6 +28,7 @@ const SheetContentPanel = lazy(() => import('./components/SheetContentPanel').th
 import { loadConfirmedSheetOrders, rememberConfirmedSheetOrder, removeConfirmedSheetOrdersById } from './services/googleSheetOrders';
 import { fetchCustomerOrderStatus, redeemLegacyReceiptAccess } from './services/sheetStaffApi';
 import { linkPhoneCustomerReceipt } from './services/phoneCustomerApi';
+import { getBrowserWorkspaceStorage, isStaffWorkspaceOpen, setStaffWorkspaceOpen } from './services/staffWorkspaceSession';
 import { reconcilePublicCart, reorderFromPublicOrder } from './services/reconcilePublicCart';
 import { 
   ShopSettings, 
@@ -52,7 +53,9 @@ export default function App() {
   const sheetContent = useGoogleSheetContent();
   const publicData = sheetContent.data;
   const [isSheetContentOpen, setIsSheetContentOpen] = useState(false);
-  const [isStaffPortalOpen, setIsStaffPortalOpen] = useState(false);
+  const [isStaffPortalOpen, setIsStaffPortalOpen] = useState(() => isStaffWorkspaceOpen(getBrowserWorkspaceStorage()));
+  const openStaffPortal = () => { setStaffWorkspaceOpen(getBrowserWorkspaceStorage(),true); setIsStaffPortalOpen(true); };
+  const closeStaffPortal = () => { setStaffWorkspaceOpen(getBrowserWorkspaceStorage(),false); setIsStaffPortalOpen(false); };
   const [isCustomerAccountOpen, setIsCustomerAccountOpen] = useState(false);
   const [customerGoogleToken, setCustomerGoogleToken] = useState('');
   const [restoredSessionOrderIds, setRestoredSessionOrderIds] = useState<string[]>([]);
@@ -307,7 +310,7 @@ export default function App() {
       <a className="ac-skip-link" href="#main-content">Skip to content</a>
       {/* Top Navbar */}
       <Navbar
-        onOpenStaffPortal={() => setIsStaffPortalOpen(true)}
+        onOpenStaffPortal={openStaffPortal}
         onOpenCustomerAccount={() => setIsCustomerAccountOpen(true)}
         settings={settings}
         publicData={publicData}
@@ -467,7 +470,7 @@ export default function App() {
 
       {activeRole !== 'customer' && <div className="mx-auto my-3 w-full max-w-6xl px-5 text-xs text-slate-500">Website content is managed in Google Sheets. These Studio tools are local demonstrations. Manage real orders in the private orders and order_items Sheet tabs. Content edits here are replaced on the next Sheet refresh.</div>}
 
-      {isStaffPortalOpen && <Suspense fallback={null}><StaffPortal isOpen={isStaffPortalOpen} onClose={() => setIsStaffPortalOpen(false)} endpoint={sheetContent.endpoint} onCatalogUpdated={() => { void sheetContent.refresh(); }} /></Suspense>}
+      {isStaffPortalOpen && <Suspense fallback={null}><StaffPortal isOpen={isStaffPortalOpen} onClose={closeStaffPortal} endpoint={sheetContent.endpoint} onCatalogUpdated={() => { void sheetContent.refresh(); }} /></Suspense>}
       {isCustomerAccountOpen && <Suspense fallback={null}><CustomerAccountPortal open={isCustomerAccountOpen} onClose={() => setIsCustomerAccountOpen(false)} endpoint={sheetContent.endpoint} localReceipts={orders.filter(o => o.persistence === 'google_sheets')} onIdentityToken={setCustomerGoogleToken} onSignOut={() => { removeConfirmedSheetOrdersById(restoredSessionOrderIds); setOrders(previous => previous.filter(order => !restoredSessionOrderIds.includes(order.id))); setRestoredSessionOrderIds([]); }} onRecover={recovered => { const existing = new Set(loadConfirmedSheetOrders().map(order => order.id)); setRestoredSessionOrderIds(previous => [...new Set([...previous, ...recovered.filter(order => !existing.has(order.id)).map(order => order.id)])]); recovered.forEach(rememberConfirmedSheetOrder); setOrders(previous => { const byId = new Map(previous.map(o => [o.id,o])); recovered.forEach(o => byId.set(o.id,o)); return Array.from(byId.values()); }); }} /></Suspense>}
       {isSheetContentOpen && <Suspense fallback={null}><SheetContentPanel isOpen={isSheetContentOpen} onClose={() => setIsSheetContentOpen(false)} endpoint={sheetContent.endpoint} status={sheetContent.status} orderSubmissionEnabled={publicData.order_submission_enabled} onRefresh={sheetContent.refresh} onSaveEndpoint={sheetContent.updateEndpoint}/></Suspense>}
       {/* Modals & Slide-outs */}
