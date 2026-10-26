@@ -595,29 +595,57 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                     {matchingOrders.slice(0,activeTab==='overview'?5:100).map(order => {
                   const next = actionForStatus[order.status] || null;
                   const canCancel = canOperate(identity.role, 'cancel') && ['pending','confirmed','preparing','ready','assigned'].includes(order.status);
-                  return <article key={order.id} className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
-                    <div className="flex flex-wrap justify-between gap-2">
-                      <div><strong className="break-all">#{order.order_number}</strong><p className="text-sm">{order.customer_name} · {order.customer_phone && <a className="underline" href={`tel:${order.customer_phone}`}>{order.customer_phone}</a>}</p></div>
-                      <span className="self-start rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1 text-emerald-900 text-xs font-bold">{order.status.replaceAll('_',' ')}</span>
+                  const expanded=expandedOrders.includes(order.id);
+                  return <article key={order.id} className={'bg-white rounded-[20px] border p-4 sm:p-5 space-y-4 transition-colors '+(next&&canOperate(identity.role,next.operation)?'border-emerald-300 shadow-[0_2px_18px_rgba(10,80,60,.07)]':'border-slate-200')}>
+                    <div className="flex flex-wrap justify-between items-start gap-3">
+                      <div className="flex gap-3 min-w-0">
+                        <div className="shrink-0 h-11 w-11 rounded-2xl bg-[#eaf2eb] text-[#20533e] grid place-items-center"><PackageCheck size={21}/></div>
+                        <div className="min-w-0">
+                          <strong className="block text-base sm:text-lg text-[#173b32] break-all">#{order.order_number}</strong>
+                          <p className="text-sm text-slate-600">{order.customer_name||'Customer'} {order.customer_phone&&<a className="text-emerald-700 underline underline-offset-2" href={`tel:${order.customer_phone}`}>{order.customer_phone}</a>}</p>
+                          <p className="mt-1 text-xs text-slate-500 flex items-center gap-1"><Clock3 size={12}/>{order.delivery_date||'Date not specified'} · {order.delivery_slot||'Any slot'}</p>
+                        </div>
+                      </div>
+                      <div className="flex sm:flex-col items-center sm:items-end gap-2">
+                        <span className={'shrink-0 rounded-full px-3 py-1.5 text-xs font-extrabold ring-1 '+stageClass(order.status)}>{stageNames[order.status]||order.status.replaceAll('_',' ')}</span>
+                        <span className="text-lg font-black text-[#173b32]">৳{Number(order.total_amount||0).toLocaleString()}</span>
+                      </div>
                     </div>
-                    <div className="grid sm:grid-cols-3 gap-2 text-sm text-slate-700">
-                      {order.delivery_address && <div><strong>Address:</strong> {order.delivery_address}<p className="mt-1"><a className="text-emerald-700 underline" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.delivery_address)}`} target="_blank" rel="noopener noreferrer">Open in Google Maps</a></p></div>}
-                      <div><strong>Slot:</strong> {order.delivery_date} · {order.delivery_slot}</div>
-                      <div><strong>COD:</strong> {order.total_amount} · {order.payment_status} {order.cod_collected ? '· collected' : ''}</div>
-                    </div>
-                    <div className="text-sm bg-slate-50 rounded-xl p-3">
-                      {(order.items || []).map(item => <p key={item.id}>{item.quantity} × {item.product_name} ({item.variant_name}) {item.flavor_name ? '· '+item.flavor_name : ''}{item.writing_message ? ' · '+item.writing_message : ''}</p>)}
-                      {order.order_note && <p className="text-slate-500 mt-2">Note: {order.order_note}</p>}
-                      {order.rider_name && <p className="mt-2 flex items-center gap-1"><Truck size={14} /> Assigned rider: {order.rider_name}</p>}
-                    </div>
+                    {order.delivery_address&&
+                      <div className="flex flex-wrap items-center gap-2 bg-[#f7f9f7] rounded-xl p-3 text-sm text-slate-700">
+                        <MapPin size={16} className="text-emerald-700 shrink-0"/>
+                        <span className="flex-1 min-w-0">{order.delivery_address}</span>
+                        <a className="font-bold text-emerald-800 underline whitespace-nowrap" target="_blank" rel="noopener noreferrer"
+                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.delivery_address)}`}>Directions</a>
+                      </div>}
+                    {next&&canOperate(identity.role,next.operation)&&
+                      <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900">
+                        Your next step: {next.label}. Customer progress updates after a successful save.
+                      </p>}
+                    <button type="button" aria-expanded={expanded} onClick={()=>setExpandedOrders(ids=>expanded?ids.filter(id=>id!==order.id):[...ids,order.id])}
+                      className="w-full flex items-center justify-between border-t pt-3 text-sm font-bold text-slate-700 hover:text-emerald-800">
+                      <span>{expanded?'Hide order details':'Show items and order details'}</span>
+                      {expanded?<ChevronUp size={18}/>:<ChevronDown size={18}/>}
+                    </button>
+                    {expanded&&<div className="rounded-xl bg-slate-50 p-4 space-y-3 text-sm text-slate-700">
+                      <div className="flex flex-wrap gap-3"><span>Payment: <strong>{order.payment_method?.toUpperCase()}</strong></span>
+                        <span>Status: <strong>{order.payment_status}</strong></span>
+                        {order.cod_collected&&<span className="text-emerald-800 font-bold">Cash collected</span>}
+                      </div>
+                      {(order.items||[]).length>0&&<div className="space-y-2">
+                        {(order.items||[]).map(item=><p key={item.id}>{item.quantity} × {item.product_name} ({item.variant_name}) {item.flavor_name?' · '+item.flavor_name:''}{item.writing_message?' · '+item.writing_message:''}</p>)}
+                      </div>}
+                      {order.order_note&&<p className="border-t pt-2">Customer note: {order.order_note}</p>}
+                      {order.rider_name&&<p className="flex items-center gap-2"><Truck size={15}/> Rider: {order.rider_name}</p>}
+                    </div>}
                     <div className="flex flex-wrap gap-2 items-center">
                       {next && canOperate(identity.role, next.operation) && next.operation !== 'deliver' && (
                         <>
-                          {next.operation === 'assign' && <select aria-label="Assign registered rider" value={riderEmail} onChange={e => setRiderEmail(e.target.value)} className="border rounded-lg px-2 py-2 text-sm">
+                          {next.operation === 'assign' && <select aria-label="Assign registered rider" value={riderEmail} onChange={e => setRiderEmail(e.target.value)} className="min-h-12 border rounded-xl px-3 py-3 text-sm bg-white">
                             {identity.riders.map(rider => <option key={rider.email} value={rider.email}>{rider.name} — {rider.email}</option>)}
                           </select>}
                           <button type="button" disabled={!!busyOrderId} onClick={() => void mutate(order,next.operation)}
-                            className="rounded-xl bg-emerald-700 text-white px-4 py-2 text-sm font-bold disabled:opacity-50 flex items-center gap-2"><PackageCheck size={15} /> {next.label}</button>
+                            className="min-h-12 rounded-xl bg-[#1a493b] hover:bg-[#27644e] text-white px-5 py-3 text-sm font-bold disabled:opacity-50 flex items-center gap-2"><PackageCheck size={18} /> {busyOrderId===order.id?'Saving to Sheets…':next.label}</button>
                         </>
                       )}
                       {next?.operation === 'deliver' && canOperate(identity.role,'deliver') && (
@@ -625,9 +653,9 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                           <div className="flex flex-wrap items-center gap-3">
                             <input type="text" inputMode="numeric" maxLength={4} aria-label="Customer delivery OTP" placeholder="4-digit OTP" value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g,''))} className="w-32 border rounded-xl p-2" />
                             {order.payment_method === 'cod' && <label className="text-sm"><input type="checkbox" checked={cashCollected} onChange={e => setCashCollected(e.target.checked)} /> I collected the full cash amount</label>}
-                            <button type="button" disabled={!!busyOrderId} onClick={() => void mutate(order,'deliver')} className="bg-emerald-700 text-white rounded-xl px-4 py-2 text-sm">Verify & deliver</button>
+                            <button type="button" disabled={!!busyOrderId} onClick={() => void mutate(order,'deliver')} className="min-h-12 bg-[#1a493b] text-white font-bold rounded-xl px-5 py-3 text-sm">Verify & deliver</button>
                           </div>
-                        ) : <button type="button" onClick={() => { setOtpOrderId(order.id); setOtp(''); setCashCollected(false); }} className="bg-emerald-700 text-white rounded-xl px-4 py-2 text-sm">Verify customer OTP</button>
+                        ) : <button type="button" onClick={() => { setOtpOrderId(order.id); setOtp(''); setCashCollected(false); }} className="min-h-12 bg-[#1a493b] text-white font-bold rounded-xl px-5 py-3 text-sm">Verify customer OTP</button>
                       )}
                       {identity.role==='super_admin'&&order.legacy_receipt_missing&&order.status==='out_for_delivery'&&(
                         <button type="button" disabled={!!busyOrderId} onClick={()=>void recoverLegacy(order)}
