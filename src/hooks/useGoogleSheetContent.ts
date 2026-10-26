@@ -39,7 +39,7 @@ export function useGoogleSheetContent() {
     // A background refresh must not make a connected storefront look
     // disconnected or replace its content with placeholders.
     setStatus(previous => ({ ...previous,
-      state: previous.lastSyncedAt ? previous.state==='error'?'connected':previous.state : 'loading',
+      state: previous.lastSyncedAt && previous.source==='google_sheets' ? 'connected' : 'loading',
       error: undefined,
     }));
     try {
@@ -58,7 +58,7 @@ export function useGoogleSheetContent() {
         ...previous,
         // Keep the last valid storefront connected while reporting temporary
         // refresh problems; no destructive fallback to bundled demo data.
-        state: previous.lastSyncedAt ? 'connected' : 'error',
+        state: previous.lastSyncedAt && previous.source==='google_sheets' ? 'connected' : 'error',
         source: previous.lastSyncedAt ? previous.source : 'bundled_preview',
         error: error instanceof Error ? error.message : 'The Google Sheets content could not be loaded.',
       }));
