@@ -46,7 +46,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   settings: suppliedSettings, activeRole, onRoleChange, viewMode, onViewModeChange, cartCount,
   onOpenCart, onOrderNow, onOpenProfile, onOpenCacheHub, onOpenDbViewer, onOpenSupabaseSync,
   isSupabaseConnected, onOpenTrackOrder, onOpenCustomCake, searchQuery, onSearchChange,
-  publicData, onOpenSheetSettings, isSheetConnected, onOpenStaffPortal, onOpenCustomerAccount,
+  publicData, onOpenSheetSettings, isSheetConnected, onOpenStaffPortal,
 }) => {
   const data: PublicSiteData = publicData ?? DEFAULT_PUBLIC_SITE_DATA;
   const settings = publicData?.settings ?? suppliedSettings;
