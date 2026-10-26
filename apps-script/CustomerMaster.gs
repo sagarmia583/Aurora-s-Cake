@@ -49,6 +49,32 @@ function auroraCustomerMasterUpsert_(book,orders,order){
   }else auroraAppendPrivate_(table,row);
   return {id:row.id,created:!previous};
 }
+/**
+ * Passwordless contact form: write-only. Phone numbers are unverified.
+ * Never overwrite an order-confirmed customer profile with unverified input.
+ * Contact records are private and never returned to anonymous callers.
+ */
+function auroraGuestContactSubmit_(input){
+  var phone=auroraCustomerPhoneKey_(input.phone);
+  if(!/^01[3-9]\\d{8}$/.test(phone))auroraReject_('invalid_phone','Enter a valid Bangladeshi phone number.');
+  var name=auroraOrderText_(input.name,'Customer name',2,100);
+  var address=auroraOrderText_(input.address,'Address',6,300);
+  var cache=CacheService.getScriptCache();
+  var key='aurora_contact_'+auroraAccountDigest_(phone).slice(0,24);
+  var last=Number(cache.get(key)||0);
+  if(last>=3)auroraReject_('rate_limited','Too many saves for this number. Try again later.');
+  var lock=LockService.getScriptLock();
+  if(!lock.tryLock(10000))auroraReject_('busy','Customer details could not be saved. Retry.');
+  try{
+    var sheet=auroraPrivateTable_(auroraSpreadsheet_(),'customer_contact_requests');
+    auroraAppendPrivate_(sheet,{id:'contact_'+Utilities.getUuid(),phone_key:phone,
+      name:name,delivery_address:address,created_at:new Date().toISOString(),
+      status:'unverified'});
+    cache.put(key,String(last+1),3600);
+    return {ok:true,saved:true,phone_verified:false};
+  }finally{lock.releaseLock();}
+}
+
 /** Only authentic staff roles can retrieve contact details using phone VLOOKUP. */
 function auroraStaffCustomerLookup_(input){
   var actor=auroraStaffAuthenticate_(input);
@@ -56,10 +82,22 @@ function auroraStaffCustomerLookup_(input){
     auroraReject_('forbidden','Customer lookup is restricted to authorized sales staff.');
   var phone=auroraCustomerPhoneKey_(input.phone),table=auroraPrivateTable_(auroraSpreadsheet_(),'customer_master');
   var row=auroraCustomerMasterRow_(table,phone);
-  if(!row)return {ok:true,found:false};
+  if(!row){
+    // Unverified contact requests are visible only to authorized staff and
+    // explicitly labeled, so a phone-only submission cannot impersonate a
+    // customer who has placed a confirmed COD order.
+    var pending=auroraPrivateTable_(auroraSpreadsheet_(),'customer_contact_requests').rows
+      .filter(function(item){return String(item.phone_key)===phone;})
+      .sort(function(a,b){return String(b.created_at).localeCompare(String(a.created_at));})[0];
+    if(!pending)return {ok:true,found:false};
+    return {ok:true,found:true,customer:{
+      phone:phone,name:String(pending.name),delivery_address:String(pending.delivery_address),
+      order_count:0,last_order_at:'',unverified:true
+    }};
+  }
   return {ok:true,found:true,customer:{
     phone:row.phone_key,name:row.name,delivery_address:row.delivery_address,
-    order_count:Number(row.order_count||0),last_order_at:String(row.last_order_at||'')
+    order_count:Number(row.order_count||0),last_order_at:String(row.last_order_at||''),unverified:false
   }};
 }
 /** Manual one-time import of orders placed before the Customer Master feature.
