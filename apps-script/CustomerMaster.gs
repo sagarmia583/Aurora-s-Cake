@@ -8,7 +8,7 @@ function auroraCustomerPhoneKey_(value) {
   if(/^8801[3-9]\d{8}$/.test(digits))return '0'+digits.slice(3);
   if(/^01[3-9]\d{8}$/.test(digits))return digits;
   // Preserve international guest phone numbers in a stable, bounded form.
-  if(digits.length>=7&&digits.length<=15)return '+'+digits;
+  if(digits.length>=7&&digits.length<=15)return 'intl_'+digits;
   auroraReject_('invalid_phone','Enter a valid phone number.');
 }
 function auroraCustomerMasterRow_(table,phone){
