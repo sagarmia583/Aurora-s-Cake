@@ -63,7 +63,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     const saved=loadStaffTab(getBrowserWorkspaceStorage());
     return ['overview','orders','cakes','team','website'].includes(saved)?saved as StaffTab:'overview';
   });
-  const [orderFilter,setOrderFilter]=useState<OrderFilter>('actionable');
+  const [orderFilter,setOrderFilter]=useState<OrderFilter>('all');
   const [orderSearch,setOrderSearch]=useState('');
   const [customerLookupPhone,setCustomerLookupPhone]=useState('');
   const [customerLookupResult,setCustomerLookupResult]=useState<StaffCustomerMatch|null>(null);
@@ -134,7 +134,10 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       ...(['super_admin','admin'].includes(identity.role)?['website']:[])];
     const next=allowed.includes(stored)?stored as StaffTab:operational?'orders':'overview';
     setActiveTab(next);
-    setOrderFilter(identity.role==='accountant'?'all':'actionable');
+    // Keep every authorized order visible as it moves between roles/stages.
+    // The old default 'Needs my action' made successfully updated orders
+    // disappear immediately, even when still present in state and Sheets.
+    setOrderFilter('all');
   },[identity?.role]);
   useEffect(()=>{if(identity)saveStaffTab(getBrowserWorkspaceStorage(),activeTab);},[activeTab,identity]);
   const actionableCount=identity?orders.filter(order=>isActionable(order,identity.role)).length:0;
@@ -642,7 +645,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                   {orderUpdateMessage&&<p role="status" className="flex items-center gap-2 rounded-xl bg-emerald-50 ring-1 ring-emerald-200 p-4 text-emerald-950 text-sm"><BadgeCheck size={17}/>{orderUpdateMessage}</p>}
                   <div className="flex flex-wrap items-end justify-between gap-3">
                     <div><h4 className="text-lg font-black text-[#173b32]">{activeTab==='overview'?'Next actions':'Live order queue'}</h4>
-                      <p className="text-sm text-slate-500">Showing your latest {orders.length} authorized orders.</p></div>
+                      <p className="text-sm text-slate-500">Showing your latest {orders.length} authorized orders. Updates stay visible in All orders.</p></div>
                     {activeTab==='overview'&&<button type="button" className="rounded-xl px-4 py-3 bg-[#1b493d] text-white text-sm font-bold flex items-center gap-2"
                       onClick={()=>{setActiveTab('orders');setOrderFilter('all');}}>View all orders <ArrowRight size={15}/></button>}
                   </div>
