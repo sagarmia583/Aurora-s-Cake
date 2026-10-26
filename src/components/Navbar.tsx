@@ -177,7 +177,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             {searchOpen ? <X size={19} strokeWidth={1.5} /> : <Search size={19} strokeWidth={1.5} />}
             {searchQuery && !searchOpen && <span className="ac-nav-search-dot" />}
           </button>
-          {onOpenCustomerAccount && <button type="button" onClick={onOpenCustomerAccount} className="ac-nav-staff-link" title="Phone signup, persistent Google Sheets profile and order history">Sign up / My orders</button>}
+          {onOpenCustomerAccount && <button type="button" onClick={onOpenCustomerAccount} className="ac-nav-staff-link" title="Phone signup, persistent Google Sheets profile and order history">Customer details / My orders</button>}
           {onOpenStaffPortal && <button type="button" onClick={onOpenStaffPortal} className="ac-nav-staff-link" title="Verified bakery staff sign in">Staff login</button>}
           <button type="button" className="ac-nav-icon ac-nav-desktop-profile" aria-label="My account and orders" onClick={() => customerAction(onOpenProfile)}><UserRound size={19} strokeWidth={1.5} /></button>
           <button type="button" className="ac-nav-bag" onClick={() => customerAction(onOpenCart)} aria-label={`Open shopping bag, ${cartCount} ${cartCount === 1 ? 'item' : 'items'}`}>
@@ -199,7 +199,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         {text('nav_story') && <a href="#our-story" onClick={openStorefront}>{text('nav_story')} <ArrowRight size={16} strokeWidth={1.5} /></a>}
         {facebookUrl && text('nav_facebook') && <a href={facebookUrl} target="_blank" rel="noopener noreferrer" aria-label={settings.shop_name + ' on Facebook (opens in a new tab)'} onClick={() => setMobileOpen(false)}>{text('nav_facebook')} <ArrowUpRight size={16} strokeWidth={1.5} /></a>}
         {navigationLinks.map(link => <a key={link.id} href={safeUrl(link.url)} target={/^https?:/i.test(link.url) ? '_blank' : undefined} rel="noopener noreferrer" onClick={() => setMobileOpen(false)}>{link.label}<ArrowUpRight size={16} /></a>)}
-        {onOpenCustomerAccount && <button type="button" className="ac-nav-mobile-small" onClick={() => customerAction(onOpenCustomerAccount)}>Sign up / My orders</button>}
+        {onOpenCustomerAccount && <button type="button" className="ac-nav-mobile-small" onClick={() => customerAction(onOpenCustomerAccount)}>Customer details / My orders</button>}
         {onOpenStaffPortal && <button type="button" className="ac-nav-mobile-small" onClick={() => customerAction(onOpenStaffPortal)}>Staff login</button>}
         <button type="button" className="ac-nav-mobile-small" onClick={() => customerAction(onOpenProfile)}>My account &amp; orders</button>
         <button type="button" className="ac-nav-mobile-small" onClick={() => customerAction(onOpenTrackOrder)}>Track an order</button>
