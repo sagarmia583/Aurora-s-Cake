@@ -421,16 +421,70 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                 </div>
               </div>
             </div>          ) : (
-            <>
-              <div className="flex flex-wrap justify-between items-center gap-3">
-                <div><strong>{identity.name}</strong> <span className="text-slate-500 text-sm">({identity.role.replaceAll('_', ' ')})</span><p className="text-xs text-slate-500">{identity.email}</p></div>
-                <div className="flex gap-2 items-center">
-                  <span className="text-xs text-slate-500">{loadingOrders?'Syncing…':'Last synced '+(updatedAt || '—')}</span>
-                  <button type="button" onClick={() => void refresh()} className="flex items-center gap-2 rounded-xl bg-white border border-slate-200 px-3 py-2 text-sm"><RefreshCw size={15} /> Refresh</button>
-                  <button type="button" onClick={() => { setIdentity(null); setOrders([]); setStaffProfiles([]); setError('');try{sessionStorage.removeItem('aurora_staff_session_v1');}catch{} }} className="rounded-xl px-3 py-2 border bg-white text-sm">Sign out</button>
+            <div className="grid lg:grid-cols-[238px_minmax(0,1fr)] min-h-[74vh]">
+              <aside className="bg-white border-b lg:border-b-0 lg:border-r border-slate-200 p-3 sm:p-4 lg:p-5 space-y-5">
+                <div className="flex items-center gap-3 rounded-2xl bg-[#eff5f0] p-3">
+                  <div className="grid place-items-center h-11 w-11 rounded-xl bg-[#1c4e3b] text-white font-black">
+                    {identity.name.slice(0,1).toUpperCase()}
+                  </div>
+                  <div className="min-w-0"><strong className="text-sm block truncate text-[#173b32]">{identity.name}</strong>
+                    <p className="text-xs text-slate-500">{roleName(identity.role)}</p>
+                  </div>
                 </div>
-              </div>
-              {identity.role === 'super_admin' && (
+                <nav aria-label="Staff workspace sections" className="flex lg:flex-col overflow-x-auto gap-2 pb-2 lg:pb-0">
+                  {tabs.map(tab=>{
+                    const Icon=tab.icon;
+                    return <button key={tab.id} type="button" aria-current={activeTab===tab.id?'page':undefined}
+                      onClick={()=>{setActiveTab(tab.id);setError('');}}
+                      className={'flex shrink-0 items-center gap-3 rounded-xl px-4 py-3 min-h-12 text-left transition-colors '+(activeTab===tab.id?
+                        'bg-[#1a453a] text-white shadow-sm':'text-slate-600 hover:bg-slate-100')}>
+                      <Icon size={18} className="shrink-0"/>
+                      <span><span className="block text-sm font-bold whitespace-nowrap">{tab.label}</span>
+                        <span className={'hidden lg:block text-[11px] '+(activeTab===tab.id?'text-white/65':'text-slate-400')}>{tab.hint}</span></span>
+                      {tab.id==='orders'&&actionableCount>0&&<span className={'ml-auto rounded-full min-w-6 px-2 py-0.5 text-xs font-black '+(activeTab===tab.id?'bg-white/20':'bg-amber-100 text-amber-800')}>{actionableCount}</span>}
+                    </button>;
+                  })}
+                </nav>
+                <div className="hidden lg:block bg-[#f7f9f6] rounded-xl p-4 text-xs text-slate-600 space-y-2">
+                  <BadgeCheck size={18} className="text-emerald-700"/>
+                  <p className="font-bold text-[#183a32]">Connected to private Sheets</p>
+                  <p>Only permitted actions are shown for your role. Changes are verified again by the backend.</p>
+                </div>
+              </aside>
+              <div className="min-w-0 p-4 sm:p-6 lg:p-8 space-y-5">
+                <div className="flex flex-wrap gap-3 items-center justify-between">
+                  <div className="min-w-0">
+                    <p className="text-[11px] text-emerald-800 uppercase tracking-[.18em] font-bold">Operations workspace</p>
+                    <h3 className="text-2xl sm:text-3xl font-black tracking-tight text-[#173b32]">{tabs.find(tab=>tab.id===activeTab)?.label||'Overview'}</h3>
+                    <p className="text-sm text-slate-500 mt-1">Hello, {identity.name}. Here's what needs attention.</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span aria-live="polite" className="hidden sm:block text-xs text-slate-500">{loadingOrders?'Syncing…':'Updated '+(updatedAt||'—')}</span>
+                    <button type="button" disabled={loadingOrders} onClick={()=>void refresh()}
+                      className="min-h-11 flex items-center gap-2 rounded-xl bg-white border px-3 text-sm font-semibold text-slate-700 disabled:opacity-60">
+                      <RefreshCw size={16} className={loadingOrders?'animate-spin':''}/> Refresh
+                    </button>
+                    <button type="button" onClick={()=>{setIdentity(null);setOrders([]);setStaffProfiles([]);setActiveTab('overview');setError('');try{sessionStorage.removeItem('aurora_staff_session_v1');}catch{}}}
+                      aria-label="Sign out" className="min-h-11 flex items-center gap-2 rounded-xl border bg-white px-3 text-sm text-slate-700">
+                      <LogOut size={16}/><span className="hidden sm:inline">Sign out</span>
+                    </button>
+                  </div>
+                </div>
+                {(activeTab==='overview'||activeTab==='orders')&&(
+                  <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+                    {[
+                      {label:'Needs action',value:actionableCount,icon:AlertCircle,tone:'bg-amber-50 text-amber-800'},
+                      {label:'Active orders',value:activeCount,icon:ShoppingBag,tone:'bg-sky-50 text-sky-800'},
+                      {label:'Delivery stages',value:deliveryCount,icon:Truck,tone:'bg-violet-50 text-violet-800'},
+                      {label:'COD collected',value:'৳'+collectedCOD.toLocaleString(),icon:CreditCard,tone:'bg-emerald-50 text-emerald-800'},
+                    ].map(stat=>{const Icon=stat.icon;return <div key={stat.label} className="rounded-2xl bg-white border border-slate-200 p-4">
+                      <span className={'inline-flex p-2 rounded-xl '+stat.tone}><Icon size={19}/></span>
+                      <strong className="block text-2xl font-black text-[#183a32] mt-3">{stat.value}</strong>
+                      <p className="text-xs text-slate-500 mt-1">{stat.label}</p>
+                    </div>;})}
+                  </div>
+                )}
+              {identity.role === 'super_admin' && activeTab==='team' && (
                 <section className="rounded-2xl bg-white border border-slate-200 p-4 space-y-3" aria-labelledby="staff-profiles-heading">
                   <div className="flex flex-wrap gap-3 items-center justify-between">
                     <div>
@@ -568,10 +622,11 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                   </article>;
                 })}
               </div>
-              {(['super_admin','admin','order_manager'] as string[]).includes(identity.role) && <CustomCakeQueue endpoint={endpoint} token={identity.token} />}
-              {(identity.role === 'super_admin' || identity.role === 'admin') && <WebsiteManager endpoint={endpoint} token={identity.token}
+              {activeTab==='cakes'&&(['super_admin','admin','order_manager'] as string[]).includes(identity.role) && <CustomCakeQueue endpoint={endpoint} token={identity.token} />}
+              {activeTab==='website'&&(identity.role === 'super_admin' || identity.role === 'admin') && <WebsiteManager endpoint={endpoint} token={identity.token}
                 role={identity.role} onUpdated={() => onCatalogUpdated?.()} />}
-            </>
+              </div>
+            </div>
           )}
           {error && <p role="alert" className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-800 text-sm">{error}</p>}
         </div>
