@@ -8,7 +8,7 @@ const receipt = (id:string):Order => ({
   id, order_number:id, persistence:'google_sheets', status:'pending',
   history:[], updated_at:'2026-10-25T10:00:00.000Z',
   rider_name:'',payment_status:'pending',cod_collected:false,delivery_otp:''
-} as Order);
+} as unknown as Order);
 const snapshot=(id:string)=>({
   order_id:id,status:'confirmed' as const,history:[],updated_at:'2026-10-26T10:00:00.000Z',
   rider_name:'Rider',payment_status:'pending' as const,cod_collected:false,delivery_otp:undefined,
