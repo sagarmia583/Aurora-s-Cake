@@ -1044,7 +1044,7 @@ test('staff order refresh marks corrupt Sheet rows incomplete instead of replaci
   assert.equal(good.snapshot_complete,true);
   assert.equal(good.orders.length,1);
   const headers=h.tables.orders[0];
-  h.tables.orders.push(headers.map((key:string)=>key==='id'?'damaged-order':key==='receipt_json'?'{malformed-json':''));
+  h.tables.orders.push(headers.map((key:unknown)=>key==='id'?'damaged-order':key==='receipt_json'?'{malformed-json':''));
   const partial=h.post({action:'staff_orders',id_token:ADMIN_TOKEN});
   assert.equal(partial.ok,true);
   assert.equal(partial.snapshot_complete,false);
