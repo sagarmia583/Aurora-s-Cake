@@ -166,7 +166,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     script.addEventListener('error', scriptError);
     render();
     return () => { active = false; script?.removeEventListener('load', render); script?.removeEventListener('error', scriptError); };
-  }, [isOpen, identity, oauthClientId, fedcmButton, signIn]);
+  }, [isOpen, identity, oauthClientId, fedcmButton, loginChoice, signIn]);
 
   const passwordSignIn=async(e:React.FormEvent)=>{
     e.preventDefault();if(loading)return;setLoading(true);setError('');
@@ -332,16 +332,21 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
 
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 z-[80] bg-slate-950/70 p-3 sm:p-8 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="staff-portal-title">
-      <section className="mx-auto max-w-6xl min-h-[70vh] rounded-3xl bg-slate-50 shadow-2xl overflow-hidden">
-        <header className="bg-slate-900 p-5 text-white flex justify-between items-start gap-3">
-          <div>
-            <h2 id="staff-portal-title" className="text-2xl font-extrabold flex items-center gap-2"><ShieldCheck /> Aurora's Cake — Staff Operations</h2>
-            <p className="text-sm text-slate-300">Authenticated live COD orders stored in private Google Sheets</p>
+    <div className="fixed inset-0 z-[80] bg-slate-950/75 overflow-y-auto p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="staff-portal-title">
+      <section className="mx-auto max-w-[1480px] min-h-screen sm:min-h-[calc(100vh-2rem)] rounded-none sm:rounded-[28px] bg-[#f6f8f7] shadow-2xl overflow-hidden">
+        <header className="bg-[#15342e] px-4 sm:px-7 py-4 text-white flex justify-between items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="bg-white/10 rounded-2xl p-3 shrink-0"><CakeSlice size={25} className="text-[#f0dbb3]"/></div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold tracking-[.18em] uppercase text-[#cbe3d5]">Aurora's Cake · Operations</p>
+              <h2 id="staff-portal-title" className="text-lg sm:text-2xl font-black tracking-tight">Bakery Control Center</h2>
+              <p className="text-xs text-white/65 hidden sm:block">Your orders, people and storefront in one place</p>
+            </div>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close staff operations" className="p-2 rounded-full hover:bg-slate-700"><X /></button>
+          <button type="button" onClick={onClose} aria-label="Close staff operations"
+            className="min-w-11 min-h-11 rounded-xl grid place-items-center bg-white/10 hover:bg-white/20 focus-visible:ring-2 focus-visible:ring-white"><X size={21}/></button>
         </header>
-        <div className="p-5 space-y-5">
+        <div className="space-y-4">
           {backendWarning&&<p role="alert" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-sm font-medium text-amber-950">
             {backendWarning} <a className="underline font-bold" target="_blank" rel="noreferrer"
               href="https://github.com/sagarmia583/Aurora-s-Cake/blob/fix/secure-demo-roles-and-delivery-20261024/apps-script/Code.AllInOne.gs">
@@ -349,39 +354,73 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
             </a>
           </p>}
           {!oauthClientId ? (
-            <div role="alert" className="rounded-xl bg-amber-50 p-5 text-amber-900">Staff portal is not configured. Set VITE_GOOGLE_OAUTH_CLIENT_ID, and configure the matching Google client ID and authorized staff users in Apps Script Properties.</div>
+            <div role="alert" className="m-6 rounded-2xl bg-amber-50 p-6 text-amber-900">Google OAuth is not configured for the bakery owner. Check project settings.</div>
           ) : !identity ? (
-            <div className="bg-white p-7 rounded-2xl border border-slate-200 max-w-xl mx-auto text-center space-y-5">
-              <LockKeyhole className="mx-auto text-emerald-700" size={44} />
-              <h3 className="text-xl font-bold">Verified staff sign-in</h3>
-              <p className="text-sm text-slate-600">Use your approved Google account. Your access level and delivery assignments are checked on the server.</p>
-              <p className="text-xs text-slate-500">Super Admin only: Google Sign-In</p>
-                            <div ref={signinRef} className="flex justify-center min-h-12" />
-              <button type="button" onClick={() => { setGoogleUiError(''); setFedcmButton(current => !current); }} className="text-sm underline text-emerald-800">
-                {fedcmButton ? 'Google button not opening? Try classic popup mode' : 'Try browser-managed Google sign-in instead'}
-              </button>
-              {googleUiError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{googleUiError}</p>}
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-left text-xs text-amber-950 space-y-2">
-                <p><strong>Google button not responding?</strong> The site origin must be listed under the Google Web OAuth client's <strong>Authorized JavaScript origins</strong>. Each Vercel Preview hostname is different from Production.</p>
-                <p>Current origin: <code className="break-all font-mono">{typeof window !== 'undefined' ? window.location.origin : ''}</code></p>
-                <p>After adding it, reload this page. Also allow Google sign-in popups, and use an account listed as a Test User if OAuth is in Testing mode.</p>
+            <div className="max-w-5xl mx-auto p-4 sm:p-8 lg:py-12">
+              <div className="grid lg:grid-cols-2 gap-5">
+                <div className="rounded-[26px] bg-[#1a453a] text-white p-6 sm:p-9 flex flex-col justify-between gap-10">
+                  <div className="space-y-5">
+                    <div className="w-14 h-14 grid place-items-center bg-white/10 rounded-2xl"><ShieldCheck size={29}/></div>
+                    <p className="text-xs font-bold tracking-[.2em] uppercase text-[#d1e4d6]">The heart of your bakery</p>
+                    <h3 className="text-3xl sm:text-4xl font-black leading-tight">Less clicking.<br/>More baking.</h3>
+                    <p className="text-sm leading-relaxed text-[#deeee4]">Handle orders, dispatch cakes and keep customers updated. Each staff member sees only their permitted actions.</p>
+                  </div>
+                  <div className="flex gap-3 text-xs">
+                    <span className="rounded-xl bg-white/10 p-3 flex-1 text-center">Orders</span>
+                    <span className="rounded-xl bg-white/10 p-3 flex-1 text-center">Delivery</span>
+                    <span className="rounded-xl bg-white/10 p-3 flex-1 text-center">Team</span>
+                  </div>
+                </div>
+                <div className="rounded-[26px] bg-white border border-slate-200 shadow-sm p-5 sm:p-9">
+                  <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1 mb-7">
+                    <button type="button" aria-pressed={loginChoice==='employee'} onClick={()=>{setLoginChoice('employee');setError('');}}
+                      className={'rounded-xl p-3 text-sm font-bold '+(loginChoice==='employee'?'bg-[#1a453a] text-white shadow':'text-slate-600')}>
+                      Employee login
+                    </button>
+                    <button type="button" aria-pressed={loginChoice==='owner'} onClick={()=>{setLoginChoice('owner');setError('');}}
+                      className={'rounded-xl p-3 text-sm font-bold '+(loginChoice==='owner'?'bg-[#1a453a] text-white shadow':'text-slate-600')}>
+                      Shop owner
+                    </button>
+                  </div>
+                  {loginChoice==='employee'?(
+                    <div>
+                      <h3 className="text-2xl font-black text-[#15342e]">Welcome back</h3>
+                      <p className="text-sm text-slate-500 mt-1 mb-6">Your username and password were created by the owner.</p>
+                      <form onSubmit={passwordSignIn} className="space-y-4">
+                        <label className="block text-sm font-semibold text-slate-700">Username
+                          <input value={username} onChange={e=>setUsername(e.target.value)} required autoComplete="username"
+                            placeholder="e.g. kitchen01" aria-label="Employee username" className="mt-2 w-full rounded-xl border bg-slate-50 p-3.5 focus:ring-2 focus:ring-emerald-700 outline-none"/>
+                        </label>
+                        <label className="block text-sm font-semibold text-slate-700">Password
+                          <input value={password} onChange={e=>setPassword(e.target.value)} required type="password"
+                            autoComplete="current-password" placeholder="Your password" aria-label="Employee password"
+                            className="mt-2 w-full rounded-xl border bg-slate-50 p-3.5 focus:ring-2 focus:ring-emerald-700 outline-none"/>
+                        </label>
+                        <button type="submit" disabled={loading} className="w-full rounded-xl bg-[#15342e] text-white font-bold p-3.5 disabled:opacity-60">
+                          {loading?'Signing in…':'Open my workspace'}
+                        </button>
+                      </form>
+                    </div>
+                  ):(
+                    <div className="space-y-4">
+                      <h3 className="text-2xl font-black text-[#15342e]">Owner access</h3>
+                      <p className="text-sm text-slate-500">Sign in using the approved Google account.</p>
+                      <div ref={signinRef} className="min-h-12 flex justify-center"/>
+                      <button type="button" onClick={()=>{setGoogleUiError('');setFedcmButton(x=>!x);}} className="text-sm underline text-emerald-800">
+                        {fedcmButton?'Sign-in not opening? Use classic popup':'Try browser-managed Google login'}
+                      </button>
+                      {googleUiError&&<p role="alert" className="bg-rose-50 rounded-xl p-3 text-sm text-rose-800">{googleUiError}</p>}
+                      <details className="text-xs text-slate-500 rounded-xl bg-slate-50 p-3">
+                        <summary className="cursor-pointer font-bold">Trouble signing in?</summary>
+                        <p className="mt-2">Authorize this exact origin in Google Cloud and allow popups:</p>
+                        <code className="break-all">{typeof window!=='undefined'?window.location.origin:''}</code>
+                      </details>
+                    </div>
+                  )}
+                  {loading&&<p role="status" className="text-sm mt-4 text-emerald-900">Verifying your bakery account…</p>}
+                </div>
               </div>
-              <div className="border-t border-slate-200 pt-5 text-left">
-                <h4 className="font-bold text-slate-800 text-center mb-3">Employee Login</h4>
-                <p className="text-center text-xs text-slate-500 mb-3">Kitchen, Rider, Manager and Accountant use the username and password created by Super Admin.</p>
-                <form onSubmit={passwordSignIn} className="space-y-3">
-                  <input value={username} onChange={e=>setUsername(e.target.value)} required autoComplete="username"
-                    placeholder="Employee username" aria-label="Employee username" className="w-full rounded-xl border p-3" />
-                  <input value={password} onChange={e=>setPassword(e.target.value)} required type="password" autoComplete="current-password"
-                    placeholder="Password" aria-label="Employee password" className="w-full rounded-xl border p-3" />
-                  <button disabled={loading} className="w-full bg-emerald-800 text-white font-semibold rounded-xl p-3 disabled:opacity-50" type="submit">
-                    {loading?'Signing in…':'Sign in as Staff'}
-                  </button>
-                </form>
-              </div>
-              {loading && <p role="status">Verifying your account…</p>}
-            </div>
-          ) : (
+            </div>          ) : (
             <>
               <div className="flex flex-wrap justify-between items-center gap-3">
                 <div><strong>{identity.name}</strong> <span className="text-slate-500 text-sm">({identity.role.replaceAll('_', ' ')})</span><p className="text-xs text-slate-500">{identity.email}</p></div>
