@@ -966,3 +966,22 @@ test('full COD acceptance: guest checkout, verified owner, password kitchen, ass
   const reads=h.rangeReads.slice(before).filter((entry:{name:string})=>entry.name==='orders');
   assert.equal(reads.some((entry:{height:number;width:number})=>entry.height>1&&entry.width>1),false);
 });
+
+test('deleted Google Sheet order disappears from authoritative phone history and status endpoint',()=>{
+  const h=harness({singleFile:true});
+  const account=h.post({action:'customer_phone_signup',name:'History Customer',phone:'01700555000',password:'VerifiedByPassword2026!'});
+  assert.equal(account.ok,true);
+  const created=h.post(request()).order;
+  assert.equal(h.post({action:'customer_phone_claim',auth_token:account.auth_token,order_id:created.id,
+    customer_access_token:created.customer_access_token}).linked,true);
+  assert.equal(h.post({action:'customer_phone_orders',auth_token:account.auth_token}).orders.length,1);
+  const statusRequest={action:'get_order_status',order_id:created.id,customer_phone:created.customer_phone,
+    customer_access_token:created.customer_access_token};
+  assert.equal(h.post(statusRequest).status,'pending');
+  // Simulate owner deleting a historical record from the authoritative orders Sheet.
+  h.tables.orders.splice(1,1);
+  assert.equal(h.post({action:'customer_phone_orders',auth_token:account.auth_token}).orders.length,0);
+  const deleted=h.post(statusRequest);
+  assert.equal(deleted.code,'not_found');
+  assert.equal(deleted.error,'Order reference not found.');
+});
