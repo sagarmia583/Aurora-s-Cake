@@ -60,6 +60,8 @@ export default function App() {
   const [isCustomerAccountOpen, setIsCustomerAccountOpen] = useState(false);
   const [customerGoogleToken, setCustomerGoogleToken] = useState('');
   const [restoredSessionOrderIds, setRestoredSessionOrderIds] = useState<string[]>([]);
+  const [historySyncVersion, setHistorySyncVersion] = useState(0);
+  const [historySyncing, setHistorySyncing] = useState(false);
   // Dual Experience: Responsive Website vs Mobile App
   const [viewMode, setViewMode] = useState<ViewMode>('web');
 
@@ -241,7 +243,8 @@ export default function App() {
   useEffect(() => {
     if (!isProfileOpen && !isCustomerAccountOpen) return;
     const stored = loadConfirmedSheetOrders();
-    if (!stored.length) return;
+    if (!stored.length) { setHistorySyncing(false); return; }
+    setHistorySyncing(true);
     let stopped = false;
     let phoneToken = '';
     try { phoneToken = sessionStorage.getItem('aurora_customer_phone_session_v1') || ''; } catch {}
@@ -260,9 +263,10 @@ export default function App() {
       })
       .catch(() => {
         if (!stopped) setCartNotice('Order history could not be checked online. No saved receipts were removed.');
-      });
+      })
+      .finally(() => { if (!stopped) setHistorySyncing(false); });
     return () => { stopped = true; };
-  }, [isProfileOpen, isCustomerAccountOpen, sheetContent.endpoint, customerGoogleToken]);
+  }, [isProfileOpen, isCustomerAccountOpen, sheetContent.endpoint, customerGoogleToken, historySyncVersion]);
 
   // Only poll the selected private receipt: the public endpoint never lists orders.
   useEffect(() => {
@@ -525,6 +529,8 @@ export default function App() {
       {isProfileOpen && <CustomerProfileModal
         isOpen={isProfileOpen}
         accountEndpoint={sheetContent.endpoint}
+        historySyncing={historySyncing}
+        onSyncHistory={() => setHistorySyncVersion(previous => previous + 1)}
         onClose={() => setIsProfileOpen(false)}
         orders={orders}
         products={products}
