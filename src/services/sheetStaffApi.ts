@@ -97,7 +97,8 @@ export async function checkStaffSession(endpoint: string, idToken: string): Prom
 }
 export async function getStaffOrders(endpoint: string, idToken: string): Promise<StaffOrder[]> {
   const data = await privatePost(endpoint, { action: 'staff_orders', ...staffCredential(idToken) });
-  if (!validateStaffOrderList(data.orders)) throw new Error('Incomplete staff order response; keeping your previous list.');
+  if (!validateStaffOrderList(data.orders)||data.snapshot_complete===false)
+    throw new Error('Incomplete staff order response; keeping your previous list.');
   // An old or overloaded Apps Script deployment may reply with an empty
   // incomplete snapshot. Never interpret that as "delete every order".
   if (data.orders.length === 0 && data.snapshot_complete !== true)
