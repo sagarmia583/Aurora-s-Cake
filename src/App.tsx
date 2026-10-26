@@ -273,7 +273,7 @@ export default function App() {
     // while preserving a lower request rate for earlier kitchen stages.
     const refreshEveryMs=()=>{
       const current=loadConfirmedSheetOrders().find(receipt=>receipt.id===latestOrderId);
-      return current?.status==='out_for_delivery'?7000:12000;
+      return current?.status==='out_for_delivery' || current?.status==='picked_up' || current?.status==='assigned' ? 5000 : 9000;
     };
     let timer=window.setTimeout(function tick(){
       if(stopped)return;
