@@ -112,6 +112,10 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       if(ctx.state!=='running')throw new Error('Browser blocked the sound. Tap again.');
       setBeepEnabled(true);
       playOrderBeep();
+      // An explicit click can also request optional system notifications.
+      if('Notification' in window && Notification.permission==='default') {
+        void Notification.requestPermission().catch(()=>{});
+      }
     }catch(e){setBeepEnabled(false);setError(e instanceof Error?e.message:'Cannot enable beep.');}
   };
   const disableOrderBeep=()=>{
@@ -365,6 +369,19 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
         if(added.length){
           setUnreadOrderAlerts(current=>[...new Set([...current,...added])]);
           if(alertAudioRef.current?.state==='running')playOrderBeep();
+          if('Notification' in window && Notification.permission==='granted' && beepEnabled){
+            try{
+              const notice=new Notification('🔔 Aurora’s Cake — new order!',{
+                body:added.length+' order or delivery stage needs your attention.',
+                tag:'aurora-new-order',
+              });
+              notice.onclick=()=>{
+                window.focus();
+                setActiveTab('orders');
+                notice.close();
+              };
+            }catch{/* Not all browsers support system notifications. */}
+          }
         }
         setUnreadOrderAlerts(current=>activeStaffOrderAlertIds(fresh,current,identity.role,identity.email));
       }
@@ -386,7 +403,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
         }
       }
     }
-  }, [endpoint, identity?.token, isOpen,playOrderBeep]);
+  }, [endpoint, identity?.token, isOpen,playOrderBeep,beepEnabled]);
 
   useEffect(() => {
     if (!isOpen || !identity) return;
