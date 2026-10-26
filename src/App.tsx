@@ -26,7 +26,7 @@ import { supabaseDataService } from './services/supabaseDataService';
 import { useGoogleSheetContent } from './hooks/useGoogleSheetContent';
 import { SheetContentPanel } from './components/SheetContentPanel';
 import { loadConfirmedSheetOrders, rememberConfirmedSheetOrder, removeConfirmedSheetOrdersById } from './services/googleSheetOrders';
-import { fetchCustomerOrderStatus } from './services/sheetStaffApi';
+import { fetchCustomerOrderStatus, redeemLegacyReceiptAccess } from './services/sheetStaffApi';
 import { linkPhoneCustomerReceipt } from './services/phoneCustomerApi';
 import { reconcilePublicCart, reorderFromPublicOrder } from './services/reconcilePublicCart';
 import { 
@@ -219,6 +219,17 @@ export default function App() {
     setIsTrackOrderOpen(true);
   };
 
+  const restoreLegacyReceipt=async(order:Order,key:string)=>{
+    const result=await redeemLegacyReceiptAccess(sheetContent.endpoint,order,key);
+    const updated:Order={...order,customer_access_token:key.trim(),status:result.status,
+      updated_at:result.updated_at,history:result.history,rider_name:result.rider_name,
+      payment_status:result.payment_status,cod_collected:result.cod_collected,
+      delivery_otp:result.delivery_otp||''};
+    if(!rememberConfirmedSheetOrder(updated))throw new Error('Could not securely store the updated receipt.');
+    setOrders(previous=>[updated,...previous.filter(previousOrder=>previousOrder.id!==order.id)]);
+    setTrackingSyncError('');setTrackingCheckedAt(new Date().toLocaleTimeString());
+  };
+
   // Tracking must work even if the public catalog cache is temporarily offline.
   // Only poll the selected private receipt: the public endpoint never lists orders.
   useEffect(() => {
@@ -257,13 +268,22 @@ export default function App() {
     };
     setTrackingSyncError('');
     void updateTrackedReceipt();
-    const timer=window.setInterval(()=>{void updateTrackedReceipt();},12000);
+    // Delivery is time-sensitive. Poll faster only for active tracking,
+    // while preserving a lower request rate for earlier kitchen stages.
+    const refreshEveryMs=()=>{
+      const current=loadConfirmedSheetOrders().find(receipt=>receipt.id===latestOrderId);
+      return current?.status==='out_for_delivery'?7000:12000;
+    };
+    let timer=window.setTimeout(function tick(){
+      if(!stopped)void updateTrackedReceipt();
+      timer=window.setTimeout(tick,refreshEveryMs());
+    },refreshEveryMs());
     const whenVisible=()=>{if(document.visibilityState==='visible')void updateTrackedReceipt();};
     document.addEventListener('visibilitychange',whenVisible);
     window.addEventListener('focus',whenVisible);
     return()=>{
       stopped=true;
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
       document.removeEventListener('visibilitychange',whenVisible);
       window.removeEventListener('focus',whenVisible);
     };
@@ -500,6 +520,7 @@ export default function App() {
         syncError={trackingSyncError}
         checkedAt={trackingCheckedAt}
         onRefresh={() => setTrackingRefreshKey(key=>key+1)}
+        onRestoreLegacyAccess={restoreLegacyReceipt}
         onClose={() => setIsTrackOrderOpen(false)}
         orders={orders}
         currentOrderId={latestOrderId}
