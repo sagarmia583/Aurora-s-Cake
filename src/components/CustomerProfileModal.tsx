@@ -292,7 +292,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
           </button>
         </div>
 
-        <p className="text-xs text-slate-600 bg-rose-50 px-6 py-3">Guest profile data is saved on this device only. Sign up with phone + password in My bakery orders to save your profile and linked order history privately in Google Sheets; existing guest orders can be linked using the original receipt.</p>
+        <p className="text-xs text-slate-600 bg-rose-50 px-6 py-3">Customer details do not need a password. Checkout and saved contact submissions are stored in the bakery's private Google Sheets. On this device, confirmed receipts are available in My orders. On another device, use your original receipt access key; a phone number alone cannot reveal personal information.</p>
         {/* Quick Metrics Bar */}
         <div className="grid grid-cols-3 gap-2 px-6 py-3 bg-slate-50 border-b border-slate-200/80 text-xs">
           <div className="space-y-0.5">
