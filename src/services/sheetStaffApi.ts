@@ -1,5 +1,6 @@
 import type { Order, OrderStatus } from '../types';
 import { resolveSheetsPostEndpoint, sheetsPostCredentials } from './googleSheets';
+import { validateStaffOrderList } from './staffOrderSnapshot';
 
 export type StaffRoleName = 'super_admin' | 'admin' | 'order_manager' | 'kitchen_manager' | 'delivery_manager' | 'delivery_man' | 'accountant';
 export type StaffOperation = 'confirm' | 'cancel' | 'start_baking' | 'mark_ready' | 'assign' | 'pick_up' | 'start_delivery' | 'deliver';
@@ -96,8 +97,12 @@ export async function checkStaffSession(endpoint: string, idToken: string): Prom
 }
 export async function getStaffOrders(endpoint: string, idToken: string): Promise<StaffOrder[]> {
   const data = await privatePost(endpoint, { action: 'staff_orders', ...staffCredential(idToken) });
-  if (!Array.isArray(data.orders)) throw new Error('Invalid staff order list.');
-  return data.orders.filter(item => objectValue(item) && typeof item.id === 'string' && typeof item.order_number === 'string') as StaffOrder[];
+  if (!validateStaffOrderList(data.orders)) throw new Error('Incomplete staff order response; keeping your previous list.');
+  // An old or overloaded Apps Script deployment may reply with an empty
+  // incomplete snapshot. Never interpret that as "delete every order".
+  if (data.orders.length === 0 && data.snapshot_complete !== true)
+    throw new Error('The backend did not confirm an empty order list. Keeping your previous data.');
+  return data.orders;
 }
 export async function mutateStaffOrder(endpoint: string, idToken: string, operation: StaffOperation, orderId: string, extra: Record<string, unknown> = {}): Promise<StaffOrder> {
   const response=await privatePost(endpoint,{ action:'staff_mutate',...staffCredential(idToken),operation,order_id:orderId,...extra });
