@@ -389,11 +389,14 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   }, [endpoint, identity?.token, isOpen,playOrderBeep]);
 
   useEffect(() => {
-    if (!isOpen || !identity || !['overview','orders'].includes(activeTab)) return;
+    if (!isOpen || !identity) return;
     void refresh();
-    const refreshMs=identity.role==='delivery_man'?8000:12000;
+    // Continue watching new COD orders even while the owner edits website content.
+    // The current tab stays responsive; hidden tabs poll less aggressively.
+    const refreshMs=identity.role==='delivery_man'?8000:
+      ['overview','orders'].includes(activeTab)?12000:20000;
     const interval = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void refresh();
+      void refresh();
     }, refreshMs);
     const visible=()=>{if(document.visibilityState==='visible')void refresh();};
     document.addEventListener('visibilitychange',visible);
