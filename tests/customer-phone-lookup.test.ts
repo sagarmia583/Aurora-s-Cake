@@ -22,3 +22,12 @@ test('phone lookup autofills only account-verified profile or locally held profi
   const noProof={...oldOrder,customer_access_token:''};
   assert.equal(matchCheckoutCustomer('01700000000',null,null,[noProof]),null);
 });
+
+test('a typed phone number cannot autofill another account or unrelated local receipt',()=>{
+  const savedAccount={name:'Account holder',phone:'01700998877',address:'Private Tangail home'};
+  const localReceipt={...oldOrder,customer_phone:'01700998877',customer_name:'Owner',delivery_address:'Private Tangail home'};
+  assert.equal(matchCheckoutCustomer('01888776655',savedAccount,null,[localReceipt]),null);
+  assert.equal(matchCheckoutCustomer('01700998877',savedAccount,null,[])?.source,'account');
+  assert.equal(matchCheckoutCustomer('+8801700998877',savedAccount,null,[])?.address,'Private Tangail home');
+  assert.equal(matchCheckoutCustomer('01888776655',null,null,[]),null);
+});
