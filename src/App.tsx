@@ -275,8 +275,9 @@ export default function App() {
       return current?.status==='out_for_delivery'?7000:12000;
     };
     let timer=window.setTimeout(function tick(){
-      if(!stopped)void updateTrackedReceipt();
-      timer=window.setTimeout(tick,refreshEveryMs());
+      if(stopped)return;
+      void updateTrackedReceipt();
+      if(!stopped)timer=window.setTimeout(tick,refreshEveryMs());
     },refreshEveryMs());
     const whenVisible=()=>{if(document.visibilityState==='visible')void updateTrackedReceipt();};
     document.addEventListener('visibilitychange',whenVisible);
