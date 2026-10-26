@@ -235,7 +235,7 @@ export default function App(){
     <SmallLabel>Restoring secure session…</SmallLabel>
   </View>;
   if(!session)return <KeyboardAvoidingView behavior={Platform.OS==='ios'?'padding':undefined} style={s.root}>
-    <StatusBar backgroundColor={C.bg} barStyle="dark-content"/>
+    <StatusBar barStyle="dark-content"/>
     <ScrollView contentContainerStyle={s.loginContainer} keyboardShouldPersistTaps="handled">
       <View style={s.loginLogo}><Text style={{fontSize:35}}>🍰</Text></View>
       <Text style={s.logo}>AURORA'S</Text><Text style={s.logoSub}>CAKE · STAFF</Text>
