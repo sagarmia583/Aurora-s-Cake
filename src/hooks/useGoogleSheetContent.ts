@@ -36,19 +36,30 @@ export function useGoogleSheetContent() {
     activeRequest.current?.abort();
     const controller = new AbortController();
     activeRequest.current = controller;
-    setStatus(previous => ({ ...previous, state: 'loading', error: undefined }));
+    // A background refresh must not make a connected storefront look
+    // disconnected or replace its content with placeholders.
+    setStatus(previous => ({ ...previous,
+      state: previous.lastSyncedAt ? previous.state==='error'?'connected':previous.state : 'loading',
+      error: undefined,
+    }));
     try {
       const next = await loadGoogleSheetData(endpoint, controller.signal);
       if (controller.signal.aborted) return;
       const savedAt = new Date().toISOString();
-      setData(next);
+      // Avoid replacing the entire storefront model when nothing actually
+      // changed. Stable references prevent the cart, banners and product
+      // picker from remounting during an otherwise successful auto-refresh.
+      setData(previous => JSON.stringify(previous)===JSON.stringify(next)?previous:next);
       setStatus({ state: 'connected', source: 'google_sheets', lastSyncedAt: savedAt });
       try { localStorage.setItem(CACHE_KEY, JSON.stringify({ endpoint, savedAt, data: next })); } catch { /* Content still renders when browser storage is unavailable. */ }
     } catch (error) {
       if (controller.signal.aborted) return;
       setStatus(previous => ({
-        ...previous, state: 'error',
-        source: previous.lastSyncedAt ? 'saved_snapshot' : 'bundled_preview',
+        ...previous,
+        // Keep the last valid storefront connected while reporting temporary
+        // refresh problems; no destructive fallback to bundled demo data.
+        state: previous.lastSyncedAt ? 'connected' : 'error',
+        source: previous.lastSyncedAt ? previous.source : 'bundled_preview',
         error: error instanceof Error ? error.message : 'The Google Sheets content could not be loaded.',
       }));
     }
