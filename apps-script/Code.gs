@@ -84,7 +84,8 @@ var PRIVATE_ORDER_SCHEMAS = {
   staff_accounts: ['id','username','name','role','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'],
   customer_accounts: ['id','phone','name','address','email','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'],
   auth_sessions: ['token_hash','account_type','account_id','created_at','expires_at','revoked'],
-  customer_master: ['id','phone_key','name','delivery_address','created_at','updated_at','order_count','last_order_id','last_order_at']
+  customer_master: ['id','phone_key','name','delivery_address','created_at','updated_at','order_count','last_order_id','last_order_at'],
+  customer_contact_requests: ['id','phone_key','name','delivery_address','created_at','status']
 };
 
 // This handler creates a private COD receipt. GET never calls these functions.
