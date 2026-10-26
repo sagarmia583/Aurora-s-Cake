@@ -987,3 +987,50 @@ test('deleted Google Sheet order disappears from authoritative phone history and
   assert.equal(deleted.code,'not_found');
   assert.equal(deleted.error,'Order reference not found.');
 });
+
+
+test('Excel VLOOKUP-style customer master keeps one row per canonical phone and exact order counts',()=>{
+  const h=harness({singleFile:true});
+  const first=h.post(request({customer_phone:'+880 1700 000000'}));
+  assert.equal(first.persisted,true);
+  assert.equal(h.records('customer_master').length,1);
+  assert.equal(h.records('customer_master')[0].phone_key,'01700000000');
+  assert.equal(h.records('customer_master')[0].name,'Test Customer');
+  assert.equal(h.records('customer_master')[0].order_count,1);
+  const retry=h.post(request({customer_phone:'+880 1700 000000'}));
+  assert.equal(retry.order.id,first.order.id);
+  assert.equal(h.records('customer_master').length,1);
+  assert.equal(h.records('customer_master')[0].order_count,1);
+  const another=h.post(request({request_id:'b1111111-2222-4333-8444-555555555555',
+    checkout_proof:'11111111-2222-4333-8444-55555555555522222222-3333-4444-8555-666666666666',
+    customer_phone:'01700000000',customer_name:'Changed name',delivery_address:'Different new delivery'}));
+  assert.equal(another.persisted,true);
+  const entry=h.records('customer_master');
+  assert.equal(entry.length,1);
+  assert.equal(entry[0].name,'Test Customer','Guest orders must not rewrite saved customer identity');
+  assert.equal(entry[0].delivery_address,'Test delivery address');
+  assert.equal(entry[0].order_count,2);
+  assert.equal(entry[0].last_order_id,another.order.id);
+  assert.equal(h.records('orders').length,2);
+  assert.equal(h.post({action:'staff_customer_lookup',phone:'+880 1700 000000'}).code,'unauthorized');
+  assert.equal(h.post({action:'staff_customer_lookup',id_token:RIDER_TOKEN,phone:'01700000000'}).code,'forbidden');
+  const staff=h.post({action:'staff_customer_lookup',id_token:ADMIN_TOKEN,phone:'01700000000'});
+  assert.equal(staff.found,true);assert.equal(staff.customer.name,'Test Customer');
+  assert.equal(staff.customer.order_count,2);
+  assert.equal(h.post({action:'staff_customer_lookup',id_token:ADMIN_TOKEN,phone:'01800000000'}).found,false);
+  assert.equal(h.get('public').customer_master,undefined);
+});
+test('Customer Master backfills historical orders once without duplicate customer profiles or touching ledger',()=>{
+  const h=harness({singleFile:true});
+  h.post(request());
+  const before=JSON.stringify(h.records('orders'));
+  h.tables.customer_master=[MASTER_HEADERS];
+  const outcome=h.context.backfillCustomerMasterOnce();
+  assert.equal(outcome.created,1);
+  assert.equal(outcome.total_customers,1);
+  assert.equal(h.records('customer_master').length,1);
+  const second=h.context.backfillCustomerMasterOnce();
+  assert.equal(second.created,0);assert.equal(second.updated,1);
+  assert.equal(h.records('customer_master').length,1);
+  assert.equal(JSON.stringify(h.records('orders')),before);
+});
