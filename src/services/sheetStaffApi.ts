@@ -3,7 +3,7 @@ import { resolveSheetsPostEndpoint, sheetsPostCredentials } from './googleSheets
 
 export type StaffRoleName = 'super_admin' | 'admin' | 'order_manager' | 'kitchen_manager' | 'delivery_manager' | 'delivery_man' | 'accountant';
 export type StaffOperation = 'confirm' | 'cancel' | 'start_baking' | 'mark_ready' | 'assign' | 'pick_up' | 'start_delivery' | 'deliver';
-export type StaffOrder = Omit<Order, 'delivery_otp'>;
+export type StaffOrder = Omit<Order, 'delivery_otp'> & { legacy_receipt_missing?: boolean };
 export interface StaffProfile {
   email: string;
   username?: string;
