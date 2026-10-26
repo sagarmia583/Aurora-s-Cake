@@ -26,6 +26,7 @@ interface OrderTrackingModalProps {
   syncError?: string;
   checkedAt?: string;
   onRefresh?: () => void;
+  onRestoreLegacyAccess?: (order: Order, recoveryKey: string) => Promise<void>;
 }
 
 const STAGES: { status: OrderStatus; label: string; icon: string; desc: string }[] = [
@@ -54,7 +55,18 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
   syncError='',
   checkedAt='',
   onRefresh,
+  onRestoreLegacyAccess,
 }) => {
+  const [recoveryKey,setRecoveryKey]=useState('');
+  const [recoveryError,setRecoveryError]=useState('');
+  const [restoring,setRestoring]=useState(false);
+  const restoreLegacy=async(order:Order)=>{
+    if(!onRestoreLegacyAccess||restoring)return;
+    setRestoring(true);setRecoveryError('');
+    try{await onRestoreLegacyAccess(order,recoveryKey.trim());setRecoveryKey('');}
+    catch(error){setRecoveryError(error instanceof Error?error.message:'The private receipt key could not be verified.');}
+    finally{setRestoring(false);}
+  };
   const [selectedOrderId, setSelectedOrderId] = useState(currentOrderId || orders[0]?.id);
   useEffect(() => {
     if (currentOrderId) setSelectedOrderId(currentOrderId);
@@ -163,6 +175,26 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
             </div>
           )}
 
+          {selectedOrder.persistence==='google_sheets'&&selectedOrder.status==='out_for_delivery'&&
+            !selectedOrder.customer_access_token&&!selectedOrder.delivery_otp&&onRestoreLegacyAccess&&(
+            <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 space-y-2">
+              <p className="font-bold text-amber-950">Older receipt: verify access to display your delivery code</p>
+              <p className="text-xs text-amber-900">
+                This order was placed before secure receipt keys were introduced. Contact the shop using its published contact details.
+                After the shop owner independently verifies you, paste the private recovery key they provide here.
+                An order number and phone number alone cannot unlock an OTP.
+              </p>
+              <form onSubmit={e=>{e.preventDefault();void restoreLegacy(selectedOrder);}} className="flex flex-wrap gap-2">
+                <input type="text" autoComplete="off" required value={recoveryKey} onChange={e=>setRecoveryKey(e.target.value)}
+                  aria-label="Private legacy receipt recovery key" placeholder="Private receipt recovery key"
+                  className="rounded-xl border bg-white p-2 text-xs flex-1 min-w-44" />
+                <button type="submit" disabled={restoring} className="rounded-xl bg-amber-800 text-white p-2 text-sm disabled:opacity-50">
+                  {restoring?'Verifying…':'Restore secure receipt'}
+                </button>
+              </form>
+              {recoveryError&&<p role="alert" className="text-xs text-red-700">{recoveryError}</p>}
+            </div>
+          )}
           {/* Only the original receipt holder or linked account sees the code after dispatch. */}
           {selectedOrder.persistence==='google_sheets'&&selectedOrder.status!=='out_for_delivery'
             &&selectedOrder.status!=='delivered'&&selectedOrder.status!=='cancelled'&&
