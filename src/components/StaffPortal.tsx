@@ -65,6 +65,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [cashCollected, setCashCollected] = useState(false);
   const [updatedAt, setUpdatedAt] = useState('');
   const ordersRefreshInFlight=useRef(false);
+  const queuedOrderRefresh=useRef(false);
   const [loadingOrders,setLoadingOrders]=useState(false);
   const [orderUpdateMessage,setOrderUpdateMessage]=useState('');
   const [legacyKey,setLegacyKey]=useState<{orderId:string;key:string}|null>(null);
@@ -157,7 +158,13 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   },[identity]);
   
   const refresh = useCallback(async () => {
-    if (!identity || ordersRefreshInFlight.current) return;
+    if (!identity || !isOpen) return;
+    if (ordersRefreshInFlight.current) {
+      // A mutation may complete while an older poll is still reading Sheets.
+      // Never drop that explicit post-mutation refresh.
+      queuedOrderRefresh.current=true;
+      return;
+    }
     ordersRefreshInFlight.current=true;
     setLoadingOrders(true);
     try {
@@ -177,8 +184,13 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     } finally {
       ordersRefreshInFlight.current=false;
       setLoadingOrders(false);
+      if (queuedOrderRefresh.current) {
+        queuedOrderRefresh.current=false;
+        // Avoid blocking the rendered confirmed action on another Sheet read.
+        window.setTimeout(() => { void refresh(); }, 0);
+      }
     }
-  }, [endpoint, identity]);
+  }, [endpoint, identity, isOpen]);
 
   useEffect(() => {
     if (!isOpen || !identity) return;
