@@ -1034,3 +1034,20 @@ test('Customer Master backfills historical orders once without duplicate custome
   assert.equal(h.records('customer_master').length,1);
   assert.equal(JSON.stringify(h.records('orders')),before);
 });
+
+
+test('staff order refresh marks corrupt Sheet rows incomplete instead of replacing the last valid list',()=>{
+  const h=harness({singleFile:true});
+  const goodOrder=h.post(request());
+  assert.equal(goodOrder.success,true,JSON.stringify(goodOrder));
+  const good=h.post({action:'staff_orders',id_token:ADMIN_TOKEN});
+  assert.equal(good.snapshot_complete,true);
+  assert.equal(good.orders.length,1);
+  const headers=h.tables.orders[0];
+  h.tables.orders.push(headers.map((key:string)=>key==='id'?'damaged-order':key==='receipt_json'?'{malformed-json':''));
+  const partial=h.post({action:'staff_orders',id_token:ADMIN_TOKEN});
+  assert.equal(partial.ok,true);
+  assert.equal(partial.snapshot_complete,false);
+  assert.equal(partial.orders.length,1);
+  assert.equal(partial.orders[0].id,good.orders[0].id);
+});
