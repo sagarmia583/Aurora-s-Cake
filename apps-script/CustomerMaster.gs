@@ -56,7 +56,7 @@ function auroraCustomerMasterUpsert_(book,orders,order){
  */
 function auroraGuestContactSubmit_(input){
   var phone=auroraCustomerPhoneKey_(input.phone);
-  if(!/^01[3-9]\\d{8}$/.test(phone))auroraReject_('invalid_phone','Enter a valid Bangladeshi phone number.');
+  if(!/^01[3-9]\d{8}$/.test(phone))auroraReject_('invalid_phone','Enter a valid Bangladeshi phone number.');
   var name=auroraOrderText_(input.name,'Customer name',2,100);
   var address=auroraOrderText_(input.address,'Address',6,300);
   var cache=CacheService.getScriptCache();
