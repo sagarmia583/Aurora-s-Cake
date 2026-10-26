@@ -217,11 +217,19 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
               </div>
             </div>
             <div className="bg-white px-5 py-2.5 rounded-xl border-2 border-amber-400 font-mono text-2xl font-black text-amber-900 tracking-widest shadow-sm">
-              {selectedOrder.delivery_otp || 'Available after dispatch'}
+              {selectedOrder.delivery_otp || 'Code not loaded yet'}
             </div>
           </div>
 
           )}
+          {selectedOrder.persistence==='google_sheets' && selectedOrder.status==='out_for_delivery' &&
+            !selectedOrder.delivery_otp && !!selectedOrder.customer_access_token &&
+            <p role="status" className="text-sm rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-900">
+              Your rider has started delivery, but this browser has not received the OTP yet.
+              Tap <strong>Refresh now</strong>. If it remains unavailable, sign in under
+              <strong> Sign up / My orders</strong> to recover your linked receipt, or contact the shop.
+              Never share your password or private receipt key with the rider.
+            </p>}
           {/* 8-Stage Visual Progress Timeline */}
           <div className="space-y-3">
             <h4 className="text-sm font-bold text-slate-900">Cake Production & Delivery Pipeline</h4>
