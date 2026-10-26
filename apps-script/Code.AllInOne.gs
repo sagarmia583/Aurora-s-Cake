@@ -1,15 +1,14 @@
 /**
- * AURORA'S CAKE — COMPLETE ONE-FILE GOOGLE APPS SCRIPT
- * Release aurora-2026-10-26-refresh-stability-r3
- * Customer Master, idempotent COD orders, staff roles and verified
- * receipt delivery OTP. Staff orders return explicit snapshot_complete
- * so transient incomplete reads cannot erase the frontend order list.
- * Back up Google Sheets before replacing the original Code.gs. Run
- * setupSheetDatabase() and backfillCustomerMasterOnce() only as documented.
- * Deploy → Manage deployments → Edit → New version → Deploy.
+ * AURORA'S CAKE — ONE-FILE Google Apps Script backend.
+ * Public COD saves contact data and order history privately in Google Sheets.
+ * Password-free customer contact submissions and recovery by original
+ * private receipt key are supported; phone-only public lookup is forbidden.
+ * Staff password sessions, owner Google login, CMS, image hosting and order
+ * verification remain role protected. Back up the Sheet first. Replace the
+ * complete Code.gs; run setupSheetDatabase(), then deploy NEW Web App version.
  */
 
-/* ===== BEGIN apps-script/Code.gs ===== */
+/* ==== BEGIN apps-script/Code.gs ==== */
 /**
  * Aurora public content and private cash-on-delivery order API.
  * Public GET reads only explicit public tables. Private POST accepts create_order only; no private list/read API.
@@ -96,7 +95,8 @@ var PRIVATE_ORDER_SCHEMAS = {
   staff_accounts: ['id','username','name','role','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'],
   customer_accounts: ['id','phone','name','address','email','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'],
   auth_sessions: ['token_hash','account_type','account_id','created_at','expires_at','revoked'],
-  customer_master: ['id','phone_key','name','delivery_address','created_at','updated_at','order_count','last_order_id','last_order_at']
+  customer_master: ['id','phone_key','name','delivery_address','created_at','updated_at','order_count','last_order_id','last_order_at'],
+  customer_contact_requests: ['id','phone_key','name','delivery_address','created_at','status']
 };
 
 // This handler creates a private COD receipt. GET never calls these functions.
@@ -120,6 +120,8 @@ function doPost(e) {
       return auroraResponse_(auroraAccountCustomerPost_(input));
     if (input && (input.action === 'create_custom_cake' || input.action === 'get_custom_cake_status' || input.action === 'staff_custom_cakes' || input.action === 'staff_custom_quote')) return auroraResponse_(auroraCustomCakePost_(input));
     if (input && input.action === 'staff_customer_lookup') return auroraResponse_(auroraStaffCustomerLookup_(input));
+    if (input && input.action === 'customer_contact_submit') return auroraResponse_(auroraGuestContactSubmit_(input));
+    if (input && input.action === 'customer_receipt_recover') return auroraResponse_(auroraCustomerReceiptRecover_(input));
     if (input && input.action === 'get_order_status') return auroraResponse_(auroraCustomerOrderStatus_(input));
     if (input && /^staff_cms_(list|create|update|delete)$/.test(String(input.action||''))) return auroraResponse_(auroraCmsPost_(input));
     if (input && (input.action==='staff_catalog'||input.action==='staff_catalog_update')) return auroraResponse_(auroraCatalogPost_(input));
@@ -568,9 +570,9 @@ function auroraSeedRows_(name,seed) {
   var alias = {product_addons:'addons',delivery_zones:'zones',delivery_slots:'slots'};
   return seed[alias[name] || name] || [];
 }
-/* ===== END apps-script/Code.gs ===== */
+/* ==== END apps-script/Code.gs ==== */
 
-/* ===== BEGIN apps-script/SeedData.gs ===== */
+/* ==== BEGIN apps-script/SeedData.gs ==== */
 var AURORA_SEED_DATA = {
   "schema_version": 1,
   "settings": {
@@ -1402,9 +1404,9 @@ var AURORA_SEED_DATA = {
   ],
   "reviews": []
 };
-/* ===== END apps-script/SeedData.gs ===== */
+/* ==== END apps-script/SeedData.gs ==== */
 
-/* ===== BEGIN apps-script/StaffOperations.gs ===== */
+/* ==== BEGIN apps-script/StaffOperations.gs ==== */
 /**
  * Authenticated bakery operations for the existing private Google Sheet COD orders.
  * Install alongside Code.gs. All private operations use POST, and each staff
@@ -1794,9 +1796,29 @@ function auroraCustomerOrderStatus_(input) {
   }
   return result;
 }
-/* ===== END apps-script/StaffOperations.gs ===== */
 
-/* ===== BEGIN apps-script/AccountAuth.gs ===== */
+/**
+ * Password-free customer recovery. A phone number is NOT an authentication
+ * credential. The original long random checkout receipt key is required.
+ */
+function auroraCustomerReceiptRecover_(input){
+  var id=auroraOrderText_(input.order_id,'Order reference',10,150);
+  var key=String(input.customer_access_token||'');
+  if(!/^ord_[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id)||!/^[0-9a-f-]{72}$/i.test(key))
+    auroraReject_('forbidden','Original order reference and private receipt key are required.');
+  var digits=auroraCustomerPhoneKey_(input.customer_phone);
+  var table=auroraFastOrderTable_(auroraSpreadsheet_());
+  var row=auroraPrivateFindRow_(table,id);
+  if(!row)auroraReject_('not_found','Receipt not found or access key incorrect.');
+  var order=auroraFastReceipt_(table,row);
+  if(order.id!==id||String(order.customer_access_token||'')!==key||
+      auroraCustomerPhoneKey_(order.customer_phone)!==digits)
+    auroraReject_('forbidden','Receipt not found or access key incorrect.');
+  return {ok:true,order:auroraCustomerSafeReceipt_(order)};
+}
+/* ==== END apps-script/StaffOperations.gs ==== */
+
+/* ==== BEGIN apps-script/AccountAuth.gs ==== */
 /**
  * Private, free Google-Sheets account system.
  * Staff: owner verifies with Google; employees use username + password.
@@ -2064,9 +2086,9 @@ function auroraAccountCustomerPost_(input) {
   }
   auroraReject_('invalid_action','Unknown customer phone account action.');
 }
-/* ===== END apps-script/AccountAuth.gs ===== */
+/* ==== END apps-script/AccountAuth.gs ==== */
 
-/* ===== BEGIN apps-script/CustomerMaster.gs ===== */
+/* ==== BEGIN apps-script/CustomerMaster.gs ==== */
 /**
  * Phone-as-unique-key customer register. No public phone lookup.
  * Not a verified identity: customers can only read their own proven account
@@ -2118,6 +2140,32 @@ function auroraCustomerMasterUpsert_(book,orders,order){
   }else auroraAppendPrivate_(table,row);
   return {id:row.id,created:!previous};
 }
+/**
+ * Passwordless contact form: write-only. Phone numbers are unverified.
+ * Never overwrite an order-confirmed customer profile with unverified input.
+ * Contact records are private and never returned to anonymous callers.
+ */
+function auroraGuestContactSubmit_(input){
+  var phone=auroraCustomerPhoneKey_(input.phone);
+  if(!/^01[3-9]\d{8}$/.test(phone))auroraReject_('invalid_phone','Enter a valid Bangladeshi phone number.');
+  var name=auroraOrderText_(input.name,'Customer name',2,100);
+  var address=auroraOrderText_(input.address,'Address',6,300);
+  var cache=CacheService.getScriptCache();
+  var key='aurora_contact_'+auroraAccountDigest_(phone).slice(0,24);
+  var last=Number(cache.get(key)||0);
+  if(last>=3)auroraReject_('rate_limited','Too many saves for this number. Try again later.');
+  var lock=LockService.getScriptLock();
+  if(!lock.tryLock(10000))auroraReject_('busy','Customer details could not be saved. Retry.');
+  try{
+    var sheet=auroraPrivateTable_(auroraSpreadsheet_(),'customer_contact_requests');
+    auroraAppendPrivate_(sheet,{id:'contact_'+Utilities.getUuid(),phone_key:phone,
+      name:name,delivery_address:address,created_at:new Date().toISOString(),
+      status:'unverified'});
+    cache.put(key,String(last+1),3600);
+    return {ok:true,saved:true,phone_verified:false};
+  }finally{lock.releaseLock();}
+}
+
 /** Only authentic staff roles can retrieve contact details using phone VLOOKUP. */
 function auroraStaffCustomerLookup_(input){
   var actor=auroraStaffAuthenticate_(input);
@@ -2125,10 +2173,22 @@ function auroraStaffCustomerLookup_(input){
     auroraReject_('forbidden','Customer lookup is restricted to authorized sales staff.');
   var phone=auroraCustomerPhoneKey_(input.phone),table=auroraPrivateTable_(auroraSpreadsheet_(),'customer_master');
   var row=auroraCustomerMasterRow_(table,phone);
-  if(!row)return {ok:true,found:false};
+  if(!row){
+    // Unverified contact requests are visible only to authorized staff and
+    // explicitly labeled, so a phone-only submission cannot impersonate a
+    // customer who has placed a confirmed COD order.
+    var pending=auroraPrivateTable_(auroraSpreadsheet_(),'customer_contact_requests').rows
+      .filter(function(item){return String(item.phone_key)===phone;})
+      .sort(function(a,b){return String(b.created_at).localeCompare(String(a.created_at));})[0];
+    if(!pending)return {ok:true,found:false};
+    return {ok:true,found:true,customer:{
+      phone:phone,name:String(pending.name),delivery_address:String(pending.delivery_address),
+      order_count:0,last_order_at:'',unverified:true
+    }};
+  }
   return {ok:true,found:true,customer:{
     phone:row.phone_key,name:row.name,delivery_address:row.delivery_address,
-    order_count:Number(row.order_count||0),last_order_at:String(row.last_order_at||'')
+    order_count:Number(row.order_count||0),last_order_at:String(row.last_order_at||''),unverified:false
   }};
 }
 /** Manual one-time import of orders placed before the Customer Master feature.
@@ -2164,9 +2224,9 @@ function backfillCustomerMasterOnce(){
     return {created:newCount,updated:updatedCount,skipped:skipped,total_customers:Object.keys(known).length};
   }finally{lock.releaseLock();}
 }
-/* ===== END apps-script/CustomerMaster.gs ===== */
+/* ==== END apps-script/CustomerMaster.gs ==== */
 
-/* ===== BEGIN apps-script/CustomerAccounts.gs ===== */
+/* ==== BEGIN apps-script/CustomerAccounts.gs ==== */
 /**
  * Optional FREE Google customer accounts; no SMS gateway and no email-sending API.
  * Guest COD remains possible. A customer holding an original confirmed receipt
@@ -2242,9 +2302,9 @@ function auroraCustomerAccountsPost_(input) {
   }
   auroraReject_('invalid_action','Unsupported customer account action.');
 }
-/* ===== END apps-script/CustomerAccounts.gs ===== */
+/* ==== END apps-script/CustomerAccounts.gs ==== */
 
-/* ===== BEGIN apps-script/LiveCatalog.gs ===== */
+/* ==== BEGIN apps-script/LiveCatalog.gs ==== */
 /**
  * Free authenticated live catalogue operations for the original public Sheets.
  * Deliberately limited to allowlisted fields. Staff cannot edit arbitrary cells
@@ -2334,9 +2394,9 @@ function auroraCatalogPost_(input) {
     return {ok:true,updated:true};
   } finally {lock.releaseLock();}
 }
-/* ===== END apps-script/LiveCatalog.gs ===== */
+/* ==== END apps-script/LiveCatalog.gs ==== */
 
-/* ===== BEGIN apps-script/PublicCms.gs ===== */
+/* ==== BEGIN apps-script/PublicCms.gs ==== */
 /**
  * Private website CMS. Never exposes private orders or account tables.
  * All changes are validated server-side against PUBLIC_TABLE_SCHEMAS.
@@ -2549,9 +2609,9 @@ function auroraCmsPost_(input){
     return {ok:true,operation:action==='staff_cms_delete'?'archived':action==='staff_cms_create'?'created':'updated'};
   }finally{lock.releaseLock();}
 }
-/* ===== END apps-script/PublicCms.gs ===== */
+/* ==== END apps-script/PublicCms.gs ==== */
 
-/* ===== BEGIN apps-script/PublicImages.gs ===== */
+/* ==== BEGIN apps-script/PublicImages.gs ==== */
 /**
  * Free private Google Drive storage for small public bakery images.
  * The Web App runs as owner. Only authenticated Admin uploads.
@@ -2620,9 +2680,9 @@ function auroraPublicImage_(id){
   var raw=file.getBlob().getBytes();
   return {ok:true,mime_type:file.getMimeType(),base64:Utilities.base64Encode(raw)};
 }
-/* ===== END apps-script/PublicImages.gs ===== */
+/* ==== END apps-script/PublicImages.gs ==== */
 
-/* ===== BEGIN apps-script/CustomCakeRequests.gs ===== */
+/* ==== BEGIN apps-script/CustomCakeRequests.gs ==== */
 /**
  * Free custom-cake quote requests. Public create/status and authenticated
  * staff queue share a private Google Sheet tab, never included in public GET.
@@ -2755,4 +2815,4 @@ function auroraCustomCakePost_(input) {
   }
   auroraReject_('invalid_action','Invalid custom cake action.');
 }
-/* ===== END apps-script/CustomCakeRequests.gs ===== */
+/* ==== END apps-script/CustomCakeRequests.gs ==== */
