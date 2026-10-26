@@ -12,6 +12,14 @@ This migration is **not live until the Google Apps Script project is updated and
 - Orders from an unverified phone **never become owned by a newly registered account automatically**. The user must submit the original confirmed receipt's private `customer_access_token` through **Link original receipt**; newly submitted orders are linked automatically after successful checkout while signed in (and can be manually retried if network is interrupted).
 - A phone number alone proves **nothing** about ownership. **No SMS OTP/phone verification or automatic forgotten-password recovery** is provided. This is a *phone login identifier*, not a verified phone identity.
 
+## Checkout: Autofill saved customer details
+
+The COD Checkout form includes **Returning customer? → Use my saved details**. Enter the phone number associated with your account, then enter the customer phone-account password and select **Verify & autofill name and address**. The server authenticates the password and sends back only that customer's profile. The customer can edit the contact details for the individual order before checkout.
+
+A previous verified phone account session can automatically populate the Checkout form while it remains valid. On the same device, locally owned saved details or original receipt capabilities may also autofill without another password. Simply typing a phone number must **never** retrieve a private Google Sheets address without account authentication.
+
+For a new account, use **Sign up / My orders** and save the address in the profile first. The checkout auto-fill requires the **latest Apps Script all-in-one deployment** with phone-account POST actions. A Frontend Preview build alone cannot migrate the deployed Apps Script.
+
 ## Deployment migration
 
 1. Make a copy/backup of the actual production Google Sheet.
