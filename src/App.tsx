@@ -27,6 +27,7 @@ import { useGoogleSheetContent } from './hooks/useGoogleSheetContent';
 const SheetContentPanel = lazy(() => import('./components/SheetContentPanel').then(m=>({default:m.SheetContentPanel})));
 import { loadConfirmedSheetOrders, rememberConfirmedSheetOrder, removeConfirmedSheetOrdersById } from './services/googleSheetOrders';
 import { fetchCustomerOrderStatus, redeemLegacyReceiptAccess } from './services/sheetStaffApi';
+import { isConfirmedDeletedSheetOrder, verifyStoredOrderHistory } from './services/sheetOrderHistorySync';
 import { linkPhoneCustomerReceipt } from './services/phoneCustomerApi';
 import { getBrowserWorkspaceStorage, isStaffWorkspaceOpen, setStaffWorkspaceOpen } from './services/staffWorkspaceSession';
 import { reconcilePublicCart, reorderFromPublicOrder } from './services/reconcilePublicCart';
@@ -234,6 +235,35 @@ export default function App() {
   };
 
   // Tracking must work even if the public catalog cache is temporarily offline.
+  // Sheets is the source of truth; localStorage only holds customer receipts.
+  // Check device history when the customer opens orders/profile, not at every
+  // storefront render. Verify max three at a time to keep the site responsive.
+  useEffect(() => {
+    if (!isProfileOpen && !isCustomerAccountOpen) return;
+    const stored = loadConfirmedSheetOrders();
+    if (!stored.length) return;
+    let stopped = false;
+    let phoneToken = '';
+    try { phoneToken = sessionStorage.getItem('aurora_customer_phone_session_v1') || ''; } catch {}
+    void verifyStoredOrderHistory(sheetContent.endpoint, stored, customerGoogleToken || undefined, phoneToken || undefined)
+      .then(result => {
+        if (stopped) return;
+        if (result.deletedIds.length) removeConfirmedSheetOrdersById(result.deletedIds);
+        const currentIds = new Set(stored.map(order => order.id));
+        const freshById = new Map(result.current.map(order => [order.id, order]));
+        // Don't wipe orders added by checkout while verification was in flight.
+        setOrders(previous => previous.filter(order => !result.deletedIds.includes(order.id))
+          .map(order => freshById.get(order.id) ?? order));
+        for (const order of result.current) if (currentIds.has(order.id)) rememberConfirmedSheetOrder(order);
+        if (result.deletedIds.length) setCartNotice(result.deletedIds.length + ' deleted order(s) removed from your saved history after checking Google Sheets.');
+        else if (result.failedIds.length) setCartNotice('Some saved receipts could not be checked online. They were kept safely; retry when connected.');
+      })
+      .catch(() => {
+        if (!stopped) setCartNotice('Order history could not be checked online. No saved receipts were removed.');
+      });
+    return () => { stopped = true; };
+  }, [isProfileOpen, isCustomerAccountOpen, sheetContent.endpoint, customerGoogleToken]);
+
   // Only poll the selected private receipt: the public endpoint never lists orders.
   useEffect(() => {
     if(!isTrackOrderOpen)return;
@@ -264,7 +294,14 @@ export default function App() {
         setTrackingCheckedAt(new Date().toLocaleTimeString());
         setTrackingSyncError(cached?'':'Live status updated, but this device could not cache your receipt. Keep your original receipt or sign in to My orders.');
       }catch(error){
-        if(!stopped)setTrackingSyncError(error instanceof Error?error.message:'Could not load live delivery status.');
+        if(!stopped && isConfirmedDeletedSheetOrder(error)){
+          removeConfirmedSheetOrdersById([selected.id]);
+          setOrders(previous=>previous.filter(order=>order.id!==selected.id));
+          setLatestOrderId(current=>current===selected.id?'':current);
+          setTrackingSyncError('This order was removed from Google Sheets; its saved receipt has been cleared.');
+        }else if(!stopped){
+          setTrackingSyncError(error instanceof Error?error.message:'Could not load live delivery status.');
+        }
       }finally{
         inFlight=false;
         if(!stopped)setTrackingSyncing(false);
