@@ -60,6 +60,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
   const [recoveryKey,setRecoveryKey]=useState('');
   const [recoveryError,setRecoveryError]=useState('');
   const [restoring,setRestoring]=useState(false);
+  const [copiedReceipt,setCopiedReceipt]=useState(false);
   const restoreLegacy=async(order:Order)=>{
     if(!onRestoreLegacyAccess||restoring)return;
     setRestoring(true);setRecoveryError('');
@@ -151,6 +152,20 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
               </button>}
             </div>
             :<p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">This is a demo order saved on this device, not a real bakery delivery.</p>}
+          {selectedOrder.persistence==='google_sheets'&&!!selectedOrder.customer_access_token&&
+            <div className="rounded-xl border border-slate-200 p-3 bg-slate-50 flex flex-wrap gap-3 items-center justify-between">
+              <div>
+                <strong className="block text-sm text-slate-900">Keep your private recovery receipt</strong>
+                <p className="text-xs text-slate-600">Use this on another device without a password. Don't share it publicly.</p>
+              </div>
+              <button type="button" className="rounded-lg border bg-white px-3 py-2 text-xs font-semibold"
+                onClick={()=>void navigator.clipboard.writeText(
+                  'Order ID: '+selectedOrder.id+'\nPhone: '+selectedOrder.customer_phone+
+                  '\nPrivate receipt key: '+selectedOrder.customer_access_token
+                ).then(()=>setCopiedReceipt(true)).catch(()=>setCopiedReceipt(false))}>
+                {copiedReceipt?'Copied recovery details':'Copy private receipt'}
+              </button>
+            </div>}
           {!!syncError && selectedOrder.persistence==='google_sheets'&&
             <p role="alert" className="text-xs rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950">
               Live delivery status could not be refreshed: {syncError}. Showing the last confirmed status.
