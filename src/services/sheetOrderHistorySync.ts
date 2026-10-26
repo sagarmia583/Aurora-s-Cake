@@ -10,7 +10,7 @@ import type { StatusSnapshot } from './sheetStaffApi';
 export function isConfirmedDeletedSheetOrder(error:unknown): boolean {
   return error instanceof BakeryOperationsError &&
     error.code === 'not_found' &&
-    error.message === 'Order reference not found.';
+    ['Order reference not found.','Order receipt not found.','Invalid order receipt.'].includes(error.message);
 }
 export interface ReceiptSyncResult {
   current: Order[];
