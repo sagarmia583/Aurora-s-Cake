@@ -100,6 +100,32 @@ export async function mutateStaffOrder(endpoint: string, idToken: string, operat
     throw new Error('The order update response was invalid. Refresh the order list before retrying.');
   return response.order as unknown as StaffOrder;
 }
+/** One-time manual recovery for older orders that lack a private receipt key.
+ * Only the Google-authenticated shop owner may issue it after verifying the
+ * customer independently. It never exposes the delivery OTP.
+ */
+export async function issueLegacyReceiptAccess(endpoint:string,token:string,orderId:string):Promise<string>{
+  const data=await privatePost(endpoint,{action:'staff_legacy_receipt',...staffCredential(token),
+    order_id:orderId,manually_verified:true});
+  if(data.order_id!==orderId||typeof data.customer_access_token!=='string'||
+      !/^[0-9a-f-]{72}$/i.test(data.customer_access_token))
+    throw new Error('Recovery key could not be verified. Check the Apps Script deployment.');
+  return data.customer_access_token;
+}
+export async function redeemLegacyReceiptAccess(endpoint:string,order:Order,privateKey:string):Promise<StatusSnapshot>{
+  if(!/^[0-9a-f-]{72}$/i.test(privateKey.trim()))
+    throw new Error('Enter the complete private recovery key given by the shop owner.');
+  // The backend verifies order id, checkout phone and the actual private key.
+  const data=await privatePost(endpoint,{action:'get_order_status',order_id:order.id,
+    customer_phone:order.customer_phone,customer_access_token:privateKey.trim()});
+  const allowed:OrderStatus[]=['pending','confirmed','preparing','ready','assigned','picked_up','out_for_delivery','delivered','cancelled'];
+  if(data.order_id!==order.id||!allowed.includes(data.status as OrderStatus)||
+     !Array.isArray(data.history)||typeof data.updated_at!=='string'||typeof data.cod_collected!=='boolean'||
+     (data.delivery_otp!==undefined&&!/^\d{4}$/.test(String(data.delivery_otp))))
+    throw new Error('Could not verify this order recovery key.');
+  return data as unknown as StatusSnapshot;
+}
+
 export async function fetchCustomerOrderStatus(endpoint: string, order: Order, idToken?: string, phoneToken?: string): Promise<StatusSnapshot> {
   if (order.persistence !== 'google_sheets') throw new Error('Only confirmed Sheet receipts support status updates.');
   const data = await privatePost(endpoint, { action: 'get_order_status', order_id: order.id, customer_phone: order.customer_phone,
