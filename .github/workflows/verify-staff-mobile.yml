@@ -1,0 +1,30 @@
+name: Verify Aurora Staff Mobile
+on:
+  pull_request:
+    paths:
+      - 'apps/staff-mobile/**'
+      - '.github/workflows/verify-staff-mobile.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/staff-mobile/**'
+jobs:
+  mobile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install native Expo dependencies
+        run: npm install --no-audit --no-fund
+        working-directory: apps/staff-mobile
+      - name: TypeScript mobile app
+        run: npx tsc --noEmit
+        working-directory: apps/staff-mobile
+      - name: Export Android JavaScript bundle
+        run: npx expo export --platform android --output-dir dist/android
+        working-directory: apps/staff-mobile
+      - name: Export iOS JavaScript bundle
+        run: npx expo export --platform ios --output-dir dist/ios
+        working-directory: apps/staff-mobile
