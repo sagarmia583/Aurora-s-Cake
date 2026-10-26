@@ -5,6 +5,7 @@ import type { StaffCustomerMatch, StaffOperation, StaffOrder, StaffProfile, Staf
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
 import { getBrowserWorkspaceStorage, loadStaffCredential, saveStaffCredential, clearStaffCredential, loadStaffTab, saveStaffTab } from '../services/staffWorkspaceSession';
 import { reconcileStaffOrders, loadStaffOrdersSnapshot, saveStaffOrdersSnapshot, clearStaffOrdersSnapshot } from '../services/staffOrderSnapshot';
+import { activeStaffOrderAlertIds, detectNewStaffOrderAlerts } from '../services/staffOrderAlerts';
 // Download the larger forms only if the user opens those workspaces.
 const WebsiteManager=React.lazy(()=>import('./WebsiteManager').then(m=>({default:m.WebsiteManager})));
 const CustomCakeQueue=React.lazy(()=>import('./CustomCakeQueue').then(m=>({default:m.CustomCakeQueue})));
@@ -80,6 +81,43 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [fedcmButton, setFedcmButton] = useState(true);
   const [googleUiError, setGoogleUiError] = useState('');
   const [orders, setOrders] = useState<StaffOrder[]>([]);
+  const [beepEnabled,setBeepEnabled]=useState(false);
+  const [unreadOrderAlerts,setUnreadOrderAlerts]=useState<string[]>([]);
+  const alertAudioRef=useRef<AudioContext|null>(null);
+  const lastServerOrdersRef=useRef<StaffOrder[]|null>(null);
+  const alertedIdentityRef=useRef('');
+  const playOrderBeep=useCallback(()=>{
+    const ctx=alertAudioRef.current;
+    if(!ctx||ctx.state!=='running')return;
+    try{
+      const base=ctx.currentTime+0.04;
+      for(let i=0;i<3;i++){
+        const tone=ctx.createOscillator(),gain=ctx.createGain(),at=base+i*.32;
+        tone.type='sine';tone.frequency.setValueAtTime(i===1?840:980,at);
+        gain.gain.setValueAtTime(0.0001,at);
+        gain.gain.exponentialRampToValueAtTime(.18,at+.018);
+        gain.gain.exponentialRampToValueAtTime(.0001,at+.2);
+        tone.connect(gain);gain.connect(ctx.destination);
+        tone.start(at);tone.stop(at+.22);
+      }
+    }catch{/* Browser audio policy may block sound; visual alert remains. */}
+  },[]);
+  const enableOrderBeep=async()=>{
+    try{
+      const AudioFactory=window.AudioContext;
+      if(!AudioFactory)throw new Error('Sound is unavailable in this browser.');
+      const ctx=alertAudioRef.current??new AudioFactory();
+      alertAudioRef.current=ctx;
+      await ctx.resume();
+      if(ctx.state!=='running')throw new Error('Browser blocked the sound. Tap again.');
+      setBeepEnabled(true);
+      playOrderBeep();
+    }catch(e){setBeepEnabled(false);setError(e instanceof Error?e.message:'Cannot enable beep.');}
+  };
+  const disableOrderBeep=()=>{
+    setBeepEnabled(false);
+    void alertAudioRef.current?.suspend().catch(()=>{});
+  };
   const [staffProfiles, setStaffProfiles] = useState<StaffProfile[]>([]);
   const [refreshingStaff, setRefreshingStaff] = useState(false);
   const [error, setError] = useState('');
@@ -164,6 +202,23 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     return matches&&filterMatch;
   }).sort((a,b)=>Number(isActionable(b,identity.role))-Number(isActionable(a,identity.role))||
     Date.parse(b.updated_at||'')-Date.parse(a.updated_at||'')):[];
+
+  useEffect(()=>{
+    const current=identity?identity.role+':'+identity.email:'';
+    if(current!==alertedIdentityRef.current){
+      alertedIdentityRef.current=current;
+      lastServerOrdersRef.current=null;
+      setUnreadOrderAlerts([]);
+    }
+  },[identity?.role,identity?.email]);
+  useEffect(()=>{
+    if(!beepEnabled||unreadOrderAlerts.length===0||!isOpen)return;
+    const timer=window.setInterval(()=>{
+      if(document.visibilityState==='visible')playOrderBeep();
+    },25000);
+    return()=>window.clearInterval(timer);
+  },[beepEnabled,unreadOrderAlerts.length,isOpen,playOrderBeep]);
+  useEffect(()=>()=>{void alertAudioRef.current?.close().catch(()=>{});},[]);
 
   const signIn = useCallback(async (idToken: string) => {
     setLoading(true); setError('');
@@ -298,6 +353,22 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       // A response from an old identity/request must never overwrite the
       // currently signed-in employee's orders.
       if(liveIdentityToken.current!==identity.token||!liveIsOpen.current)return;
+      const prior=lastServerOrdersRef.current;
+      const currentIdentity=identity.role+':'+identity.email;
+      if(alertedIdentityRef.current!==currentIdentity){
+        alertedIdentityRef.current=currentIdentity;
+        lastServerOrdersRef.current=null;
+        setUnreadOrderAlerts([]);
+      }
+      if(prior){
+        const added=detectNewStaffOrderAlerts(prior,fresh,identity.role,identity.email);
+        if(added.length){
+          setUnreadOrderAlerts(current=>[...new Set([...current,...added])]);
+          if(alertAudioRef.current?.state==='running')playOrderBeep();
+        }
+        setUnreadOrderAlerts(current=>activeStaffOrderAlertIds(fresh,current,identity.role,identity.email));
+      }
+      lastServerOrdersRef.current=fresh;
       setOrders(previous=>reconcileStaffOrders(previous,fresh));
       setUpdatedAt(new Date().toLocaleTimeString());
       setViewingSavedOrders(false);
@@ -315,7 +386,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
         }
       }
     }
-  }, [endpoint, identity?.token, isOpen]);
+  }, [endpoint, identity?.token, isOpen,playOrderBeep]);
 
   useEffect(() => {
     if (!isOpen || !identity || !['overview','orders'].includes(activeTab)) return;
@@ -546,7 +617,11 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                   </div>
                   <div className="flex items-center gap-2">
                     <span aria-live="polite" className="hidden sm:block text-xs text-slate-500">{loadingOrders?'Syncing · keeping current data…':viewingSavedOrders?'Saved orders · updating…':'Updated '+(updatedAt||'—')}</span>
-                    <button type="button" disabled={loadingOrders} onClick={()=>void refresh()}
+                    <button type="button" onClick={()=>void (beepEnabled?disableOrderBeep():enableOrderBeep())}
+                       className={'min-h-11 flex items-center gap-2 rounded-xl border px-3 text-sm font-bold '+(beepEnabled?'bg-emerald-50 text-emerald-800 border-emerald-200':'bg-amber-100 text-amber-950 border-amber-300')}>
+                       {beepEnabled?'🔊 Beep ON':'🔇 Enable Beep'}
+                     </button>
+                     <button type="button" disabled={loadingOrders} onClick={()=>void refresh()}
                       className="min-h-11 flex items-center gap-2 rounded-xl bg-white border px-3 text-sm font-semibold text-slate-700 disabled:opacity-60">
                       <RefreshCw size={16} className={loadingOrders?'animate-spin':''}/> Refresh
                     </button>
@@ -556,7 +631,20 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                     </button>
                   </div>
                 </div>
-                {(activeTab==='overview'||activeTab==='orders')&&(
+                {unreadOrderAlerts.length>0&&(
+                   <div role="alert" aria-live="assertive" className="rounded-2xl border-2 border-red-400 bg-red-50 px-4 py-4 flex flex-wrap items-center justify-between gap-3 shadow-sm">
+                     <div className="flex items-center gap-3">
+                       <span aria-hidden="true" className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-600 text-white text-2xl animate-pulse">🔔</span>
+                       <div><strong className="block text-lg text-red-900">{unreadOrderAlerts.length} new order {unreadOrderAlerts.length===1?'alert':'alerts'}!</strong>
+                         <p className="text-sm text-red-800">New orders or delivery steps need attention. {beepEnabled?'Beep reminders are active.':'Click Enable Beep for sound.'}</p></div>
+                     </div>
+                     <div className="flex gap-2">
+                       <button type="button" onClick={()=>setActiveTab('orders')} className="rounded-xl bg-red-700 text-white px-4 py-2 font-bold text-sm">View orders</button>
+                       <button type="button" onClick={()=>setUnreadOrderAlerts([])} className="rounded-xl border border-red-300 px-4 py-2 font-bold text-sm text-red-800">Acknowledge</button>
+                     </div>
+                   </div>
+                 )}
+                 {(activeTab==='overview'||activeTab==='orders')&&(
                   <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
                     {[
                       {label:'Needs action',value:actionableCount,icon:AlertCircle,tone:'bg-amber-50 text-amber-800'},
