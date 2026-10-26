@@ -45,7 +45,7 @@ test('session-scoped staff orders survive reload but not account switching, expi
   assert.equal(saveStaffOrdersSnapshot(tab,user,orders,1000),true);
   clearStaffOrdersSnapshot(tab);
   assert.deepEqual(loadStaffOrdersSnapshot(tab,user,2000),[]);
-  assert.equal(saveStaffOrdersSnapshot(tab,user,[{...orders[0],delivery_otp:'0456'}],1000),false);
+  assert.equal(saveStaffOrdersSnapshot(tab,user,[{...orders[0],delivery_otp:'0456'} as unknown as StaffOrder],1000),false);
 });
 test('staff API refuses an incomplete server response even if one valid order is present',async()=>{
   const original=globalThis.fetch;
