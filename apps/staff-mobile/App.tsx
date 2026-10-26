@@ -254,7 +254,7 @@ export default function App(){
   </KeyboardAvoidingView>;
   const readyToAssign=session.riders.filter(x=>x.email);
   return <View style={s.root}>
-    <StatusBar barStyle="light-content"/>
+    <StatusBar barStyle="dark-content"/>
     <View style={s.top}>
       <View><Text style={s.topEyebrow}>AURORA'S CAKE</Text><Text style={s.topTitle}>{roleLabel[session.role]} Workspace</Text>
         <Text style={s.topSub}>Hello, {session.name}</Text></View>
