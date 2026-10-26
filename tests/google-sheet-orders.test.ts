@@ -883,3 +883,86 @@ test('private order lookup uses native exact-cell TextFinder when supported',()=
   assert.equal(h.context.auroraPrivateFindRow_({sheet:fakeSheet,headers:['id']},'ord_test'),340);
   assert.equal(textFinderUsed,true);
 });
+
+
+test('full COD acceptance: guest checkout, verified owner, password kitchen, assigned rider, phone customer OTP and paid delivery',()=>{
+  const h=harness({singleFile:true});
+  const signedUp=h.post({action:'customer_phone_signup',name:'Test Customer',phone:'01700000000',password:'StrongPrivateCustomerPass!'});
+  assert.equal(signedUp.ok,true,JSON.stringify(signedUp));
+  const orderResponse=h.post(request());
+  assert.equal(orderResponse.persisted,true,JSON.stringify(orderResponse));
+  const receipt=orderResponse.order;
+  assert.equal(receipt.status,'pending');
+  assert.equal(receipt.payment_status,'pending');
+  assert.equal(receipt.delivery_otp,'');
+  assert.equal(h.records('orders').length,1);
+  assert.equal(h.records('order_items').length,1);
+
+  const getCustomer=(token:string=signedUp.auth_token)=>h.post({action:'get_order_status',
+    order_id:receipt.id,customer_phone:receipt.customer_phone,auth_token:token});
+  assert.equal(h.post({action:'customer_phone_claim',auth_token:signedUp.auth_token,order_id:receipt.id,
+    customer_access_token:receipt.customer_access_token}).linked,true);
+  assert.equal(getCustomer().status,'pending');
+  assert.equal(Object.hasOwn(getCustomer(),'delivery_otp'),false);
+  assert.equal(h.post({action:'get_order_status',order_id:receipt.id,customer_phone:receipt.customer_phone}).code,'forbidden');
+  assert.equal(h.post({action:'get_order_status',order_id:receipt.id,customer_phone:receipt.customer_phone,
+    customer_access_token:'not-a-key'}).code,'forbidden');
+
+  assert.equal(h.post({action:'staff_account_create',id_token:ADMIN_TOKEN,username:'kitchen_worker',name:'Test Chef',
+    password:'SafeKitchenPassword2026!',role:'kitchen_manager'}).created,true);
+  const chefLogin=h.post({action:'staff_password_login',username:'kitchen_worker',password:'SafeKitchenPassword2026!'});
+  assert.equal(chefLogin.role,'kitchen_manager',JSON.stringify(chefLogin));
+  const employee=(operation:string, extra:Record<string,unknown>={})=>
+    h.post({action:'staff_mutate',auth_token:chefLogin.auth_token,order_id:receipt.id,operation,...extra});
+  const owner=(operation:string,extra:Record<string,unknown>={})=>
+    h.post({action:'staff_mutate',id_token:ADMIN_TOKEN,order_id:receipt.id,operation,...extra});
+  const rider=(operation:string,extra:Record<string,unknown>={})=>
+    h.post({action:'staff_mutate',id_token:RIDER_TOKEN,order_id:receipt.id,operation,...extra});
+
+  assert.equal(employee('confirm').code,'forbidden');
+  assert.equal(owner('confirm').order.status,'confirmed');
+  assert.equal(employee('start_baking').order.status,'preparing');
+  assert.equal(employee('mark_ready').order.status,'ready');
+  assert.equal(rider('pick_up').code,'invalid_transition');
+  assert.equal(owner('assign',{rider_email:'rider@example.com'}).order.status,'assigned');
+  assert.equal(rider('pick_up').order.status,'picked_up');
+  assert.equal(getCustomer().status,'picked_up');
+  assert.equal(Object.hasOwn(getCustomer(),'delivery_otp'),false);
+  const dispatched=rider('start_delivery');
+  assert.equal(dispatched.order.status,'out_for_delivery');
+  assert.equal(Object.hasOwn(dispatched.order,'delivery_otp'),false);
+  assert.equal(Object.hasOwn(dispatched.order,'customer_access_token'),false);
+  const customerAtDispatch=getCustomer();
+  assert.equal(customerAtDispatch.status,'out_for_delivery');
+  assert.match(customerAtDispatch.delivery_otp,/^\d{4}$/);
+  assert.equal(h.post({action:'staff_orders',id_token:RIDER_TOKEN}).orders[0].delivery_otp,undefined);
+  assert.equal(owner('deliver',{delivery_otp:customerAtDispatch.delivery_otp,cash_collected:true}).code,'forbidden');
+  assert.equal(rider('deliver',{delivery_otp:'0000',cash_collected:true}).code,'invalid_otp');
+  assert.equal(rider('deliver',{delivery_otp:customerAtDispatch.delivery_otp,cash_collected:false}).code,'cash_unconfirmed');
+  assert.equal(rider('deliver',{delivery_otp:customerAtDispatch.delivery_otp,cash_collected:true}).order.status,'delivered');
+  const finished=getCustomer();
+  assert.equal(finished.status,'delivered');
+  assert.equal(finished.payment_status,'paid');
+  assert.equal(finished.cod_collected,true);
+  assert.equal(Object.hasOwn(finished,'delivery_otp'),false);
+  assert.equal(rider('deliver',{delivery_otp:customerAtDispatch.delivery_otp,cash_collected:true}).code,'invalid_transition');
+  assert.equal(h.records('orders').length,1);
+  assert.equal(h.records('order_items').length,1);
+  const data=JSON.parse(String(h.records('orders')[0].receipt_json));
+  assert.equal(data.delivery_otp,'');
+  assert.equal(data.total_amount,receipt.total_amount);
+  assert.equal(data.history.at(-1).status,'delivered');
+  const newDevice=h.post({action:'customer_phone_login',phone:'01700000000',password:'StrongPrivateCustomerPass!'});
+  assert.equal(newDevice.ok,true);
+  const history=h.post({action:'customer_phone_orders',auth_token:newDevice.auth_token});
+  assert.equal(history.orders.length,1);
+  assert.equal(history.orders[0].status,'delivered');
+  assert.equal(history.orders[0].cod_collected,true);
+
+  // Dedicated customer order status uses TextFinder / one receipt cell and
+  // must not fetch every order row and column on each delivery progress poll.
+  const before=h.rangeReads.length;
+  getCustomer(newDevice.auth_token);
+  const reads=h.rangeReads.slice(before).filter((entry:{name:string})=>entry.name==='orders');
+  assert.equal(reads.some((entry:{height:number;width:number})=>entry.height>1&&entry.width>1),false);
+});
