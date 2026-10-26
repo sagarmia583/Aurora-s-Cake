@@ -129,7 +129,7 @@ export default function App() {
 
   // Public reads never include orders. Confirmed private Sheet receipts are cached on this device.
   const refreshData = async () => {
-    setOrders([...loadConfirmedSheetOrders(), ...mockDb.getOrders().filter(order => order.persistence !== 'google_sheets')]);
+    setOrders([...loadConfirmedSheetOrders(), ...(import.meta.env.DEV ? mockDb.getOrders().filter(order => order.persistence !== 'google_sheets') : [])]);
     setCustomCakes(mockDb.getCustomCakes());
     setAuditLogs(mockDb.getAuditLogs());
   };
