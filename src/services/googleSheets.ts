@@ -234,6 +234,22 @@ export function normalizePublicSiteData(input: unknown, defaults: PublicSiteData
   return {schema_version:1,order_submission_enabled:lookup('order_submission_enabled') === true,settings:settings as unknown as ShopSettings,content,hero_slides,highlights,faqs,links,products,categories,flavors,addons,banners,zones,slots,coupons,reviews};
 }
 
+/** Optional same-origin free Netlify relay; only one fixed path is accepted.
+ * Backend URL stays pinned to the validated Google Apps Script deployment.
+ */
+/** Same-origin Vercel Preview requests need the site's access cookie, if protected.
+ * Direct requests to Google Apps Script must never carry browser credentials.
+ * The Vercel relay does NOT forward browser cookies to Google.
+ */
+export function sheetsPostCredentials(resolvedUrl: string): RequestCredentials {
+  return resolvedUrl === '/api/operations' ? 'same-origin' : 'omit';
+}
+
+export function resolveSheetsPostEndpoint(endpoint: string): string {
+  const direct=validateGoogleSheetsEndpoint(endpoint).href;
+  const relay=(import.meta.env?.VITE_SHEETS_POST_PROXY as string|undefined)?.trim();
+  return relay==='/api/operations' ? relay : direct;
+}
 export function validateGoogleSheetsEndpoint(endpoint: string): URL {
   let url: URL;
   try { url=new URL(endpoint); } catch { throw new GoogleSheetsError('invalid_endpoint','Enter the Apps Script web app /exec URL.'); }
@@ -271,6 +287,11 @@ function loadJsonp(endpoint: URL, signal?: AbortSignal): Promise<unknown> {
 export async function loadGoogleSheetData(endpoint=DEFAULT_SHEETS_ENDPOINT, signal?: AbortSignal): Promise<PublicSiteData> {
   const url=validateGoogleSheetsEndpoint(endpoint);
   url.searchParams.set('action','public');
+  // Same-origin Vercel GET avoids browser CORS/redirects and JSONP timeout.
+  // Local Vite development continues to use the Google public endpoint.
+  const viaVercel=(import.meta as ImportMeta & {env?:Record<string,string>}).env?.VITE_SHEETS_POST_PROXY==='/api/operations'
+    && typeof window!=='undefined' && window.location.protocol==='https:';
+  const readUrl=viaVercel?'/api/public':url.href;
   const controller=new AbortController();
   const onAbort=()=>controller.abort();
   signal?.addEventListener('abort',onAbort,{once:true});
@@ -278,7 +299,7 @@ export async function loadGoogleSheetData(endpoint=DEFAULT_SHEETS_ENDPOINT, sign
   let timedOut=false;
   const timer=setTimeout(()=>{timedOut=true;controller.abort();},12000);
   try{
-    const response=await fetch(url.href,{credentials:'omit',redirect:'follow',cache:'no-store',signal:controller.signal});
+    const response=await fetch(readUrl,{credentials:viaVercel?'same-origin':'omit',redirect:'follow',cache:viaVercel?'default':'no-store',signal:controller.signal});
     if(/accounts\.google\.com/.test(response.url))throw new GoogleSheetsError('permission_required','The Apps Script link requires Google sign-in. Deploy the read-only public-content web app for site visitors.');
     if(!response.ok)throw new GoogleSheetsError('network',`Google Sheets returned HTTP ${response.status}. Try again after checking its deployment.`);
     return normalizePublicSiteData(await response.text());

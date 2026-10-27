@@ -10,6 +10,8 @@ interface NavbarProps {
   settings: ShopSettings;
   publicData?: PublicSiteData;
   onOpenSheetSettings?: () => void;
+  onOpenStaffPortal?: () => void;
+  onOpenCustomerAccount?: () => void;
   isSheetConnected?: boolean;
   activeRole: StaffRole | 'customer';
   onRoleChange: (role: StaffRole | 'customer') => void;
@@ -17,6 +19,7 @@ interface NavbarProps {
   onViewModeChange: (mode: ViewMode) => void;
   cartCount: number;
   onOpenCart: () => void;
+  onOrderNow: () => void;
   onOpenProfile: () => void;
   onOpenCacheHub: () => void;
   onOpenDbViewer: () => void;
@@ -41,9 +44,9 @@ const staffRoles: { value: StaffRole | 'customer'; label: string }[] = [
 
 export const Navbar: React.FC<NavbarProps> = ({
   settings: suppliedSettings, activeRole, onRoleChange, viewMode, onViewModeChange, cartCount,
-  onOpenCart, onOpenProfile, onOpenCacheHub, onOpenDbViewer, onOpenSupabaseSync,
+  onOpenCart, onOrderNow, onOpenProfile, onOpenCacheHub, onOpenDbViewer, onOpenSupabaseSync,
   isSupabaseConnected, onOpenTrackOrder, onOpenCustomCake, searchQuery, onSearchChange,
-  publicData, onOpenSheetSettings, isSheetConnected,
+  publicData, onOpenSheetSettings, isSheetConnected, onOpenStaffPortal,
 }) => {
   const data: PublicSiteData = publicData ?? DEFAULT_PUBLIC_SITE_DATA;
   const settings = publicData?.settings ?? suppliedSettings;
@@ -119,10 +122,15 @@ export const Navbar: React.FC<NavbarProps> = ({
         .ac-nav-links a:after,.ac-nav-link:after{content:'';height:1px;position:absolute;bottom:5px;left:0;width:0;background:#174B3B;transition:width .2s}
         .ac-nav-links a:hover:after,.ac-nav-link:hover:after{width:100%}
         .ac-nav-actions{display:flex;align-items:center;gap:13px}
+        .ac-nav-staff-link{border:1px solid #174B3B;border-radius:20px;background:transparent;color:#174B3B;font-size:11px!important;font-weight:700;padding:8px 12px;white-space:nowrap}
+        @media(max-width:600px){.ac-nav-staff-link{display:none}}
         .ac-nav-icon{width:39px;height:42px;display:grid;place-items:center;border:0;background:transparent;color:#174B3B;position:relative}
         .ac-nav-icon:hover{color:#24352E}
         .ac-nav-bag{display:flex;align-items:center;gap:9px;height:42px;background:none;border:0;color:#174B3B;padding:0 0 0 8px;font-size:13px!important;white-space:nowrap}
         .ac-nav-count{width:21px;height:21px;background:#E4EFCF;border-radius:50%;display:grid;place-items:center;font-size:10px;margin-left:1px}
+        .ac-nav-order-now{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:42px;background:#174B3B;color:#fff;border:1px solid #174B3B;border-radius:13px;padding:0 15px;font-size:12px!important;font-weight:800;white-space:nowrap;transition:background .15s,transform .15s}
+        .ac-nav-order-now:hover{background:#256548;transform:translateY(-1px)}
+        .ac-nav-order-now:active{transform:translateY(0)}
         .ac-nav-search-dot{width:5px;height:5px;position:absolute;right:7px;top:7px;background:#174B3B;border-radius:50%}
         .ac-nav-mobile-toggle{display:none}
         .ac-nav-search{border-bottom:1px solid #174b3b24;padding:17px 24px;background:#E4EFCF}
@@ -145,12 +153,12 @@ export const Navbar: React.FC<NavbarProps> = ({
         .ac-nav-mobile{display:none}
         @media(min-width:1100px){.ac-nav-main{padding-top:20px;padding-bottom:20px}}
         @media(max-width:1099px){.ac-nav-main{width:calc(100% - 56px);padding:18px 0;gap:20px}.ac-nav-links{gap:20px;font-size:13px}.ac-nav-wordmark{font-size:27px}.ac-nav-actions{gap:5px}.ac-nav-brand{gap:8px}.ac-nav-brand-symbol{width:32px}}
-        @media(max-width:980px){.ac-nav-main{width:calc(100% - 44px);min-height:82px;padding:15px 0;gap:10px}.ac-nav-top{font-size:10px;letter-spacing:.05em;padding:0 65px 0 14px;justify-content:flex-start}.ac-nav-studio-toggle{right:18px;font-size:9px!important}.ac-nav-links,.ac-nav-desktop-profile,.ac-nav-bag-label{display:none}.ac-nav-wordmark{font-size:26px}.ac-nav-brand-sub{font-size:7px;letter-spacing:.14em;margin-top:6px}.ac-nav-brand-symbol{width:30px;height:38px}.ac-nav-actions{gap:0}.ac-nav-icon{width:35px}.ac-nav-bag{padding:0 7px;gap:5px}.ac-nav-count{width:17px;height:17px;font-size:9px}.ac-nav-mobile-toggle{display:grid}.ac-nav-mobile{display:flex;flex-direction:column;padding:12px 24px 22px;background:#FFF9EE;border-bottom:1px solid #174b3b24;box-shadow:0 15px 20px #24352E08}.ac-nav-mobile a,.ac-nav-mobile button{display:flex;align-items:center;justify-content:space-between;min-height:47px;padding:10px 0;font-size:13px;text-align:left;border:0;border-bottom:1px solid #174b3b24;background:none;color:#174B3B}.ac-nav-mobile-small{font-size:12px!important;color:#174B3B!important}.ac-nav-search-form{gap:10px}.ac-nav-search-submit span{display:none}}
-        @media(max-width:380px){.ac-nav-main{width:calc(100% - 28px)}.ac-nav-brand-symbol{display:none}.ac-nav-wordmark{font-size:25px}.ac-nav-top{font-size:9px}.ac-nav-icon{width:31px}}
+        @media(max-width:980px){.ac-nav-main{width:calc(100% - 44px);min-height:82px;padding:15px 0;gap:10px}.ac-nav-top{font-size:10px;letter-spacing:.05em;padding:0 65px 0 14px;justify-content:flex-start}.ac-nav-studio-toggle{right:18px;font-size:9px!important}.ac-nav-links,.ac-nav-desktop-profile,.ac-nav-bag-label{display:none}.ac-nav-wordmark{font-size:26px}.ac-nav-brand-sub{font-size:7px;letter-spacing:.14em;margin-top:6px}.ac-nav-brand-symbol{width:30px;height:38px}.ac-nav-actions{gap:0}.ac-nav-icon{width:35px}.ac-nav-bag{padding:0 5px;gap:4px}.ac-nav-order-now{min-height:38px;padding:0 10px;font-size:11px!important;border-radius:10px}.ac-nav-count{width:17px;height:17px;font-size:9px}.ac-nav-mobile-toggle{display:grid}.ac-nav-mobile{display:flex;flex-direction:column;padding:12px 24px 22px;background:#FFF9EE;border-bottom:1px solid #174b3b24;box-shadow:0 15px 20px #24352E08}.ac-nav-mobile a,.ac-nav-mobile button{display:flex;align-items:center;justify-content:space-between;min-height:47px;padding:10px 0;font-size:13px;text-align:left;border:0;border-bottom:1px solid #174b3b24;background:none;color:#174B3B}.ac-nav-mobile-small{font-size:12px!important;color:#174B3B!important}.ac-nav-search-form{gap:10px}.ac-nav-search-submit span{display:none}}
+        @media(max-width:380px){.ac-nav-main{width:calc(100% - 28px)}.ac-nav-brand-symbol{display:none}.ac-nav-wordmark{font-size:25px}.ac-nav-top{font-size:9px}.ac-nav-order-now{padding:0 7px;font-size:10px!important;gap:3px}.ac-nav-order-now svg{width:12px}.ac-nav-icon{width:31px}}
       `}</style>
       <div className="ac-nav-top">
         <span>{settings.top_announcement_text ?? ''}</span>
-        <button type="button" className="ac-nav-studio-toggle" aria-expanded={studioOpen} aria-controls="ac-studio-menu" onClick={() => setStudioOpen(!studioOpen)}>Studio <ChevronDown size={10} strokeWidth={1.5} /></button>
+        {import.meta.env?.DEV && <button type="button" className="ac-nav-studio-toggle" aria-expanded={studioOpen} aria-controls="ac-studio-menu" onClick={() => setStudioOpen(!studioOpen)}>Studio <ChevronDown size={10} strokeWidth={1.5} /></button>}
       </div>
       <div className="ac-nav-main">
         <a className="ac-nav-brand" href="#top" onClick={openStorefront} aria-label={settings.shop_name + ' home'}>
@@ -173,9 +181,14 @@ export const Navbar: React.FC<NavbarProps> = ({
             {searchOpen ? <X size={19} strokeWidth={1.5} /> : <Search size={19} strokeWidth={1.5} />}
             {searchQuery && !searchOpen && <span className="ac-nav-search-dot" />}
           </button>
+          {onOpenStaffPortal && <button type="button" onClick={onOpenStaffPortal} className="ac-nav-staff-link" title="Verified bakery staff sign in">Staff login</button>}
           <button type="button" className="ac-nav-icon ac-nav-desktop-profile" aria-label="My account and orders" onClick={() => customerAction(onOpenProfile)}><UserRound size={19} strokeWidth={1.5} /></button>
           <button type="button" className="ac-nav-bag" onClick={() => customerAction(onOpenCart)} aria-label={`Open shopping bag, ${cartCount} ${cartCount === 1 ? 'item' : 'items'}`}>
             <ShoppingBag size={19} strokeWidth={1.5} /><span className="ac-nav-bag-label">Bag</span><span className="ac-nav-count">{cartCount}</span>
+          </button>
+          <button type="button" className="ac-nav-order-now" onClick={() => customerAction(onOrderNow)}
+            title={cartCount ? 'Continue straight to checkout' : 'Add cakes to your bag to order'}>
+            Order Now <ArrowRight size={15} aria-hidden="true"/>
           </button>
           <button type="button" className="ac-nav-icon ac-nav-mobile-toggle" aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileOpen} aria-controls="ac-mobile-navigation" onClick={() => setMobileOpen(!mobileOpen)}>{mobileOpen ? <X size={21} strokeWidth={1.5} /> : <Menu size={21} strokeWidth={1.5} />}</button>
         </div>
@@ -193,10 +206,11 @@ export const Navbar: React.FC<NavbarProps> = ({
         {text('nav_story') && <a href="#our-story" onClick={openStorefront}>{text('nav_story')} <ArrowRight size={16} strokeWidth={1.5} /></a>}
         {facebookUrl && text('nav_facebook') && <a href={facebookUrl} target="_blank" rel="noopener noreferrer" aria-label={settings.shop_name + ' on Facebook (opens in a new tab)'} onClick={() => setMobileOpen(false)}>{text('nav_facebook')} <ArrowUpRight size={16} strokeWidth={1.5} /></a>}
         {navigationLinks.map(link => <a key={link.id} href={safeUrl(link.url)} target={/^https?:/i.test(link.url) ? '_blank' : undefined} rel="noopener noreferrer" onClick={() => setMobileOpen(false)}>{link.label}<ArrowUpRight size={16} /></a>)}
+        {onOpenStaffPortal && <button type="button" className="ac-nav-mobile-small" onClick={() => customerAction(onOpenStaffPortal)}>Staff login</button>}
         <button type="button" className="ac-nav-mobile-small" onClick={() => customerAction(onOpenProfile)}>My account &amp; orders</button>
         <button type="button" className="ac-nav-mobile-small" onClick={() => customerAction(onOpenTrackOrder)}>Track an order</button>
       </nav>}
-      {studioOpen && <div id="ac-studio-menu" className="ac-nav-studio">
+      {import.meta.env?.DEV && studioOpen && <div id="ac-studio-menu" className="ac-nav-studio">
         <h2 className="ac-nav-studio-title">Behind the bakery</h2>
         <label htmlFor="ac-staff-role">Staff workspace</label>
         <select id="ac-staff-role" value={activeRole} onChange={(event) => { onRoleChange(event.target.value as StaffRole | 'customer'); onViewModeChange('web'); setStudioOpen(false); }}>

@@ -1,12 +1,15 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useCakeDialog } from './useCakeDialog';
 import { X, Sparkles, Image, CheckCircle, AlertCircle, Send } from 'lucide-react';
 import { mockDb } from '../services/mockDatabase';
+import { prepareCustomCakeAttempt, submitCustomCake, getCustomCakeRequestStatus } from '../services/sheetCustomCake';
+import type { CustomCakeAttempt } from '../services/sheetCustomCake';
 
 interface CustomCakeModalProps {
   isOpen: boolean;
   onClose: () => void;
   currency: string;
+  sheetOrderEndpoint?: string;
 }
 
 export const CustomCakeModal: React.FC<CustomCakeModalProps> = (props) =>
@@ -16,6 +19,7 @@ const CustomCakeModalDialog: React.FC<CustomCakeModalProps> = ({
   isOpen,
   onClose,
   currency,
+  sheetOrderEndpoint,
 }) => {
   const dialogRef = useCakeDialog(onClose);
 
@@ -29,6 +33,12 @@ const CustomCakeModalDialog: React.FC<CustomCakeModalProps> = ({
   const [instructions, setInstructions] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [savedReference, setSavedReference] = useState('');
+  const [previousReference, setPreviousReference] = useState<{id:string;phone:string}|null>(()=>{try{const v=JSON.parse(localStorage.getItem('aurora_custom_request_v1')||'null');return v&&typeof v.id==='string'&&typeof v.phone==='string'?v:null;}catch{return null;}});
+  const [quoteStatus,setQuoteStatus] = useState('');
+  const [checkingStatus,setCheckingStatus] = useState(false);
+  const attemptRef = useRef<CustomCakeAttempt | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
 
   // Dynamic estimated price formula for instant customer preview
@@ -40,9 +50,17 @@ const CustomCakeModalDialog: React.FC<CustomCakeModalProps> = ({
     ? 2900
     : 3800;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const checkQuoteStatus = async () => {
+    if (!sheetOrderEndpoint || !previousReference) return;
+    setCheckingStatus(true);setErrorMessage('');
+    try{const response=await getCustomCakeRequestStatus(sheetOrderEndpoint,previousReference.id,previousReference.phone);
+      setQuoteStatus(response.status==='quoted'?`Quoted ৳${response.quoted_price} — contact the bakery to confirm`:response.status==='declined'?'This quote request was declined.':'Pending bakery review');
+    }catch(e){setErrorMessage(e instanceof Error?e.message:'Unable to check the quotation.');}
+    finally{setCheckingStatus(false);}
+  };
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSubmitted) return;
+    if (isSubmitted || isSubmitting) return;
     if (!customerName.trim() || !customerPhone.trim()) {
       setErrorMessage('Please enter your name and contact number.');
       return;
@@ -54,6 +72,23 @@ const CustomCakeModalDialog: React.FC<CustomCakeModalProps> = ({
     }
     setErrorMessage('');
 
+    if (sheetOrderEndpoint) {
+      setIsSubmitting(true);
+      try {
+        const draft={customer_name:customerName.trim(),customer_phone:customerPhone.trim(),cake_type:cakeType,
+          approx_size:approxSize,flavor,color_theme:colorTheme,writing_text:writingText,
+          instructions,reference_image_url:imageUrl.trim()};
+        const attempt=prepareCustomCakeAttempt(draft,attemptRef.current);
+        attemptRef.current=attempt;
+        const reference=await submitCustomCake(sheetOrderEndpoint,draft,attempt);
+        setSavedReference(reference);
+        setPreviousReference({id:reference,phone:customerPhone.trim()});
+        try{localStorage.setItem('aurora_custom_request_v1',JSON.stringify({id:reference,phone:customerPhone.trim()}));}catch{/* Optional on-device quote lookup */}
+        setIsSubmitted(true);
+      } catch(error) { setErrorMessage(error instanceof Error?error.message:'The bakery could not confirm your request. Retry the original form.'); }
+      finally { setIsSubmitting(false); }
+      return;
+    }
     mockDb.addCustomCakeRequest({
       customer_name: customerName.trim(),
       customer_phone: customerPhone.trim(),
@@ -103,14 +138,23 @@ const CustomCakeModalDialog: React.FC<CustomCakeModalProps> = ({
             </div>
             <h4 className="text-xl font-bold text-slate-900">Your design is saved</h4>
             <p className="text-xs text-slate-600 max-w-xs mx-auto">
-              This demo request is saved on this device. It has not been sent to a bakery, and no callback or booking has been arranged.
+              {savedReference ? 'Your request was saved privately to Aurora’s Cake. The bakery will need to review it and confirm a quote; no payment was taken.' : 'This demo request is saved only on this device; it was not sent to the bakery.'}
+              {savedReference && <span className="block mt-2 font-mono break-all">Reference: {savedReference}</span>}
             </p>
+            {savedReference&&sheetOrderEndpoint&&<button type="button" onClick={()=>void checkQuoteStatus()} disabled={checkingStatus} className="px-6 py-3 rounded-xl border text-sm font-semibold">{checkingStatus?'Checking…':'Check quote status'}</button>}
+            {quoteStatus&&<p role="status" className="text-sm text-emerald-800">{quoteStatus}</p>}
+            {errorMessage&&<p role="alert" className="text-sm text-red-700">{errorMessage}</p>}
             <button type="button" onClick={onClose} className="px-6 py-3 rounded-xl bg-rose-600 text-white text-sm font-semibold">Back to the cakes</button>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="overflow-y-auto p-6 space-y-4 flex-1 text-xs">
-            <p className="bg-rose-50 text-slate-600 p-3 rounded-xl">Explore a custom cake design. This demo saves your request on this device only.</p>
+            <p className="bg-rose-50 text-slate-600 p-3 rounded-xl">{sheetOrderEndpoint ? 'Request a real custom cake quotation. The bakery will confirm the design and final price; this is not an order or online payment.' : 'Preview mode: requests stay only on this device.'}</p>
             {errorMessage && <p role="alert" className="text-red-700 bg-red-50 p-3 rounded-xl">{errorMessage}</p>}
+            {sheetOrderEndpoint&&previousReference&&<div className="bg-emerald-50 p-3 rounded-xl text-xs space-y-2">
+              <p>Previous request: <span className="font-mono break-all">{previousReference.id}</span></p>
+              <button type="button" disabled={checkingStatus} onClick={()=>void checkQuoteStatus()} className="font-semibold underline">{checkingStatus?'Checking…':'Check previous quote status'}</button>
+              {quoteStatus&&<p role="status">{quoteStatus}</p>}
+            </div>}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="font-bold text-slate-700 block mb-1">Your Full Name</label>
@@ -244,11 +288,11 @@ const CustomCakeModalDialog: React.FC<CustomCakeModalProps> = ({
             </div>
 
             <button
-              type="submit"
+              type="submit" disabled={isSubmitting}
               className="w-full py-3.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-2xl shadow-lg shadow-rose-200 flex items-center justify-center gap-2 text-xs transition-all cursor-pointer"
             >
               <Send className="w-4 h-4" />
-              <span>Save my demo design</span>
+              <span>{isSubmitting ? 'Sending request…' : sheetOrderEndpoint ? 'Request a custom cake quote' : 'Save my demo design'}</span>
             </button>
           </form>
         )}

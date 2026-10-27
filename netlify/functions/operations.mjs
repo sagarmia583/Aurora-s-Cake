@@ -1,0 +1,61 @@
+/**
+ * Optional same-origin Google Apps Script POST relay for Netlify Free.
+ * Resolves browser CORS/ContentService redirect problems without a paid gateway.
+ * Does NOT replace authorization: Apps Script verifies staff Google tokens,
+ * customer receipt keys, prices, statuses and checkout rate limits.
+ * Netlify Functions consume Free plan credits; usage is NOT unlimited.
+ */
+const SCRIPT_RE=/^\/macros\/s\/[A-Za-z0-9_-]+\/exec$/;
+export default async function operations(request) {
+  const response=(status,message)=>new Response(JSON.stringify({ok:false,success:false,code:'proxy_error',error:message}),{
+    status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}
+  });
+  if(request.method!=='POST') return response(405,'POST is required.');
+  const origin=request.headers.get('origin');
+  if(origin && origin!==new URL(request.url).origin) return response(403,'Cross-origin requests are not permitted.');
+  const declaredLength=Number(request.headers.get('content-length')||0);
+  if(declaredLength>950000) return response(413,'Request too large.');
+  const raw=await request.text();
+  if(!raw||raw.length>950000) return response(413,'Request too large.');
+  let payload;
+  try {payload=JSON.parse(raw);} catch {return response(400,'Invalid JSON.');}
+  const allowed=['create_order','get_order_status','customer_receipt_recover','customer_contact_submit','staff_session','staff_orders','staff_mutate','staff_legacy_receipt','staff_catalog',
+    'staff_catalog_update','staff_customer_lookup','customer_session','customer_orders','customer_claim_order','create_custom_cake',
+    'get_custom_cake_status','staff_custom_cakes','staff_custom_quote',
+    'staff_password_login','staff_password_logout','staff_account_create','staff_account_set_active',
+    'staff_account_reset_password','staff_cms_list','staff_cms_create','staff_cms_update','staff_cms_delete','staff_image_upload','customer_phone_signup','customer_phone_login','customer_phone_session',
+    'customer_phone_logout','customer_phone_profile','customer_phone_orders','customer_phone_claim','customer_phone_password','customer_phone_close'];
+  if(!payload||typeof payload!=='object'||Array.isArray(payload)||!allowed.includes(payload.action))
+    return response(400,'Unknown action.');
+  if(raw.length>50000&&payload.action!=='staff_image_upload')
+    return response(413,'Large requests are only allowed for staff image uploads.');
+  let target;
+  try {target=new URL(process.env.AURORA_SCRIPT_POST_URL||'');}
+  catch {return response(503,'Bakery backend URL has not been configured.');}
+  if(target.protocol!=='https:'||target.hostname!=='script.google.com'||!SCRIPT_RE.test(target.pathname)
+    ||target.username||target.password||target.search||target.hash)
+    return response(503,'Invalid bakery backend configuration.');
+  try {
+    const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),24000);
+    let upstream;
+    try {upstream=await fetch(target.href,{method:'POST',redirect:'follow',credentials:'omit',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},body:raw,signal:controller.signal});}
+    finally {clearTimeout(timeout);}
+    const finalHost=new URL(upstream.url).hostname;
+    if(finalHost!=='script.google.com'&&finalHost!=='script.googleusercontent.com')
+      return response(502,'Unexpected bakery backend redirect.');
+    if(!upstream.ok) return response(502,'Bakery backend returned an error.');
+    const text=await upstream.text();
+    let reply;
+    try {reply=JSON.parse(text);} catch {return response(502,'Bakery backend returned invalid JSON.');}
+    if(!reply||typeof reply!=='object'||Array.isArray(reply))
+      return response(502,'Unexpected bakery backend response.');
+    return new Response(JSON.stringify(reply),{status:200,
+      headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',
+        'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'}});
+  } catch {
+    return response(502,'Bakery backend is temporarily unreachable. Retry the same order reference.');
+  }
+}
+export const config={path:'/api/operations'};

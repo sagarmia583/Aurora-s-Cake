@@ -1,11 +1,11 @@
 # Google Sheet দিয়ে Aurora’s Cake-এর content ও COD orders চালানো
 
-এই folder-এর `Code.gs` ও `SeedData.gs` একই Apps Script project-এ বসাতে হবে। Public website data GET দিয়ে আসে; checkout-এর cash-on-delivery order POST দিয়ে একই Sheet-এর private `orders` ও `order_items` tabs-এ জমা হয়। নতুন code **save করলেই setup বা deployment update হয় না**। নিচের Run ও Deploy ধাপ দুটো সম্পন্ন করুন।
+এই folder-এর `Code.gs`, `SeedData.gs`, `StaffOperations.gs`, `CustomerAccounts.gs`, `LiveCatalog.gs` ও `CustomCakeRequests.gs` একই Apps Script project-এ বসাতে হবে। Public website data GET দিয়ে আসে; checkout-এর cash-on-delivery order POST দিয়ে একই Sheet-এর private `orders` ও `order_items` tabs-এ জমা হয়। নতুন code **save করলেই setup বা deployment update হয় না**। নিচের Run ও Deploy ধাপ দুটো সম্পন্ন করুন।
 
 ## একবারের setup / পুরোনো deployment update
 
 1. সঠিক Google account দিয়ে database Sheet খুলুন। **Extensions → Apps Script** খুলুন। বিদ্যমান script থাকলে backup নিন; একই project-এ পুরোনো `doGet`/`doPost` handler-এর duplicate রাখবেন না।
-2. `Code.gs` ও `SeedData.gs` নামে দুই ফাইলের code বসান এবং Save করুন। Combined installer ব্যবহার করলে সেটির সব code একটি `Code.gs`-এ রাখতে পারেন; তখন আলাদা duplicate `SeedData.gs` রাখবেন না। Password বা secret website source-এ যোগ করবেন না।
+2. `Code.gs`, `SeedData.gs`, `StaffOperations.gs`, `CustomerAccounts.gs`, `LiveCatalog.gs` ও `CustomCakeRequests.gs` নামে ছয় ফাইলের code বসান এবং Save করুন। Combined installer ব্যবহার করলে সেটির সব code একটি `Code.gs`-এ রাখতে পারেন; তখন আলাদা duplicate `SeedData.gs` রাখবেন না। Password বা secret website source-এ যোগ করবেন না।
 3. `AURORA_SPREADSHEET_ID`-এ দেওয়া Sheet ID যাচাই করুন। অন্য Sheet ব্যবহার করলে ID বদলান, অথবা **Project Settings → Script Properties**-এ `AURORA_SPREADSHEET_ID` দিন। Script Properties-এর ID-কে অগ্রাধিকার দেওয়া হয়। Sheet-bound project-এর active Sheet ব্যবহার করতে constant ও property দুটোই খালি রাখুন।
 4. editor-এর function dropdown থেকে **setupSheetDatabase** নির্বাচন করে **Run** করুন। সঠিক account দিয়ে নিজের Google authorization সম্পন্ন করুন। Function শুধু missing বা পুরোপুরি empty public tabs-এ starter data বসায় এবং private `orders`/`order_items`-এ headers তৈরি করে। Existing rows/headers বা `Sheet1` মুছে বা বদলে দেয় না। Existing header-only public tabs-এ নতুন demo rows ঢোকানো হয় না। Private tabs-এ customer starter rows কখনও বসে না।
 5. **Deploy → New deployment → Web app**: **Execute as: Me** ও **Who has access: Anyone** নির্বাচন করুন, যদি account policy-তে available থাকে। Existing deployment update করতে **Manage deployments → Edit → New version → Deploy** ব্যবহার করুন, যাতে একই `/exec` URL নতুন `doPost` code পায়। Sheet-এর নিজের sharing private রাখুন।
@@ -33,6 +33,7 @@
 | coupons | Active coupon rules; checkout server minimum, percentage/fixed value ও cap যাচাই করে |
 | reviews | শুধু status=approved review website response-এ যায় |
 | orders | **Private** order receipt, customer contact/address, server totals ও request deduplication |
+| custom_cake_requests | **Private** custom cake quote requests, reference, staff quote ও status |
 | order_items | **Private** order lines ও selected add-on records |
 
 - Header spelling ও stable `id` বদলাবেন না। `product_variants.product_id` অবশ্যই `products.id`-এর সঙ্গে মিলবে। Duplicate stable IDs রাখবেন না।
@@ -63,7 +64,7 @@ Private `order_items` headers:
 id,order_id,product_id,product_name,variant_id,variant_name,flavor_id,flavor_name,writing_message,unit_price,quantity,addons_json,subtotal
 ```
 
-`request_id`, `request_hash`, `receipt_json` ও item IDs অক্ষত রাখুন: retry-তে original receipt ফেরত দেওয়ার জন্য এগুলো প্রয়োজন। প্রতিটি Sheet cell-এ formula হিসেবে চালু হওয়ার মতো string literal text হিসেবে লেখা হয়। `receipt_json` হলো original submitted order-এর authoritative acknowledgement; এটি edit করে order status management করবেন না। এই API-তে order list, customer lookup, payment updates বা staff status-update route নেই। Shop owner Sheet-এ private rows দেখতে পারেন; website-এর local staff/demo controls বাস্তব Sheet order update করে না।
+`request_id`, `request_hash`, `receipt_json` ও item IDs অক্ষত রাখুন: retry-তে original receipt ফেরত দেওয়ার জন্য এগুলো প্রয়োজন। প্রতিটি Sheet cell-এ formula হিসেবে চালু হওয়ার মতো string literal text হিসেবে লেখা হয়। `receipt_json` হলো original submitted order-এর authoritative acknowledgement; এটি edit করে order status management করবেন না। এখন authenticated `StaffOperations.gs` POST-এর মাধ্যমে private order list, stage update, rider assignment এবং OTP/COD confirmation করে। `CustomerAccounts.gs` বিনামূল্যের Google login দিয়ে receipt-link/recovery দেয়, `LiveCatalog.gs` admin product/price/availability edit করে এবং `CustomCakeRequests.gs` private quote requests সামলায়। Public GET-এ এসব route নেই। বিস্তারিত setup: [Live Operations Setup](../docs/LIVE_OPERATIONS_SETUP.md)। পুরোনো deployment-এ এসব route থাকবে না; নতুন version deploy করতে হবে। Developer Studio-এর local demo controls এখনো আলাদা।
 
 ## Data refresh ও public boundary
 

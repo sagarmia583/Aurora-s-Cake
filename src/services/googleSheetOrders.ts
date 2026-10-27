@@ -1,4 +1,5 @@
 import type { Coupon, Order } from '../types';
+import { resolveSheetsPostEndpoint, sheetsPostCredentials } from './googleSheets';
 
 export interface SheetOrderCartLine {
   product_id: string;
@@ -107,6 +108,14 @@ export function rememberConfirmedSheetOrder(order: Order): boolean {
   return true;
 }
 
+/** Remove only receipts restored during this Google session on sign-out. */
+export function removeConfirmedSheetOrdersById(ids: readonly string[]): void {
+  const excluded = new Set(ids);
+  memoryReceipts = loadConfirmedSheetOrders().filter(receipt => !excluded.has(receipt.id));
+  try { globalThis.localStorage?.setItem(RECEIPT_KEY, JSON.stringify(memoryReceipts)); }
+  catch { /* Browser storage disabled; in-memory list has still been cleared. */ }
+}
+
 function normalizeEndpoint(raw: string): string {
   let url: URL;
   try { url = new URL(raw); } catch { throw new SheetOrderSubmissionError('The bakery order endpoint is not configured correctly.', false); }
@@ -158,7 +167,8 @@ export function createSheetOrderAttempt(endpoint: string, draft: SheetOrderDraft
   const fingerprint = JSON.stringify({ endpoint: safeEndpoint, payload });
   if (previous?.fingerprint === fingerprint) return previous;
   const requestId = uuid();
-  return Object.freeze({ endpoint: safeEndpoint, fingerprint, request_id: requestId, body: JSON.stringify({ action: 'create_order', request_id: requestId, ...payload }) });
+  const checkoutProof = uuid() + uuid();
+  return Object.freeze({ endpoint: safeEndpoint, fingerprint, request_id: requestId, body: JSON.stringify({ action: 'create_order', request_id: requestId, checkout_proof: checkoutProof, ...payload }) });
 }
 
 export async function submitSheetOrder(attempt: SheetOrderAttempt, options: { timeoutMs?: number; fetcher?: typeof fetch } = {}): Promise<Order> {
@@ -166,9 +176,10 @@ export async function submitSheetOrder(attempt: SheetOrderAttempt, options: { ti
   const timeout = globalThis.setTimeout(() => controller.abort(), options.timeoutMs ?? 45000);
   const unconfirmed = () => new SheetOrderSubmissionError("We couldn't confirm whether Google Sheets saved this order. Retry the original order with the same reference.", true, attempt.request_id);
   try {
-    const response = await (options.fetcher ?? globalThis.fetch)(attempt.endpoint, {
+    const postUrl = resolveSheetsPostEndpoint(attempt.endpoint);
+    const response = await (options.fetcher ?? globalThis.fetch)(postUrl, {
       method: 'POST', mode: 'cors', headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-      credentials: 'omit', redirect: 'follow', cache: 'no-store', body: attempt.body, signal: controller.signal,
+      credentials: sheetsPostCredentials(postUrl), redirect: 'follow', cache: 'no-store', body: attempt.body, signal: controller.signal,
     });
     if (!response.ok) throw unconfirmed();
     let acknowledgement: unknown;

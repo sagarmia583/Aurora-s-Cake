@@ -1,0 +1,26 @@
+name: Verify bakery app
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Audit production dependencies (advisory)
+        run: npm audit --omit=dev --audit-level=high
+        continue-on-error: true
+      - name: TypeScript checks
+        run: npm run lint
+      - name: Unit and integration tests
+        run: node node_modules/tsx/dist/cli.mjs --test tests/*.test.ts tests/*.test.tsx
+      - name: Production bundle
+        run: npm run build

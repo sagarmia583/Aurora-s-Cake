@@ -3,7 +3,7 @@ import test from 'node:test';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { DEFAULT_PUBLIC_SITE_DATA } from '../src/content/defaultSiteData';
-import { GoogleSheetsError, normalizePublicSiteData, normalizePublicUrl, validateGoogleSheetsEndpoint } from '../src/services/googleSheets';
+import { GoogleSheetsError, normalizePublicSiteData, normalizePublicUrl, validateGoogleSheetsEndpoint, sheetsPostCredentials } from '../src/services/googleSheets';
 
 const clone = () => structuredClone(DEFAULT_PUBLIC_SITE_DATA);
 
@@ -100,3 +100,10 @@ test('Apps Script GET exposes only allowlisted public data and POST rejects miss
   assert.equal(JSON.parse(context.doGet({parameter:{action:'public',callback:'alert(1)'}}).content).ok,false);
 });
 
+
+test('protected Vercel Preview relay keeps only same-origin cookies, never sends cookies to Google',()=>{
+  assert.equal(sheetsPostCredentials('/api/operations'),'same-origin');
+  assert.equal(sheetsPostCredentials('https://script.google.com/macros/s/test/exec'),'omit');
+  assert.equal(sheetsPostCredentials('https://example.com/api/operations'),'omit');
+  assert.equal(sheetsPostCredentials('//attacker.example/api/operations'),'omit');
+});

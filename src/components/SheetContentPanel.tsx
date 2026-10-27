@@ -2,8 +2,7 @@ import React, { useState } from 'react';
 import { X, RefreshCw, ExternalLink, Database, Download, Copy, Check } from 'lucide-react';
 import { useCakeDialog } from './useCakeDialog';
 import type { SheetContentStatus } from '../hooks/useGoogleSheetContent';
-import backendCode from '../../apps-script/Code.gs?raw';
-import seedCode from '../../apps-script/SeedData.gs?raw';
+import setupCode from '../../apps-script/Code.AllInOne.gs?raw';
 interface Props {
   isOpen: boolean; onClose: () => void; endpoint: string; status: SheetContentStatus;
   orderSubmissionEnabled?: boolean; onRefresh: () => Promise<void>; onSaveEndpoint: (value: string) => void;
@@ -15,7 +14,6 @@ function SheetContentDialog({ onClose, endpoint, status, orderSubmissionEnabled,
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const source = status.source === 'google_sheets' ? 'Live Google Sheets' : status.source === 'saved_snapshot' ? 'Last saved Sheet snapshot' : 'Built-in preview content';
-  const setupCode = seedCode + '\n\n' + backendCode;
   const download = () => {
     const blob = new Blob([setupCode], { type:'text/plain;charset=utf-8' });
     const href = URL.createObjectURL(blob); const link = document.createElement('a');
@@ -55,10 +53,10 @@ function SheetContentDialog({ onClose, endpoint, status, orderSubmissionEnabled,
         <div className="flex flex-wrap gap-2"><button type="submit" className="bg-rose-700 text-white rounded-xl px-4 py-2.5 text-xs font-semibold">Save & connect</button><button type="button" onClick={() => void onRefresh()} className="border border-rose-200 rounded-xl px-4 py-2.5 text-xs flex items-center gap-2" disabled={status.state === 'loading'}><RefreshCw size={14}/>Refresh now</button><a href="https://docs.google.com/spreadsheets/d/18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4/edit" target="_blank" rel="noopener noreferrer" className="border border-slate-200 rounded-xl px-4 py-2.5 text-xs flex items-center gap-2">Open your Sheet<ExternalLink size={13}/></a></div>
       </form>
       {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
-      <div className="mt-7 border-t border-slate-100 pt-6"><h3 className="font-bold text-sm text-rose-900">One-time setup</h3><ol className="list-decimal pl-5 mt-3 text-xs leading-7 space-y-2"><li>In your Sheet, open Extensions → Apps Script. Add the supplied setup code without overwriting unrelated project code.</li><li>Run <code>setupSheetDatabase</code> once. It creates missing content, orders and order_items tabs and preserves existing data.</li><li>Deploy a web app using the latest code: Execute as yourself, access for Anyone. Paste its <code>/exec</code> URL above.</li></ol>
+      <div className="mt-7 border-t border-slate-100 pt-6"><h3 className="font-bold text-sm text-rose-900">One-time setup</h3><ol className="list-decimal pl-5 mt-3 text-xs leading-7 space-y-2"><li>Back up the Sheet. Open the existing Apps Script project and replace the old Code.gs with this complete all-in-one backend; remove other old duplicated .gs modules.</li><li>Run <code>setupSheetDatabase</code>. It adds missing public/private table headers, including staff_accounts, customer_accounts and auth_sessions, preserving existing non-empty tabs.</li><li>Deploy a web app using the latest code: Execute as yourself, access for Anyone. Paste its <code>/exec</code> URL above.</li></ol>
         <div className="flex flex-wrap gap-2 mt-4"><button onClick={download} className="border border-slate-200 rounded-xl px-4 py-2 text-xs flex items-center gap-2"><Download size={14}/>Download setup code</button><button onClick={() => void copy()} className="border border-slate-200 rounded-xl px-4 py-2 text-xs flex items-center gap-2">{copied ? <Check size={14}/> : <Copy size={14}/>} {copied ? 'Copied' : 'Copy setup code'}</button></div>
       </div>
-      <p className="text-xs text-slate-500 mt-6 leading-relaxed">Edit public business details in settings, text and images in content, and catalogue rows in the related tabs. Visible pages refresh from the Sheet every minute. The orders and order_items tabs are private. Public reads never expose customer details. Real orders require the order-enabled deployment; custom cake requests and Studio workflows remain local previews.</p>
+      <p className="text-xs text-slate-500 mt-6 leading-relaxed">Edit public business details in settings, text and images in content, and catalogue rows in the related tabs. Visible pages refresh from the Sheet every minute. The orders and order_items tabs are private. Public reads never expose customer details. Real orders and website edits require the latest deployed Apps Script. Use verified Staff Login to manage public content and orders; the separate Studio role switch remains a non-production demo.</p>
     </div>
   </div>;
 }

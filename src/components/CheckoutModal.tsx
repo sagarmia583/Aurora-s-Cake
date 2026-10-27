@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useCakeDialog } from './useCakeDialog';
 import { 
   X, 
@@ -14,7 +14,10 @@ import {
 } from 'lucide-react';
 import { CartItem, DeliveryZone, DeliverySlot, Order, PaymentMethod } from '../types';
 import { mockDb } from '../services/mockDatabase';
-import { calculateSheetOrderEstimate, createSheetOrderAttempt, submitSheetOrder, SheetOrderSubmissionError } from '../services/googleSheetOrders';
+import { calculateSheetOrderEstimate, createSheetOrderAttempt, submitSheetOrder, SheetOrderSubmissionError, loadConfirmedSheetOrders } from '../services/googleSheetOrders';
+import { getPhoneCustomerProfile } from '../services/phoneCustomerApi';
+import { matchCheckoutCustomer, normalizeCheckoutPhone } from '../services/customerPhoneLookup';
+import type { CheckoutCustomerInfo } from '../services/customerPhoneLookup';
 import type { SheetOrderAttempt } from '../services/googleSheetOrders';
 
 const localDate = () => {
@@ -51,6 +54,8 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   // Form State
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [autofillNotice, setAutofillNotice] = useState('');
+  const ownedCustomerRef = useRef<CheckoutCustomerInfo | null>(null);
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [selectedZoneId, setSelectedZoneId] = useState(zones[0]?.id || '');
   const [selectedSlot, setSelectedSlot] = useState(slots.find((slot) => slot.is_active)?.slot_label || '');
@@ -69,6 +74,58 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const [unconfirmed, setUnconfirmed] = useState(false);
   const orderAttemptRef = useRef<SheetOrderAttempt | null>(null);
   const submissionInFlight = useRef(false);
+  const currentPrefillRef = useRef<{name:string;address:string}|null>(null);
+  const loadLocalProfile = () => {
+    try { const value=JSON.parse(localStorage.getItem('aurora_customer_profile_v1')||'{}');
+      return value && typeof value==='object'?value as {name?:string;phone?:string;address?:string}:null;
+    } catch {return null;}
+  };
+  const fillFromPhone = (phone:string, verified?:CheckoutCustomerInfo|null) => {
+    const customer=matchCheckoutCustomer(phone,verified?{name:verified.name,phone:verified.phone,address:verified.address}:null,
+      loadLocalProfile(),loadConfirmedSheetOrders());
+    if(!customer){setAutofillNotice('');return;}
+    setCustomerName(previous=>!previous||previous===currentPrefillRef.current?.name?customer.name:previous);
+    setDeliveryAddress(previous=>!previous||previous===currentPrefillRef.current?.address?customer.address:previous);
+    currentPrefillRef.current={name:customer.name,address:customer.address};
+    setAutofillNotice(customer.source==='account'?'Saved phone-account details loaded from Google Sheets.':
+      'Your previously saved contact details were found on this device.');
+  };
+  const onPhoneChanged = (value:string) => {
+    const previous=normalizeCheckoutPhone(customerPhone), next=normalizeCheckoutPhone(value);
+    if(previous!==next){
+      // An authenticated phone profile is only valid for the original number.
+      if(ownedCustomerRef.current && normalizeCheckoutPhone(ownedCustomerRef.current.phone)!==next)
+        ownedCustomerRef.current=null;
+      // Never keep another phone number's autofilled details attached to a new number.
+      if(currentPrefillRef.current){
+        const previousFill=currentPrefillRef.current;
+        setCustomerName(current=>current===previousFill.name?'':current);
+        setDeliveryAddress(current=>current===previousFill.address?'':current);
+        currentPrefillRef.current=null;
+        setAutofillNotice('');
+      }
+    }
+    setCustomerPhone(value);
+    fillFromPhone(value,ownedCustomerRef.current);
+  };
+  useEffect(()=>{
+    if(!isOpen||!sheetOrderEndpoint)return;
+    let token='';try{token=sessionStorage.getItem('aurora_customer_phone_session_v1')||'';}catch{}
+    if(!token)return;
+    let active=true;
+    getPhoneCustomerProfile(sheetOrderEndpoint,token).then(profile=>{
+      if(!active)return;
+      const verified={name:profile.name,phone:profile.phone,address:profile.address,source:'account' as const};
+      ownedCustomerRef.current=verified;
+      setCustomerPhone(previous=>{
+        if(!previous){setCustomerName(n=>n||profile.name);setDeliveryAddress(a=>a||profile.address);
+          currentPrefillRef.current={name:profile.name,address:profile.address};
+          setAutofillNotice('Your saved phone-account profile was loaded from Google Sheets.');return profile.phone;}
+        return previous;
+      });
+    }).catch(()=>{/* An expired account session must not block guest checkout. */});
+    return()=>{active=false;};
+  },[isOpen,sheetOrderEndpoint]);
   const closeCheckout = () => { if (!submissionInFlight.current) onClose(); };
   const dialogRef = useCakeDialog(closeCheckout, isOpen);
 
@@ -256,12 +313,21 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
                   required
                   aria-label="Mobile number" autoComplete="tel" placeholder="Your contact number"
                   value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  onChange={(e) => onPhoneChanged(e.target.value)}
                   className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 focus:outline-rose-500 text-slate-800"
                 />
               </div>
             </div>
 
+            {autofillNotice && <p role="status" className="text-xs text-emerald-900 bg-emerald-50 border border-emerald-200 p-3 rounded-xl">
+              {autofillNotice}
+            </p>}
+            {isLiveOrder&&<p className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-950">
+              <ShieldCheck size={14} className="inline mr-1"/>
+              No customer password needed. Your details from this device can autofill.
+              After checkout, your name, number, address and COD order are saved to the private bakery Google Sheet.
+              For privacy, entering someone else's phone number never loads their address.
+            </p>}
             <div>
               <label className="text-xs font-semibold text-slate-600 block mb-1">Detailed Street Address / Landmark</label>
               <textarea

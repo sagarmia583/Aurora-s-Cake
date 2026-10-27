@@ -5,6 +5,7 @@
 // Leave blank when this script is bound to the intended Sheet through Extensions > Apps Script.
 var AURORA_SPREADSHEET_ID = '18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4';
 var AURORA_SCHEMA_VERSION = 1;
+var AURORA_BACKEND_RELEASE = 'aurora-2026-10-26-customer-master-r2';
 var PUBLIC_TABLE_SCHEMAS = {
   settings: ['key','value'],
   content: ['key','value'],
@@ -46,12 +47,16 @@ function doGet(e) {
     return auroraResponse_({ok:false,error:'Invalid callback.'});
   }
   var action = params.action || 'public';
+  if(action==='public_image') {
+    try {return auroraResponse_(auroraPublicImage_(params.id||''));}
+    catch(error){return auroraResponse_({ok:false,error:'Image unavailable.'});}
+  }
   if (action !== 'public' && action !== 'health') {
     return auroraResponse_({ok:false,error:'Only the public and health read actions are available.'}, callback);
   }
   try {
     if (action === 'health') {
-      return auroraResponse_({ok:true,schema_version:AURORA_SCHEMA_VERSION,service:'aurora_public_content'}, callback);
+      return auroraResponse_({ok:true,schema_version:AURORA_SCHEMA_VERSION,service:'aurora_public_content',release:AURORA_BACKEND_RELEASE}, callback);
     }
     var cache = CacheService.getScriptCache();
     var cacheKey = auroraCacheKey_();
@@ -74,7 +79,13 @@ function doGet(e) {
 
 var PRIVATE_ORDER_SCHEMAS = {
   orders: ['id','order_number','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','delivery_address','delivery_zone_id','delivery_zone_name','delivery_fee','delivery_slot','delivery_date','status','subtotal','discount_amount','total_amount','coupon_code','order_note','payment_method','payment_status','receipt_json'],
-  order_items: ['id','order_id','product_id','product_name','variant_id','variant_name','flavor_id','flavor_name','writing_message','unit_price','quantity','addons_json','subtotal']
+  order_items: ['id','order_id','product_id','product_name','variant_id','variant_name','flavor_id','flavor_name','writing_message','unit_price','quantity','addons_json','subtotal'],
+  custom_cake_requests: ['id','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','cake_type','approx_size','flavor','color_theme','writing_text','instructions','reference_image_url','status','estimated_price','quoted_price','receipt_json'],
+  staff_accounts: ['id','username','name','role','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'],
+  customer_accounts: ['id','phone','name','address','email','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'],
+  auth_sessions: ['token_hash','account_type','account_id','created_at','expires_at','revoked'],
+  customer_master: ['id','phone_key','name','delivery_address','created_at','updated_at','order_count','last_order_id','last_order_at'],
+  customer_contact_requests: ['id','phone_key','name','delivery_address','created_at','status']
 };
 
 // This handler creates a private COD receipt. GET never calls these functions.
@@ -83,9 +94,28 @@ function doPost(e) {
   var locked = false;
   try {
     var raw = e && e.postData && e.postData.contents;
-    if (typeof raw !== 'string' || !raw || raw.length > 50000) auroraReject_('invalid_request','Send a JSON order body under 50 KB.');
+    if (typeof raw !== 'string' || !raw || raw.length > 950000) auroraReject_('invalid_request','Request is too large.');
+    // Only the authenticated image-upload route can exceed normal 50 KB JSON.
+    if(raw.length>50000&&!/"action"\s*:\s*"staff_image_upload"/.test(raw.slice(0,500)))
+      auroraReject_('invalid_request','The order body must be under 50 KB.');
     var input;
     try { input = JSON.parse(raw); } catch (_) { auroraReject_('invalid_request','The order body must be valid JSON.'); }
+    if(input&&input.action==='staff_image_upload')return auroraResponse_(auroraImageUpload_(input));
+    // Private operations authenticate every POST; never expose these reads via GET.
+    // All credential/private account routes use POST; never exposed via public GET.
+    if(input && /^(staff_password_login|staff_password_logout|staff_account_create|staff_account_set_active|staff_account_reset_password)$/.test(String(input.action||'')))
+      return auroraResponse_(auroraAccountStaffPost_(input));
+    if(input && /^customer_phone_(signup|login|session|logout|orders|profile|claim|password|close)$/.test(String(input.action||'')))
+      return auroraResponse_(auroraAccountCustomerPost_(input));
+    if (input && (input.action === 'create_custom_cake' || input.action === 'get_custom_cake_status' || input.action === 'staff_custom_cakes' || input.action === 'staff_custom_quote')) return auroraResponse_(auroraCustomCakePost_(input));
+    if (input && input.action === 'staff_customer_lookup') return auroraResponse_(auroraStaffCustomerLookup_(input));
+    if (input && input.action === 'customer_contact_submit') return auroraResponse_(auroraGuestContactSubmit_(input));
+    if (input && input.action === 'customer_receipt_recover') return auroraResponse_(auroraCustomerReceiptRecover_(input));
+    if (input && input.action === 'get_order_status') return auroraResponse_(auroraCustomerOrderStatus_(input));
+    if (input && /^staff_cms_(list|create|update|delete)$/.test(String(input.action||''))) return auroraResponse_(auroraCmsPost_(input));
+    if (input && (input.action==='staff_catalog'||input.action==='staff_catalog_update')) return auroraResponse_(auroraCatalogPost_(input));
+    if (input && /^staff_/.test(String(input.action || ''))) return auroraResponse_(auroraOperationsPost_(input));
+    if (input && /^customer_(session|orders|claim_order)$/.test(String(input.action || ''))) return auroraResponse_(auroraCustomerAccountsPost_(input));
     var request = auroraOrderRequest_(input);
     var hash = auroraRequestHash_(request);
     lock = LockService.getScriptLock();
@@ -101,9 +131,12 @@ function doPost(e) {
       var receipt = JSON.parse(String(previous[0].receipt_json));
       if (!receipt || !receipt.id || !Array.isArray(receipt.items) || receipt.id !== String(previous[0].id)) throw new Error('Incomplete committed receipt.');
       auroraRepairOrderItems_(itemTable,receipt);
-      return auroraResponse_({success:true,persisted:true,order:receipt});
+      auroraCustomerMasterUpsert_(book,orders,receipt);
+      return auroraResponse_({success:true,persisted:true,order:auroraCheckoutReceiptSafe_(receipt)});
     }
+    if (!request.checkout_proof) auroraReject_('upgrade_required','Refresh the website before placing a new order.');
     var order = auroraBuildOrder_(book,request);
+    auroraCheckoutRateLimit_(request);
     var receiptJson = JSON.stringify(order);
     if (receiptJson.length > 45000) auroraReject_('order_too_large','This order is too large. Reduce the number of lines or options.');
     // The complete receipt is the commit record. A retry repairs any interrupted item index.
@@ -117,7 +150,8 @@ function doPost(e) {
       coupon_code:order.coupon_code || '',order_note:order.order_note || '',payment_method:'cod',payment_status:'pending',receipt_json:receiptJson
     });
     auroraRepairOrderItems_(itemTable,order);
-    return auroraResponse_({success:true,persisted:true,order:order});
+    auroraCustomerMasterUpsert_(book,orders,order);
+    return auroraResponse_({success:true,persisted:true,order:auroraCheckoutReceiptSafe_(order)});
   } catch (error) {
     if (error && error.auroraValidation) return auroraResponse_({ok:false,success:false,persisted:false,code:error.code,error:error.message});
     console.error(error && error.stack ? error.stack : error);
@@ -128,6 +162,48 @@ function doPost(e) {
   }
 }
 
+/** Best-effort burst protection, inside the existing ScriptLock. Retries of a
+ * committed request ID bypass this limiter, so ambiguous writes stay safe. */
+/**
+ * A private per-order bearer capability is supplied ONCE with the confirmed
+ * checkout receipt. It is not derived from phone, order ID or customer name.
+ * Two independently issued platform UUIDs form a 244-bit-string namespace.
+ * Google Apps Script does not expose a documented CSPRNG API, so keep the
+ * supported service and operational security limitations in documentation.
+ */
+function auroraNewCustomerCapability_() {
+  return String(Utilities.getUuid()).toLowerCase() + String(Utilities.getUuid()).toLowerCase();
+}
+function auroraCheckoutReceiptSafe_(value) {
+  var receipt = JSON.parse(JSON.stringify(value));
+  receipt.delivery_otp = '';
+  delete receipt.otp_failed_attempts;
+  delete receipt.otp_locked_until;
+  delete receipt.customer_google_sub;
+  delete receipt.otp_failed_attempts;
+  delete receipt.otp_locked_until;
+  return receipt;
+}
+function auroraCheckoutRateLimit_(request) {
+  var cache = CacheService.getScriptCache();
+  var digits = request.customer_phone.replace(/\D/g,'');
+  var hash = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,digits,Utilities.Charset.UTF_8)
+    .map(function(byte){return ('0'+((byte+256)%256).toString(16)).slice(-2);}).join('').slice(0,24);
+  var key = 'aurora_cod_phone_'+hash;
+  var globalKey = 'aurora_cod_global_10m';
+  var attemptKey = 'aurora_cod_attempt_'+request.request_id;
+  // A network/Sheet failure before the receipt commit must not count the same
+  // request ID again on a safety-preserving retry.
+  if (cache.get(attemptKey)) return;
+  var phoneCount = Number(cache.get(key)||0);
+  var globalCount = Number(cache.get(globalKey)||0);
+  if (phoneCount >= 5 || globalCount >= 120) {
+    auroraReject_('order_rate_limited','Too many new orders in a short period. Please contact the bakery to arrange your order.');
+  }
+  cache.put(key,String(phoneCount+1),600);
+  cache.put(globalKey,String(globalCount+1),600);
+  cache.put(attemptKey,'1',600);
+}
 function auroraReject_(code,message) {
   var error = new Error(message); error.auroraValidation = true; error.code = code; throw error;
 }
@@ -165,7 +241,7 @@ function auroraOrderRequest_(input) {
       writing_message:auroraOptionalText_(line.writing_message,'Cake message',200),quantity:line.quantity
     };
   });
-  return {
+  var normalized = {
     action:'create_order',request_id:requestId,customer_name:auroraOrderText_(input.customer_name,'Customer name',2,100),
     customer_phone:phone,delivery_address:auroraOrderText_(input.delivery_address,'Delivery address',5,1000),
     delivery_zone_id:auroraOrderText_(input.delivery_zone_id,'Delivery zone',1,100),
@@ -173,6 +249,14 @@ function auroraOrderRequest_(input) {
     coupon_code:auroraOptionalText_(input.coupon_code,'Coupon code',60).toUpperCase(),
     order_note:auroraOptionalText_(input.order_note,'Order note',1000),payment_method:'cod',expected_total:input.expected_total
   };
+  if (input.checkout_proof !== undefined) {
+    var proof=auroraOrderText_(input.checkout_proof,'Checkout security proof',72,72).toLowerCase();
+    if(!/^(?:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}){2}$/.test(proof)) {
+      auroraReject_('invalid_request','Refresh your checkout page and try again.');
+    }
+    normalized.checkout_proof=proof;
+  }
+  return normalized;
 }
 function auroraRequestHash_(request) {
   return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,JSON.stringify(request),Utilities.Charset.UTF_8).map(function(byte) { return ('0' + ((byte + 256) % 256).toString(16)).slice(-2); }).join('');
@@ -264,7 +348,7 @@ function auroraBuildOrder_(book,request) {
     delivery_zone:{id:String(zone.id),name:String(zone.name || ''),delivery_fee:deliveryFee,estimated_time:String(zone.estimated_time || ''),is_active:true},
     delivery_slot:request.delivery_slot,delivery_date:request.delivery_date,status:'pending',subtotal:subtotal,delivery_fee:deliveryFee,
     discount_amount:discount,total_amount:total,coupon_code:request.coupon_code,order_note:request.order_note,payment_method:'cod',payment_status:'pending',
-    delivery_otp:String(1000 + Math.floor(Math.random() * 9000)),cod_amount:total,cod_collected:false,created_at:now,updated_at:now,items:items,
+    delivery_otp:'',customer_access_token:auroraNewCustomerCapability_(),cod_amount:total,cod_collected:false,created_at:now,updated_at:now,items:items,
     history:[{id:'history_' + request.request_id,status:'pending',notes:'Order received in Google Sheets',created_at:now,actor_name:'Customer'}]
   };
 }

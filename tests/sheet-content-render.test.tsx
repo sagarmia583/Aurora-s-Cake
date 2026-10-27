@@ -12,10 +12,10 @@ const noop = () => {};
 function navigation(data: PublicSiteData) {
   return renderToStaticMarkup(<Navbar
     settings={data.settings} publicData={data} activeRole="customer" onRoleChange={noop}
-    viewMode="web" onViewModeChange={noop} cartCount={0} onOpenCart={noop} onOpenProfile={noop}
+    viewMode="web" onViewModeChange={noop} cartCount={0} onOpenCart={noop} onOrderNow={noop} onOpenProfile={noop}
     onOpenCacheHub={noop} onOpenDbViewer={noop} onOpenSupabaseSync={noop} isSupabaseConnected={false}
     onOpenTrackOrder={noop} onOpenCustomCake={noop} searchQuery="" onSearchChange={noop}
-    onOpenSheetSettings={noop} isSheetConnected
+    onOpenSheetSettings={noop} onOpenCustomerAccount={noop} isSheetConnected
   />);
 }
 function storefront(data: PublicSiteData) {
@@ -110,3 +110,12 @@ test('Sheet copy is rendered as plain text rather than HTML',()=>{
   assert.ok(!page.includes('<script>'));
 });
 
+
+test('checkout shortcut is directly beside bag and signup/my-orders navigation is hidden',()=>{
+  const nav=navigation(sheetFixture());
+  assert.match(nav,/aria-label="Open shopping bag[^"]*"[^>]*>/);
+  assert.match(nav,/Order Now/);
+  assert.ok(nav.indexOf('Order Now')>nav.indexOf('Open shopping bag'));
+  assert.ok(!nav.includes('Customer details / My orders'));
+  assert.ok(!nav.includes('Sign up / My orders'));
+});

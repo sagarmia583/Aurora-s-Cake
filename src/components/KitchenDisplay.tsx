@@ -19,7 +19,7 @@ interface KitchenDisplayProps {
 export const KitchenDisplay: React.FC<KitchenDisplayProps> = ({ orders, currency }) => {
   const [filter, setFilter] = useState<'all' | 'pending_or_confirmed' | 'preparing' | 'ready'>('all');
 
-  const confirmedOrders = orders.filter((o) => o.status === 'confirmed' || o.status === 'pending');
+  const confirmedOrders = orders.filter((o) => o.status === 'confirmed');
   const preparingOrders = orders.filter((o) => o.status === 'preparing');
   const readyOrders = orders.filter((o) => o.status === 'ready');
 

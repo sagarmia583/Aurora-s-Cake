@@ -5,25 +5,32 @@
 
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { Navbar, ViewMode } from './components/Navbar';
+import { ArrowRight } from 'lucide-react';
 import { CustomerStorefront } from './components/CustomerStorefront';
 const MobileAppExperience = lazy(() => import('./components/MobileAppExperience').then(m => ({default: m.MobileAppExperience})));
-import { ProductDetailModal } from './components/ProductDetailModal';
-import { CartDrawer } from './components/CartDrawer';
-import { CheckoutModal } from './components/CheckoutModal';
-import { OrderTrackingModal } from './components/OrderTrackingModal';
+const ProductDetailModal = lazy(() => import('./components/ProductDetailModal').then(m=>({default:m.ProductDetailModal})));
+const CartDrawer = lazy(() => import('./components/CartDrawer').then(m=>({default:m.CartDrawer})));
+const CheckoutModal = lazy(() => import('./components/CheckoutModal').then(m=>({default:m.CheckoutModal})));
+const OrderTrackingModal = lazy(() => import('./components/OrderTrackingModal').then(m=>({default:m.OrderTrackingModal})));
 import { KitchenDisplay } from './components/KitchenDisplay';
 import { DeliveryRiderPortal } from './components/DeliveryRiderPortal';
 const AdminPanel = lazy(() => import('./components/AdminPanel').then(m => ({default: m.AdminPanel})));
-import { CachePerformanceHub } from './components/CachePerformanceHub';
-import { DatabaseSchemaViewer } from './components/DatabaseSchemaViewer';
-import { SupabaseSyncModal } from './components/SupabaseSyncModal';
-import { CustomCakeModal } from './components/CustomCakeModal';
-import { CustomerProfileModal } from './components/CustomerProfileModal';
+const StaffPortal = lazy(() => import('./components/StaffPortal').then(m => ({default: m.StaffPortal})));
+const CustomerAccountPortal = lazy(() => import('./components/CustomerAccountPortal').then(m => ({default: m.CustomerAccountPortal})));
+const CachePerformanceHub = lazy(() => import('./components/CachePerformanceHub').then(m=>({default:m.CachePerformanceHub})));
+const DatabaseSchemaViewer = lazy(() => import('./components/DatabaseSchemaViewer').then(m=>({default:m.DatabaseSchemaViewer})));
+const SupabaseSyncModal = lazy(() => import('./components/SupabaseSyncModal').then(m=>({default:m.SupabaseSyncModal})));
+const CustomCakeModal = lazy(() => import('./components/CustomCakeModal').then(m=>({default:m.CustomCakeModal})));
+const CustomerProfileModal = lazy(() => import('./components/CustomerProfileModal').then(m=>({default:m.CustomerProfileModal})));
 import { mockDb } from './services/mockDatabase';
 import { supabaseDataService } from './services/supabaseDataService';
 import { useGoogleSheetContent } from './hooks/useGoogleSheetContent';
-import { SheetContentPanel } from './components/SheetContentPanel';
-import { loadConfirmedSheetOrders, rememberConfirmedSheetOrder } from './services/googleSheetOrders';
+const SheetContentPanel = lazy(() => import('./components/SheetContentPanel').then(m=>({default:m.SheetContentPanel})));
+import { loadConfirmedSheetOrders, rememberConfirmedSheetOrder, removeConfirmedSheetOrdersById } from './services/googleSheetOrders';
+import { fetchCustomerOrderStatus, redeemLegacyReceiptAccess } from './services/sheetStaffApi';
+import { isConfirmedDeletedSheetOrder, verifyStoredOrderHistory } from './services/sheetOrderHistorySync';
+import { linkPhoneCustomerReceipt } from './services/phoneCustomerApi';
+import { getBrowserWorkspaceStorage, isStaffWorkspaceOpen, setStaffWorkspaceOpen } from './services/staffWorkspaceSession';
 import { reconcilePublicCart, reorderFromPublicOrder } from './services/reconcilePublicCart';
 import { 
   ShopSettings, 
@@ -48,6 +55,14 @@ export default function App() {
   const sheetContent = useGoogleSheetContent();
   const publicData = sheetContent.data;
   const [isSheetContentOpen, setIsSheetContentOpen] = useState(false);
+  const [isStaffPortalOpen, setIsStaffPortalOpen] = useState(() => isStaffWorkspaceOpen(getBrowserWorkspaceStorage()));
+  const openStaffPortal = () => { setStaffWorkspaceOpen(getBrowserWorkspaceStorage(),true); setIsStaffPortalOpen(true); };
+  const closeStaffPortal = () => { setStaffWorkspaceOpen(getBrowserWorkspaceStorage(),false); setIsStaffPortalOpen(false); };
+  const [isCustomerAccountOpen, setIsCustomerAccountOpen] = useState(false);
+  const [customerGoogleToken, setCustomerGoogleToken] = useState('');
+  const [restoredSessionOrderIds, setRestoredSessionOrderIds] = useState<string[]>([]);
+  const [historySyncVersion, setHistorySyncVersion] = useState(0);
+  const [historySyncing, setHistorySyncing] = useState(false);
   // Dual Experience: Responsive Website vs Mobile App
   const [viewMode, setViewMode] = useState<ViewMode>('web');
 
@@ -99,6 +114,10 @@ export default function App() {
   const [isSupabaseSyncOpen, setIsSupabaseSyncOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [latestOrderId, setLatestOrderId] = useState<string | undefined>(undefined);
+  const [trackingRefreshKey,setTrackingRefreshKey]=useState(0);
+  const [trackingSyncing,setTrackingSyncing]=useState(false);
+  const [trackingSyncError,setTrackingSyncError]=useState('');
+  const [trackingCheckedAt,setTrackingCheckedAt]=useState('');
 
   // Sync cart to localStorage
   useEffect(() => {
@@ -111,7 +130,7 @@ export default function App() {
 
   // Public reads never include orders. Confirmed private Sheet receipts are cached on this device.
   const refreshData = async () => {
-    setOrders([...loadConfirmedSheetOrders(), ...mockDb.getOrders().filter(order => order.persistence !== 'google_sheets')]);
+    setOrders([...loadConfirmedSheetOrders(), ...(import.meta.env.DEV ? mockDb.getOrders().filter(order => order.persistence !== 'google_sheets') : [])]);
     setCustomCakes(mockDb.getCustomCakes());
     setAuditLogs(mockDb.getAuditLogs());
   };
@@ -189,7 +208,15 @@ export default function App() {
   };
 
   const handleOrderSuccess = (newOrder: Order) => {
-    if (newOrder.persistence === 'google_sheets') rememberConfirmedSheetOrder(newOrder);
+    if (newOrder.persistence === 'google_sheets') {
+      rememberConfirmedSheetOrder(newOrder);
+      // The original receipt capability authorizes linking. Phone alone never
+      // exposes historical orders; account association is stored in the Sheet.
+      let token='';try{token=sessionStorage.getItem('aurora_customer_phone_session_v1')||'';}catch{}
+      if(token)void linkPhoneCustomerReceipt(sheetContent.endpoint,token,newOrder).catch(()=>{
+        setCartNotice('Your order was saved, but account linking needs retrying from My bakery orders.');
+      });
+    }
     setOrders(previous => [newOrder, ...previous.filter(order => order.id !== newOrder.id)]);
     setCartNotice('');
     setIsCartOpen(false);
@@ -198,6 +225,116 @@ export default function App() {
     setLatestOrderId(newOrder.id);
     setIsTrackOrderOpen(true);
   };
+
+  const restoreLegacyReceipt=async(order:Order,key:string)=>{
+    const result=await redeemLegacyReceiptAccess(sheetContent.endpoint,order,key);
+    const updated:Order={...order,customer_access_token:key.trim(),status:result.status,
+      updated_at:result.updated_at,history:result.history,rider_name:result.rider_name,
+      payment_status:result.payment_status,cod_collected:result.cod_collected,
+      delivery_otp:result.delivery_otp||''};
+    if(!rememberConfirmedSheetOrder(updated))throw new Error('Could not securely store the updated receipt.');
+    setOrders(previous=>[updated,...previous.filter(previousOrder=>previousOrder.id!==order.id)]);
+    setTrackingSyncError('');setTrackingCheckedAt(new Date().toLocaleTimeString());
+  };
+
+  // Tracking must work even if the public catalog cache is temporarily offline.
+  // Sheets is the source of truth; localStorage only holds customer receipts.
+  // Check device history when the customer opens orders/profile, not at every
+  // storefront render. Verify max three at a time to keep the site responsive.
+  useEffect(() => {
+    if (!isProfileOpen && !isCustomerAccountOpen) return;
+    const stored = loadConfirmedSheetOrders();
+    if (!stored.length) { setHistorySyncing(false); return; }
+    setHistorySyncing(true);
+    let stopped = false;
+    let phoneToken = '';
+    try { phoneToken = sessionStorage.getItem('aurora_customer_phone_session_v1') || ''; } catch {}
+    void verifyStoredOrderHistory(sheetContent.endpoint, stored, customerGoogleToken || undefined, phoneToken || undefined)
+      .then(result => {
+        if (stopped) return;
+        if (result.deletedIds.length) removeConfirmedSheetOrdersById(result.deletedIds);
+        const currentIds = new Set(stored.map(order => order.id));
+        const freshById = new Map(result.current.map(order => [order.id, order]));
+        // Don't wipe orders added by checkout while verification was in flight.
+        setOrders(previous => previous.filter(order => !result.deletedIds.includes(order.id))
+          .map(order => freshById.get(order.id) ?? order));
+        for (const order of result.current) if (currentIds.has(order.id)) rememberConfirmedSheetOrder(order);
+        if (result.deletedIds.length) setCartNotice(result.deletedIds.length + ' deleted order(s) removed from your saved history after checking Google Sheets.');
+        else if (result.failedIds.length) setCartNotice('Some saved receipts could not be checked online. They were kept safely; retry when connected.');
+      })
+      .catch(() => {
+        if (!stopped) setCartNotice('Order history could not be checked online. No saved receipts were removed.');
+      })
+      .finally(() => { if (!stopped) setHistorySyncing(false); });
+    return () => { stopped = true; };
+  }, [isProfileOpen, isCustomerAccountOpen, sheetContent.endpoint, customerGoogleToken, historySyncVersion]);
+
+  // Only poll the selected private receipt: the public endpoint never lists orders.
+  useEffect(() => {
+    if(!isTrackOrderOpen)return;
+    let stopped=false,inFlight=false;
+    const updateTrackedReceipt=async()=>{
+      if(stopped||inFlight||document.visibilityState==='hidden')return;
+      const saved=loadConfirmedSheetOrders();
+      const selected=saved.find(order=>order.id===latestOrderId)||(!latestOrderId?saved[0]:undefined);
+      if(!selected){
+        setTrackingSyncError('This order receipt is not available on this device. Sign in to My orders to recover your history.');
+        return;
+      }
+      inFlight=true;
+      setTrackingSyncing(true);
+      try{
+        let phoneToken='';
+        try{phoneToken=sessionStorage.getItem('aurora_customer_phone_session_v1')||'';}catch{}
+        const next=await fetchCustomerOrderStatus(sheetContent.endpoint,selected,customerGoogleToken||undefined,phoneToken||undefined);
+        if(stopped)return;
+        const updated:Order={...selected,status:next.status,history:next.history,
+          updated_at:next.updated_at,rider_name:next.rider_name,
+          payment_status:next.payment_status,cod_collected:next.cod_collected,
+          delivery_otp:next.delivery_otp||''};
+        // Always render the server-confirmed update. An unavailable/corrupted
+        // localStorage must never freeze an otherwise valid delivery progress.
+        const cached=rememberConfirmedSheetOrder(updated);
+        setOrders(previous=>[updated,...previous.filter(order=>order.id!==updated.id)]);
+        setTrackingCheckedAt(new Date().toLocaleTimeString());
+        setTrackingSyncError(cached?'':'Live status updated, but this device could not cache your receipt. Keep your original receipt or sign in to My orders.');
+      }catch(error){
+        if(!stopped && isConfirmedDeletedSheetOrder(error)){
+          removeConfirmedSheetOrdersById([selected.id]);
+          setOrders(previous=>previous.filter(order=>order.id!==selected.id));
+          setLatestOrderId(current=>current===selected.id?'':current);
+          setTrackingSyncError('This order was removed from Google Sheets; its saved receipt has been cleared.');
+        }else if(!stopped){
+          setTrackingSyncError(error instanceof Error?error.message:'Could not load live delivery status.');
+        }
+      }finally{
+        inFlight=false;
+        if(!stopped)setTrackingSyncing(false);
+      }
+    };
+    setTrackingSyncError('');
+    void updateTrackedReceipt();
+    // Delivery is time-sensitive. Poll faster only for active tracking,
+    // while preserving a lower request rate for earlier kitchen stages.
+    const refreshEveryMs=()=>{
+      const current=loadConfirmedSheetOrders().find(receipt=>receipt.id===latestOrderId);
+      return current?.status==='out_for_delivery' || current?.status==='picked_up' || current?.status==='assigned' ? 5000 : 9000;
+    };
+    let timer=window.setTimeout(function tick(){
+      if(stopped)return;
+      void updateTrackedReceipt();
+      if(!stopped)timer=window.setTimeout(tick,refreshEveryMs());
+    },refreshEveryMs());
+    const whenVisible=()=>{if(document.visibilityState==='visible')void updateTrackedReceipt();};
+    document.addEventListener('visibilitychange',whenVisible);
+    window.addEventListener('focus',whenVisible);
+    return()=>{
+      stopped=true;
+      window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange',whenVisible);
+      window.removeEventListener('focus',whenVisible);
+    };
+  },[isTrackOrderOpen,latestOrderId,sheetContent.endpoint,customerGoogleToken,trackingRefreshKey]);
 
   // Reorders use the current Sheet catalogue; removed sizes/cakes are not recreated.
   const handleReorder = (order: Order) => {
@@ -215,6 +352,8 @@ export default function App() {
       <a className="ac-skip-link" href="#main-content">Skip to content</a>
       {/* Top Navbar */}
       <Navbar
+        onOpenStaffPortal={openStaffPortal}
+        onOpenCustomerAccount={() => setIsCustomerAccountOpen(true)}
         settings={settings}
         publicData={publicData}
         isSheetConnected={sheetContent.status.state === 'connected'}
@@ -225,6 +364,21 @@ export default function App() {
         onViewModeChange={setViewMode}
         cartCount={cartTotalCount}
         onOpenCart={() => setIsCartOpen(true)}
+        onOrderNow={() => {
+          if (cartItems.length === 0) {
+            setCartNotice('Add a cake to your bag before placing an order.');
+            setIsCartOpen(true);
+            return;
+          }
+          if (!publicData.order_submission_enabled || !settings.accepting_orders) {
+            setCartNotice('Online ordering is temporarily unavailable. Please contact the shop.');
+            setIsCartOpen(true);
+            return;
+          }
+          setCartNotice('');
+          setIsCartOpen(false);
+          setIsCheckoutOpen(true);
+        }}
         onOpenProfile={() => setIsProfileOpen(true)}
         onOpenCacheHub={() => setIsCacheHubOpen(true)}
         onOpenDbViewer={() => setIsDbViewerOpen(true)}
@@ -347,7 +501,7 @@ export default function App() {
             className="flex flex-col items-center gap-1 text-slate-600 hover:text-rose-600 cursor-pointer"
           >
             <User className="w-5 h-5 text-rose-600" />
-            <span className="text-[10px] font-semibold">Orders</span>
+            <span className="text-[10px] font-semibold">Profile</span>
           </button>
           <button
             onClick={() => setIsTrackOrderOpen(true)}
@@ -368,14 +522,29 @@ export default function App() {
               </span>
             )}
           </button>
+          <button type="button" onClick={() => {
+            if (!cartItems.length || !publicData.order_submission_enabled || !settings.accepting_orders) {
+              setIsCartOpen(true);
+              setCartNotice(!cartItems.length ? 'Add a cake to your bag to order.' : 'Online ordering is temporarily unavailable.');
+              return;
+            }
+            setIsCartOpen(false);
+            setIsCheckoutOpen(true);
+          }} className="flex flex-col items-center gap-1 rounded-xl bg-[#174B3B] text-white px-2.5 py-1.5 cursor-pointer">
+            <ArrowRight className="w-5 h-5" />
+            <span className="text-[10px] font-bold">Order Now</span>
+          </button>
         </nav>
       )}
 
       {activeRole !== 'customer' && <div className="mx-auto my-3 w-full max-w-6xl px-5 text-xs text-slate-500">Website content is managed in Google Sheets. These Studio tools are local demonstrations. Manage real orders in the private orders and order_items Sheet tabs. Content edits here are replaced on the next Sheet refresh.</div>}
 
-      <SheetContentPanel isOpen={isSheetContentOpen} onClose={() => setIsSheetContentOpen(false)} endpoint={sheetContent.endpoint} status={sheetContent.status} orderSubmissionEnabled={publicData.order_submission_enabled} onRefresh={sheetContent.refresh} onSaveEndpoint={sheetContent.updateEndpoint}/>
+      {isStaffPortalOpen && <Suspense fallback={null}><StaffPortal isOpen={isStaffPortalOpen} onClose={closeStaffPortal} endpoint={sheetContent.endpoint} onCatalogUpdated={() => { void sheetContent.refresh(); }} /></Suspense>}
+      {isCustomerAccountOpen && <Suspense fallback={null}><CustomerAccountPortal open={isCustomerAccountOpen} onTrackOrder={id => { setLatestOrderId(id); setIsCustomerAccountOpen(false); setIsTrackOrderOpen(true); }} onClose={() => setIsCustomerAccountOpen(false)} endpoint={sheetContent.endpoint} localReceipts={orders.filter(o => o.persistence === 'google_sheets')} onIdentityToken={setCustomerGoogleToken} onSignOut={() => { removeConfirmedSheetOrdersById(restoredSessionOrderIds); setOrders(previous => previous.filter(order => !restoredSessionOrderIds.includes(order.id))); setRestoredSessionOrderIds([]); }} onRecover={recovered => { const existing = new Set(loadConfirmedSheetOrders().map(order => order.id)); setRestoredSessionOrderIds(previous => [...new Set([...previous, ...recovered.filter(order => !existing.has(order.id)).map(order => order.id)])]); recovered.forEach(rememberConfirmedSheetOrder); setOrders(previous => { const byId = new Map(previous.map(o => [o.id,o])); recovered.forEach(o => byId.set(o.id,o)); return Array.from(byId.values()); }); }} /></Suspense>}
+      {isSheetContentOpen && <Suspense fallback={null}><SheetContentPanel isOpen={isSheetContentOpen} onClose={() => setIsSheetContentOpen(false)} endpoint={sheetContent.endpoint} status={sheetContent.status} orderSubmissionEnabled={publicData.order_submission_enabled} onRefresh={sheetContent.refresh} onSaveEndpoint={sheetContent.updateEndpoint}/></Suspense>}
       {/* Modals & Slide-outs */}
-      <ProductDetailModal
+      <Suspense fallback={null}>
+      {selectedProductForDetail && <ProductDetailModal
         acceptingOrders={settings.accepting_orders}
         product={selectedProductForDetail}
         allFlavors={flavors}
@@ -383,10 +552,13 @@ export default function App() {
         currency={settings.currency}
         onClose={() => setSelectedProductForDetail(null)}
         onAddToCart={handleAddToCart}
-      />
+      />}
 
-      <CustomerProfileModal
+      {isProfileOpen && <CustomerProfileModal
         isOpen={isProfileOpen}
+        accountEndpoint={sheetContent.endpoint}
+        historySyncing={historySyncing}
+        onSyncHistory={() => setHistorySyncVersion(previous => previous + 1)}
         onClose={() => setIsProfileOpen(false)}
         orders={orders}
         products={products}
@@ -396,9 +568,9 @@ export default function App() {
           setLatestOrderId(orderId);
           setIsTrackOrderOpen(true);
         }}
-      />
+      />}
 
-      <CartDrawer
+      {isCartOpen && <CartDrawer
         isOpen={isCartOpen}
         onClose={() => setIsCartOpen(false)}
         items={cartItems}
@@ -406,9 +578,9 @@ export default function App() {
         onUpdateQuantity={handleUpdateCartQuantity}
         onRemoveItem={handleRemoveCartItem}
         onProceedToCheckout={() => { setIsCartOpen(false); setIsCheckoutOpen(true); }}
-      />
+      />}
 
-      <CheckoutModal
+      {isCheckoutOpen && <CheckoutModal
         isOpen={isCheckoutOpen}
         onClose={() => setIsCheckoutOpen(false)}
         items={cartItems}
@@ -417,23 +589,30 @@ export default function App() {
         slots={slots}
         sheetOrderEndpoint={publicData.order_submission_enabled ? sheetContent.endpoint : undefined}
         onOrderSuccess={handleOrderSuccess}
-      />
+      />}
 
-      <OrderTrackingModal
+      {isTrackOrderOpen && <OrderTrackingModal
         isOpen={isTrackOrderOpen}
+        syncing={trackingSyncing}
+        syncError={trackingSyncError}
+        checkedAt={trackingCheckedAt}
+        onRefresh={() => setTrackingRefreshKey(key=>key+1)}
+        onRestoreLegacyAccess={restoreLegacyReceipt}
         onClose={() => setIsTrackOrderOpen(false)}
         orders={orders}
         currentOrderId={latestOrderId}
+        onSelectedOrderChange={setLatestOrderId}
         currency={settings.currency}
-      />
+      />}
 
-      <CustomCakeModal
+      {isCustomCakeOpen && <CustomCakeModal
+        sheetOrderEndpoint={publicData.order_submission_enabled ? sheetContent.endpoint : undefined}
         isOpen={isCustomCakeOpen}
         onClose={() => setIsCustomCakeOpen(false)}
         currency={settings.currency}
-      />
+      />}
 
-      <SupabaseSyncModal
+      {isSupabaseSyncOpen && <SupabaseSyncModal
         isOpen={isSupabaseSyncOpen}
         onClose={() => setIsSupabaseSyncOpen(false)}
         settings={settings}
@@ -447,17 +626,18 @@ export default function App() {
         coupons={coupons}
         reviews={reviews}
         onDataRefreshed={refreshData}
-      />
+      />}
 
-      <CachePerformanceHub
+      {isCacheHubOpen && <CachePerformanceHub
         isOpen={isCacheHubOpen}
         onClose={() => setIsCacheHubOpen(false)}
-      />
+      />}
 
-      <DatabaseSchemaViewer
+      {isDbViewerOpen && <DatabaseSchemaViewer
         isOpen={isDbViewerOpen}
         onClose={() => setIsDbViewerOpen(false)}
-      />
+      />}
+      </Suspense>
     </div>
   );
 }
