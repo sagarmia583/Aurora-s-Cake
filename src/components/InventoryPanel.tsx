@@ -46,9 +46,9 @@ export default function InventoryPanel({endpoint,token,canEdit}:Props){
       </form>}
       {canEdit&&<form onSubmit={adjust} className="grid sm:grid-cols-5 gap-2">
         <select aria-label="Stock item" required value={itemId} onChange={e=>{setItemId(e.target.value);stockKey.current='';}} className="border rounded-lg p-2"><option value="">Choose stock</option>{data.stock.map(x=><option key={x.id} value={x.id}>{x.name} · {x.unit}</option>)}</select>
-        <input aria-label="Quantity change" required type="number" step=".001" value={delta} onChange={e=>{setDelta(e.target.value);setStockKey('');}} placeholder="+ restock / - waste" className="border rounded-lg p-2"/>
+        <input aria-label="Quantity change" required type="number" step=".001" value={delta} onChange={e=>{setDelta(e.target.value);stockKey.current='';}} placeholder="+ restock / - waste" className="border rounded-lg p-2"/>
         <input aria-label="Unit cost" type="number" min="0" step=".01" value={unitCost} onChange={e=>setUnitCost(e.target.value)} className="border rounded-lg p-2"/>
-        <input aria-label="Adjustment reason" required minLength={5} value={reason} onChange={e=>{setReason(e.target.value);setStockKey('');}} placeholder="Restock or wastage reason" className="border rounded-lg p-2"/>
+        <input aria-label="Adjustment reason" required minLength={5} value={reason} onChange={e=>{setReason(e.target.value);stockKey.current='';}} placeholder="Restock or wastage reason" className="border rounded-lg p-2"/>
         <button disabled={busy} className="rounded-lg bg-emerald-900 text-white p-2">Save Movement</button>
       </form>}
     </div>
@@ -56,8 +56,8 @@ export default function InventoryPanel({endpoint,token,canEdit}:Props){
       {canEdit&&<form onSubmit={requestRefund} className="grid sm:grid-cols-5 gap-2">
         <input required aria-label="Private Order ID" value={orderId} onChange={e=>{setOrderId(e.target.value);refundKey.current='';}} placeholder="Order ID" className="border rounded-lg p-2"/>
         <select aria-label="Refund type" value={kind} onChange={e=>setKind(e.target.value)} className="border rounded-lg p-2"><option value="refund">Refund</option><option value="return">Return</option></select>
-        <input required aria-label="Refund amount" type="number" min=".01" step=".01" value={refundAmount} onChange={e=>{setRefundAmount(e.target.value);setRefundKey('');}} placeholder="Amount" className="border rounded-lg p-2"/>
-        <input required aria-label="Reason" minLength={8} value={refundReason} onChange={e=>{setRefundReason(e.target.value);setRefundKey('');}} placeholder="Reason (8+ chars)" className="border rounded-lg p-2"/>
+        <input required aria-label="Refund amount" type="number" min=".01" step=".01" value={refundAmount} onChange={e=>{setRefundAmount(e.target.value);refundKey.current='';}} placeholder="Amount" className="border rounded-lg p-2"/>
+        <input required aria-label="Reason" minLength={8} value={refundReason} onChange={e=>{setRefundReason(e.target.value);refundKey.current='';}} placeholder="Reason (8+ chars)" className="border rounded-lg p-2"/>
         <button disabled={busy} className="rounded-lg bg-emerald-900 text-white p-2">Request</button>
       </form>}
       <div className="space-y-2">{data.refunds.map(r=><div key={r.id} className="flex flex-wrap items-center justify-between border rounded-lg p-3 gap-3 text-sm">
