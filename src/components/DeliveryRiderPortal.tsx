@@ -3,7 +3,6 @@ import {
   Bike, 
   Phone, 
   MapPin, 
-  Key, 
   CheckCircle2, 
   DollarSign, 
   ShieldCheck, 
@@ -28,12 +27,10 @@ export const DeliveryRiderPortal: React.FC<DeliveryRiderPortalProps> = ({ orders
       (o.status === 'delivered' && o.rider_id === 'rider-1')
   );
 
-  // OTP Modal State
-  const [activeOtpOrder, setActiveOtpOrder] = useState<Order | null>(null);
-  const [enteredOtp, setEnteredOtp] = useState('');
-  const [otpError, setOtpError] = useState<string | null>(null);
-  const [otpSuccessMessage, setOtpSuccessMessage] = useState<string | null>(null);
-
+  const [deliveryOrder, setDeliveryOrder] = useState<Order | null>(null);
+  const [packageHandedOver, setPackageHandedOver] = useState(false);
+  const [cashCollected, setCashCollected] = useState(false);
+  const [deliveryMessage, setDeliveryMessage] = useState('');
   const handlePickUp = (orderId: string) => {
     mockDb.updateOrderStatus(orderId, 'picked_up', 'Picked up by rider from bakery counter', 'Rahim Mia (Rider)');
   };
@@ -42,27 +39,18 @@ export const DeliveryRiderPortal: React.FC<DeliveryRiderPortalProps> = ({ orders
     mockDb.updateOrderStatus(orderId, 'out_for_delivery', 'Rider is out for express delivery to customer doorstep', 'Rahim Mia (Rider)');
   };
 
-  const handleOpenOtpModal = (order: Order) => {
-    setActiveOtpOrder(order);
-    setEnteredOtp('');
-    setOtpError(null);
-    setOtpSuccessMessage(null);
+  const openDeliveryConfirmation=(order:Order)=>{
+    setDeliveryOrder(order);
+    setPackageHandedOver(false);
+    setCashCollected(false);
+    setDeliveryMessage('');
   };
-
-  const handleVerifyOtp = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeOtpOrder) return;
-
-    const result = mockDb.verifyDeliveryOTP(activeOtpOrder.id, enteredOtp, 'Rahim Mia (Rider #1)');
-    if (result.success) {
-      setOtpSuccessMessage(result.message);
-      setTimeout(() => {
-        setActiveOtpOrder(null);
-        setOtpSuccessMessage(null);
-      }, 1500);
-    } else {
-      setOtpError(result.message);
-    }
+  const confirmDelivery=(event:React.FormEvent)=>{
+    event.preventDefault();
+    if(!deliveryOrder)return;
+    const result=mockDb.completeDelivery(deliveryOrder.id,packageHandedOver,cashCollected,'Demo Rider');
+    if(result.success){setDeliveryOrder(null);setDeliveryMessage('');}
+    else setDeliveryMessage(result.message);
   };
 
   return (
@@ -228,11 +216,11 @@ export const DeliveryRiderPortal: React.FC<DeliveryRiderPortalProps> = ({ orders
                     </button>
                   ) : isOutForDelivery ? (
                     <button
-                      onClick={() => handleOpenOtpModal(order)}
+                      onClick={() => openDeliveryConfirmation(order)}
                       className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-bold py-3.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-200 transition-all cursor-pointer"
                     >
-                      <Key className="w-4 h-4" />
-                      <span>Verify Customer OTP & Mark Delivered</span>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Confirm handover & Mark Delivered</span>
                     </button>
                   ) : (
                     <div className="bg-emerald-100 text-emerald-800 p-2.5 rounded-xl text-center text-xs font-bold flex items-center justify-center gap-1.5">
@@ -247,79 +235,30 @@ export const DeliveryRiderPortal: React.FC<DeliveryRiderPortalProps> = ({ orders
         )}
       </div>
 
-      {/* Delivery OTP Verification Modal */}
-      {activeOtpOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-100 p-6 space-y-5">
-            <div className="text-center space-y-2">
-              <div className="w-14 h-14 bg-emerald-100 text-emerald-700 rounded-2xl flex items-center justify-center mx-auto text-2xl font-bold shadow-xs">
-                <Key className="w-7 h-7" />
-              </div>
-              <h3 className="text-lg font-bold text-slate-900">Enter Customer Delivery OTP</h3>
-              <p className="text-xs text-slate-500">
-                Ask <strong>{activeOtpOrder.customer_name}</strong> for their 4-digit security code from their order tracking screen.
-              </p>
+      {/* Demo rider confirmation: no OTP is issued or requested. */}
+      {deliveryOrder && <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60">
+        <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl p-6 space-y-5">
+          <h3 className="text-lg font-bold text-slate-900">Confirm cake delivery</h3>
+          <p className="text-sm text-slate-600">Order #{deliveryOrder.order_number} · {currency}{deliveryOrder.total_amount}</p>
+          <form onSubmit={confirmDelivery} className="space-y-4">
+            {deliveryMessage && <p role="alert" className="text-red-700 text-sm">{deliveryMessage}</p>}
+            <label className="flex gap-3 items-center text-sm">
+              <input type="checkbox" checked={packageHandedOver} onChange={e=>setPackageHandedOver(e.target.checked)}/>
+              Cake handed to customer
+            </label>
+            {deliveryOrder.payment_method==='cod' && <label className="flex gap-3 items-center text-sm">
+              <input type="checkbox" checked={cashCollected} onChange={e=>setCashCollected(e.target.checked)}/>
+              Full COD cash collected
+            </label>}
+            <div className="flex gap-2">
+              <button type="button" onClick={()=>setDeliveryOrder(null)}
+                className="flex-1 py-3 bg-slate-100 rounded-xl font-bold text-sm">Back</button>
+              <button type="submit" disabled={!packageHandedOver||(deliveryOrder.payment_method==='cod'&&!cashCollected)}
+                className="flex-1 py-3 bg-emerald-700 text-white rounded-xl font-bold text-sm disabled:opacity-50">Mark delivered</button>
             </div>
-
-            <form onSubmit={handleVerifyOtp} className="space-y-4">
-              {otpError && (
-                <div className="bg-red-50 text-red-700 p-3 rounded-xl text-xs flex items-center gap-2 border border-red-200">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{otpError}</span>
-                </div>
-              )}
-
-              {otpSuccessMessage && (
-                <div className="bg-emerald-50 text-emerald-700 p-3 rounded-xl text-xs flex items-center gap-2 border border-emerald-200 font-bold">
-                  <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  <span>{otpSuccessMessage}</span>
-                </div>
-              )}
-
-              <div>
-                <input
-                  type="text"
-                  maxLength={4}
-                  autoFocus
-                  placeholder="• • • •"
-                  value={enteredOtp}
-                  onChange={(e) => setEnteredOtp(e.target.value.replace(/\D/g, ''))}
-                  className="w-full text-center tracking-[1em] font-mono text-3xl font-black py-3 rounded-2xl border-2 border-slate-300 focus:border-emerald-500 focus:outline-hidden text-slate-900"
-                />
-              </div>
-
-              {activeOtpOrder.payment_method === 'cod' && (
-                <div className="bg-amber-50 p-3.5 rounded-xl border border-amber-200 text-xs space-y-1">
-                  <div className="font-bold text-amber-900 flex items-center gap-1">
-                    <DollarSign className="w-4 h-4 text-amber-700" />
-                    <span>Cash on Delivery Collection</span>
-                  </div>
-                  <p className="text-amber-800 text-[11px]">
-                    Collect exactly <strong>{currency}{activeOtpOrder.total_amount}</strong> before completing OTP confirmation.
-                  </p>
-                </div>
-              )}
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setActiveOtpOrder(null)}
-                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={enteredOtp.length < 4}
-                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs shadow-md shadow-emerald-200 transition-all cursor-pointer"
-                >
-                  Confirm Delivery
-                </button>
-              </div>
-            </form>
-          </div>
+          </form>
         </div>
-      )}
+      </div>}
     </div>
   );
 };
