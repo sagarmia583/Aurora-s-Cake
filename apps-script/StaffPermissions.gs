@@ -6,7 +6,8 @@ var AURORA_STAFF_CAPABILITIES_=[
   'orders_view','order_confirm','order_cancel','kitchen_start','kitchen_ready',
   'delivery_assign','delivery_pickup','delivery_start','delivery_complete',
   'custom_cakes_view','custom_cakes_quote','customers_lookup',
-  'catalog_view','catalog_edit','catalog_archive','finance_view','finance_edit'
+  'catalog_view','catalog_edit','catalog_archive','finance_view','finance_edit',
+  'sales_view','sales_create','sales_discount','sales_history'
 ];
 var AURORA_OPERATION_CAPABILITY_={
   confirm:'order_confirm',cancel:'order_cancel',start_baking:'kitchen_start',
@@ -20,11 +21,11 @@ function auroraStaffDefaultPermissions_(role){
     return ['delivery_pickup','delivery_start','delivery_complete'].indexOf(x)===-1;
   });
   var groups={
-    order_manager:['orders_view','order_confirm','order_cancel','customers_lookup','custom_cakes_view','custom_cakes_quote'],
+    order_manager:['orders_view','order_confirm','order_cancel','customers_lookup','custom_cakes_view','custom_cakes_quote','sales_view','sales_create','sales_history'],
     kitchen_manager:['orders_view','kitchen_start','kitchen_ready'],
     delivery_manager:['orders_view','delivery_assign','customers_lookup'],
     delivery_man:['orders_view','delivery_pickup','delivery_start','delivery_complete'],
-    accountant:['orders_view','finance_view']
+    accountant:['orders_view','finance_view','sales_view','sales_history']
   };
   return (groups[role]||[]).slice();
 }
