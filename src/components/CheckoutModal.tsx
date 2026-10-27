@@ -54,6 +54,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   initialCoupon = '',
 }) => {
   const isLiveOrder = !!sheetOrderEndpoint;
+  const checkoutAvailable = isLiveOrder || import.meta.env.DEV;
 
   // Form State
   const [customerName, setCustomerName] = useState('');
@@ -197,6 +198,10 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submissionInFlight.current) return;
+    if (!checkoutAvailable) {
+      setErrorMessage('Live checkout is unavailable. We cannot save a demo order on the published bakery website.');
+      return;
+    }
     // An uncertain original write must be retried unchanged before consulting refreshed form or catalog data.
     if (unconfirmed && orderAttemptRef.current) { await retryOriginalOrder(); return; }
     setErrorMessage(null);
@@ -282,7 +287,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
         <div className="p-6 bg-gradient-to-r from-rose-50 to-amber-50 border-b border-rose-100 flex items-center justify-between">
           <div>
             <span className="text-xs font-bold uppercase tracking-wider text-rose-600 bg-rose-100/70 px-2.5 py-0.5 rounded-full">
-              {isLiveOrder ? 'Cash-on-delivery checkout' : 'Demo checkout'}
+              {!checkoutAvailable ? 'Checkout temporarily unavailable' : isLiveOrder ? 'Cash-on-delivery checkout' : 'Demo checkout'}
             </span>
             <h3 id="checkout-title" className="text-xl font-bold text-slate-900 mt-1">A little closer to cake</h3>
           </div>
@@ -542,7 +547,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
           <button
             type="submit"
             hidden={unconfirmed}
-            disabled={isSubmitting || unconfirmed || !items.length || !selectedZone || !selectedDeliverySlot}
+            disabled={!checkoutAvailable || isSubmitting || unconfirmed || !items.length || !selectedZone || !selectedDeliverySlot}
             className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-3.5 px-4 rounded-2xl shadow-lg shadow-rose-200 flex items-center justify-center gap-2 text-sm transition-all cursor-pointer active:scale-98 disabled:opacity-50"
           >
             {isSubmitting ? (
