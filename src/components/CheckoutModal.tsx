@@ -12,7 +12,7 @@ import {
   Truck,
   Sparkles
 } from 'lucide-react';
-import { CartItem, DeliveryZone, DeliverySlot, Order, PaymentMethod } from '../types';
+import { CartItem, DeliveryZone, DeliverySlot, Order, PaymentMethod, Coupon } from '../types';
 import { mockDb } from '../services/mockDatabase';
 import { calculateSheetOrderEstimate, createSheetOrderAttempt, submitSheetOrder, SheetOrderSubmissionError, loadConfirmedSheetOrders } from '../services/googleSheetOrders';
 import { getPhoneCustomerProfile } from '../services/phoneCustomerApi';
@@ -34,6 +34,8 @@ interface CheckoutModalProps {
   slots: DeliverySlot[];
   onOrderSuccess: (order: Order) => void;
   sheetOrderEndpoint?: string;
+  coupons?: Coupon[];
+  initialCoupon?: string;
 }
 
 export const CheckoutModal: React.FC<CheckoutModalProps> = (props) =>
@@ -48,6 +50,8 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   slots,
   onOrderSuccess,
   sheetOrderEndpoint,
+  coupons = [],
+  initialCoupon = '',
 }) => {
   const isLiveOrder = !!sheetOrderEndpoint;
 
@@ -64,8 +68,8 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cod');
 
   // Coupon
-  const [couponInput, setCouponInput] = useState('');
-  const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
+  const [couponInput, setCouponInput] = useState(initialCoupon);
+  const [appliedCoupon, setAppliedCoupon] = useState<string | null>(initialCoupon || null);
   const [couponError, setCouponError] = useState<string | null>(null);
 
   // Submitting
@@ -133,7 +137,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const selectedDeliverySlot = slots.find((slot) => slot.slot_label === selectedSlot && slot.is_active)?.slot_label || slots.find((slot) => slot.is_active)?.slot_label || '';
   const itemsSubtotal = items.reduce((sum, item) => sum + item.total_price, 0);
 
-  const coupon = mockDb.getCoupons().find((item) => item.code.toUpperCase() === appliedCoupon && item.is_active);
+  const coupon = coupons.find((item) => item.code.toUpperCase() === appliedCoupon && item.is_active);
   const liveEstimate = isLiveOrder ? calculateSheetOrderEstimate(itemsSubtotal, selectedZone?.delivery_fee ?? 0, coupon) : undefined;
   let estimatedDiscount = liveEstimate?.discount ?? 0;
   if (!isLiveOrder && coupon && itemsSubtotal >= coupon.min_order_amount) {
@@ -146,7 +150,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     setCouponError(null);
     const code = couponInput.trim().toUpperCase();
     if (!code) return;
-    const match = mockDb.getCoupons().find((item) => item.code.toUpperCase() === code && item.is_active);
+    const match = coupons.find((item) => item.code.toUpperCase() === code && item.is_active);
     if (!match) {
       setCouponError('This coupon is not available.');
       return;
