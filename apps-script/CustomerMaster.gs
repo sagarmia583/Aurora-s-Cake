@@ -78,8 +78,7 @@ function auroraGuestContactSubmit_(input){
 /** Only authentic staff roles can retrieve contact details using phone VLOOKUP. */
 function auroraStaffCustomerLookup_(input){
   var actor=auroraStaffAuthenticate_(input);
-  if(['super_admin','admin','order_manager','delivery_manager'].indexOf(actor.role)===-1)
-    auroraReject_('forbidden','Customer lookup is restricted to authorized sales staff.');
+  auroraStaffRequire_(actor,'customers_lookup');
   var phone=auroraCustomerPhoneKey_(input.phone),table=auroraPrivateTable_(auroraSpreadsheet_(),'customer_master');
   var row=auroraCustomerMasterRow_(table,phone);
   if(!row){
