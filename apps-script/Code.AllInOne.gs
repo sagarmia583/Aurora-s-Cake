@@ -3692,7 +3692,8 @@ function auroraSyncSupabaseMirror(){
   var secret=String(props.getProperty('AURORA_MIRROR_SHARED_SECRET')||'');
   if(!/^https:\/\/[a-z0-9.-]+\/api\/mirror-ingest$/i.test(endpoint)||secret.length<32)
     throw new Error('The mirror endpoint is not configured.');
-  var lock=LockService.getScriptLock();
+  // Use a trigger-only user lock so scheduled sync does not block customer checkouts.
+  var lock=LockService.getUserLock();
   if(!lock.tryLock(10000))return {ok:false,busy:true};
   try{
     var book=auroraSpreadsheet_(),idx=Number(props.getProperty('AURORA_MIRROR_TABLE_INDEX')||0);
