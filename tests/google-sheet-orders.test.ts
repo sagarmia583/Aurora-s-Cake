@@ -1283,3 +1283,27 @@ test('coupon usage counter reflects committed orders and cancellation, not repea
     order_id:first.order.id,operation:'cancel'}).ok,true);
   assert.equal(h.records('coupons')[0].usage_count,0);
 });
+
+test('mistaken rider deposit is voided with audit reason and outstanding cash restored once',()=>{
+ const h=harness({singleFile:true});h.context.setupSheetDatabase();
+ const placed=h.post(request());const id=placed.order.id;
+ const change=(operation:string,token:string,extra:Record<string,unknown>={})=>
+  h.post({action:'staff_mutate',id_token:token,order_id:id,operation,...extra});
+ for(const op of ['confirm','start_baking','mark_ready'])assert.equal(change(op,ADMIN_TOKEN).ok,true);
+ assert.equal(change('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
+ for(const op of ['pick_up','start_delivery'])assert.equal(change(op,RIDER_TOKEN).ok,true);
+ assert.equal(change('deliver',RIDER_TOKEN,{package_handed_over:true,cash_collected:true}).ok,true);
+ const dep=h.post({action:'staff_cash_deposit',id_token:ADMIN_TOKEN,
+   request_id:'12345678-2222-4333-8444-000000000000',rider_id:'rider@example.com',amount:500,
+   date:'2026-10-27',notes:'Wrong amount entered'});
+ assert.equal(dep.snapshot.riders[0].remaining,1180);
+ const did=dep.deposit_id;
+ assert.equal(h.post({action:'staff_cash_deposit_void',id_token:RIDER_TOKEN,deposit_id:did,reason:'Wrong cash entry'}).code,'forbidden');
+ assert.equal(h.post({action:'staff_cash_deposit_void',id_token:ADMIN_TOKEN,deposit_id:did,reason:'short'}).code,'invalid_reason');
+ const voided=h.post({action:'staff_cash_deposit_void',id_token:ADMIN_TOKEN,deposit_id:did,reason:'Duplicate physical cash deposit'});
+ assert.equal(voided.ok,true,JSON.stringify(voided));
+ assert.equal(voided.snapshot.riders[0].remaining,1680);
+ assert.equal(h.records('rider_cash_deposits').length,1);
+ assert.equal(h.post({action:'staff_cash_deposit_void',id_token:ADMIN_TOKEN,deposit_id:did,reason:'Duplicate physical cash deposit'}).already_voided,true);
+ assert.equal(h.records('rider_cash_deposits')[0].void_reason,'Duplicate physical cash deposit');
+});
