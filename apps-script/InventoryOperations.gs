@@ -105,7 +105,7 @@ function auroraInventoryPost_(input){
 
 /** Freeze recipe unit costs at the moment baking starts. */
 function auroraEnsureInventoryTables_(book){
-  ['inventory_items','inventory_movements','refund_returns','order_cost_snapshots'].forEach(function(name){
+  ['cake_cost_items','inventory_items','inventory_movements','refund_returns','order_cost_snapshots'].forEach(function(name){
     var sheet=book.getSheetByName(name);
     if(!sheet)sheet=book.insertSheet(name);
     if(sheet.getLastRow()===0)
