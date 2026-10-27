@@ -23,7 +23,7 @@ try {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForFunction(() => {
     const result = document.querySelector('aside[role="status"] p')?.textContent || '';
-    return result.startsWith('Connected:') || result.startsWith('Not connected:');
+    return result.startsWith('Connected:') || (result.startsWith('Not connected:') && !result.includes('Checking Firebase settings...'));
   }, null, { timeout: 60000 });
 
   const result = (await page.locator('aside[role="status"] p').textContent())?.trim() || '';
