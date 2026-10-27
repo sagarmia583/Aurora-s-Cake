@@ -2463,11 +2463,10 @@ function auroraCatalogueValue_(table,field,value) {
 }
 function auroraCatalogPost_(input) {
   var actor=auroraStaffAuthenticate_(input);
-  if (actor.role!=='super_admin'&&actor.role!=='admin') {
-    auroraReject_('forbidden','Product and shop settings require an administrator account.');
-  }
+  auroraStaffRequire_(actor,'catalog_view');
   if (input.action==='staff_catalog') return auroraCatalogSnapshot_(auroraSpreadsheet_());
   if (input.action!=='staff_catalog_update') auroraReject_('invalid_action','Unknown catalogue operation.');
+  auroraStaffRequire_(actor,'catalog_edit');
   var tableName=String(input.table||''), field=String(input.field||'');
   var recordId=auroraOrderText_(input.record_id,'Record ID',1,150);
   var value=auroraCatalogueValue_(tableName,field,input.value);
