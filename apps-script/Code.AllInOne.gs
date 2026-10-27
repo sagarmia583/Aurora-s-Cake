@@ -129,6 +129,7 @@ function doPost(e) {
     if (input && input.action === 'staff_customer_lookup') return auroraResponse_(auroraStaffCustomerLookup_(input));
     if (input && input.action === 'customer_contact_submit') return auroraResponse_(auroraGuestContactSubmit_(input));
     if (input && input.action === 'customer_receipt_recover') return auroraResponse_(auroraCustomerReceiptRecover_(input));
+    if(input && input.action==='staff_mirror_status') return auroraResponse_(auroraMirrorStatus_(input));
     if(input && /^(staff_pos_catalog|staff_pos_create|staff_pos_history)$/.test(String(input.action||''))) return auroraResponse_(auroraPosPost_(input));
     if(input && /^(staff_inventory_summary|staff_stock_item_create|staff_stock_adjust|staff_refund_request|staff_refund_approve|staff_refund_settle)$/.test(String(input.action||''))) return auroraResponse_(auroraInventoryPost_(input));
     if(input && /^(staff_finance_summary|staff_cash_deposit|staff_cash_deposit_approve|staff_cash_deposit_void|staff_cake_cost_save|staff_cake_cost_archive)$/.test(String(input.action||''))) return auroraResponse_(auroraFinancePost_(input));
@@ -3727,5 +3728,19 @@ function auroraSyncSupabaseMirror(){
     props.setProperty('AURORA_MIRROR_LAST_SUCCESS',new Date().toISOString());
     return {ok:true,submitted:total,tables:visited};
   }finally{lock.releaseLock();}
+}
+
+
+/** Authenticated read-only mirror health; never returns endpoint, keys or PII. */
+function auroraMirrorStatus_(input){
+  var actor=auroraStaffAuthenticate_(input);
+  auroraStaffRequire_(actor,'finance_view');
+  var props=PropertiesService.getScriptProperties();
+  var configured=String(props.getProperty('AURORA_MIRROR_ENDPOINT')||'').length>0&&
+    String(props.getProperty('AURORA_MIRROR_SHARED_SECRET')||'').length>=32;
+  return {ok:true,configured:configured,source_of_truth:'google_sheets',
+    destination:'supabase_private_mirror',
+    last_success:String(props.getProperty('AURORA_MIRROR_LAST_SUCCESS')||''),
+    frequency_minutes:5,mode:'eventual_consistency'};
 }
 /* ==== END apps-script/SupabaseMirror.gs ==== */
