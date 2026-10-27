@@ -263,9 +263,8 @@ export const CustomerAccountPortal: React.FC<Props> = ({
                     </div>
                   </div>
                   {order.status === 'out_for_delivery' && (
-                    <p className="mt-3 inline-flex gap-2 items-center rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
-                      <Truck size={16}/> Rider verification code:
-                      {/^\d{4}$/.test(order.delivery_otp) ? order.delivery_otp : 'Check live tracking'}
+                    <p className="mt-3 inline-flex gap-2 items-center rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-900">
+                      <Truck size={16}/> Your order is on its way. No delivery OTP required.
                     </p>
                   )}
                   <div className="mt-4 flex flex-wrap gap-2">
