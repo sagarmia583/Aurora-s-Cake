@@ -1,0 +1,33 @@
+name: Regenerate pinned Firebase lockfile (temporary)
+on:
+  push:
+    branches: ['fix/firebase-single-app-registry-20261027']
+    paths:
+      - '.github/workflows/regenerate-firebase-lock.yml'
+permissions:
+  contents: write
+jobs:
+  update-lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/firebase-single-app-registry-20261027
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Resolve package-lock from explicit Firebase overrides
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Confirm pinned Firebase is single-copy
+        run: node scripts/verify-firebase-singleton.cjs
+      - name: Commit reproducible lockfile update
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package-lock.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore(firebase): regenerate lockfile without duplicate app SDK'
+            git fetch origin fix/firebase-single-app-registry-20261027
+            git rebase origin/fix/firebase-single-app-registry-20261027
+            git push origin HEAD:fix/firebase-single-app-registry-20261027
+          fi
