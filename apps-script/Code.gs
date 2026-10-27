@@ -294,6 +294,23 @@ function auroraCurrent_(index,id,label) {
   if (!row || !auroraActive_(row.is_active)) auroraReject_('unavailable_selection',label + ' is no longer available. Refresh the cake selection.');
   return row;
 }
+/** Returns ending minute for conventional morning/evening or 24-hour slot labels. */
+function auroraSlotEndMinute_(label){
+  var text=String(label||'');
+  var twelve=Array.from(text.matchAll(/(\d{1,2})(?::([0-5]\d))?\s*(AM|PM)\b/ig));
+  if(twelve.length>=2){
+    var last=twelve[twelve.length-1],hour=Number(last[1]),minute=Number(last[2]||0);
+    if(hour<1||hour>12)return null;
+    return (hour%12+(last[3].toUpperCase()==='PM'?12:0))*60+minute;
+  }
+  var twentyFour=Array.from(text.matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g));
+  if(twentyFour.length>=2){
+    var item=twentyFour[twentyFour.length-1];
+    return Number(item[1])*60+Number(item[2]);
+  }
+  return null; // Existing unstructured labels are retained for compatibility.
+}
+
 function auroraBuildOrder_(book,request) {
   var settings = auroraPairs_(auroraRows_(book,'settings'),PUBLIC_SETTINGS_KEYS);
   if (!auroraActive_(settings.accepting_orders)) auroraReject_('shop_closed','The shop is not accepting orders right now.');
@@ -307,6 +324,13 @@ function auroraBuildOrder_(book,request) {
   var zones = auroraIndex_(auroraRows_(book,'delivery_zones'),'delivery_zones');
   var slots = auroraRows_(book,'delivery_slots').filter(function(row) { return auroraActive_(row.is_active) && String(row.slot_label) === request.delivery_slot; });
   if (slots.length !== 1) auroraReject_('unavailable_selection','Choose a currently available delivery time.');
+  if(request.delivery_date===today) {
+    var endMinute=auroraSlotEndMinute_(request.delivery_slot);
+    var localTime=Utilities.formatDate(new Date(),'Asia/Dhaka','HH:mm');
+    var parts=/^(\d{2}):(\d{2})$/.exec(localTime);
+    if(endMinute!==null && parts && endMinute<=Number(parts[1])*60+Number(parts[2]))
+      auroraReject_('slot_closed','This delivery time has already passed today. Choose a later time or another date.');
+  }
   var zone = auroraCurrent_(zones,request.delivery_zone_id,'Delivery area');
   var orderId = 'ord_' + request.request_id;
   var items = request.cart_items.map(function(line,index) {
