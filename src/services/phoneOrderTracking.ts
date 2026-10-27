@@ -6,6 +6,23 @@ export interface PhoneTrackingStatus {
   status: OrderStatus;
   created_at: string;
   updated_at: string;
+  delivery_date?: string;
+  delivery_slot?: string;
+  payment_method?: 'cod' | 'other';
+  payment_status?: 'pending' | 'paid' | 'failed';
+  subtotal?: number;
+  delivery_fee?: number;
+  discount_amount?: number;
+  total_amount?: number;
+  items?: {
+    product_name: string;
+    variant_name: string;
+    flavor_name: string;
+    quantity: number;
+    unit_price: number;
+    subtotal: number;
+  }[];
+  timeline?: {status: OrderStatus; at: string}[];
 }
 
 export function normalizeTrackingPhone(input: string): string {
@@ -38,15 +55,66 @@ export async function getPhoneOrderStatuses(
       throw new Error('Invalid tracking response.');
     }
     const row = item as Record<string, unknown>;
+    const allowed = ['reference','status','created_at','updated_at','delivery_date','delivery_slot',
+      'payment_method','payment_status','subtotal','delivery_fee','discount_amount',
+      'total_amount','items','timeline'];
     if (typeof row.reference !== 'string' || !/^••••.{0,4}$/u.test(row.reference) ||
         !allowedStatuses.has(row.status as OrderStatus) ||
         typeof row.updated_at !== 'string' || typeof row.created_at !== 'string' ||
-        Object.keys(row).some(key => !['reference','status','created_at','updated_at'].includes(key))) {
+        Object.keys(row).some(key => !allowed.includes(key))) {
       throw new Error('The server returned unsafe order details. Tracking was not displayed.');
+    }
+    const amounts=['subtotal','delivery_fee','discount_amount','total_amount'];
+    if(amounts.some(key => row[key]!==undefined &&
+       (typeof row[key]!=='number'||!Number.isFinite(row[key])||(row[key] as number)<0)))
+      throw new Error('Invalid order amount in tracking response.');
+    if((row.delivery_date!==undefined && (typeof row.delivery_date!=='string'||row.delivery_date.length>30)) ||
+       (row.delivery_slot!==undefined && (typeof row.delivery_slot!=='string'||row.delivery_slot.length>100)) ||
+       (row.payment_method!==undefined && !['cod','other'].includes(String(row.payment_method))) ||
+       (row.payment_status!==undefined && !['pending','paid','failed'].includes(String(row.payment_status))))
+      throw new Error('Invalid order details from the bakery.');
+    const items: PhoneTrackingStatus['items']=[];
+    if(row.items!==undefined) {
+      if(!Array.isArray(row.items)||row.items.length>30)throw new Error('Invalid order items.');
+      for(const value of row.items){
+        if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('Invalid order item.');
+        const item=value as Record<string, unknown>;
+        if(Object.keys(item).some(key=>!['product_name','variant_name','flavor_name','quantity','unit_price','subtotal'].includes(key)) ||
+          typeof item.product_name!=='string'||item.product_name.length>120||
+          typeof item.variant_name!=='string'||item.variant_name.length>100||
+          typeof item.flavor_name!=='string'||item.flavor_name.length>80||
+          typeof item.quantity!=='number'||item.quantity<1||item.quantity>100||
+          typeof item.unit_price!=='number'||!Number.isFinite(item.unit_price)||item.unit_price<0||
+          typeof item.subtotal!=='number'||!Number.isFinite(item.subtotal)||item.subtotal<0)
+          throw new Error('Invalid order item detail.');
+        items.push(item as unknown as NonNullable<PhoneTrackingStatus['items']>[number]);
+      }
+    }
+    const timeline: NonNullable<PhoneTrackingStatus['timeline']>=[];
+    if(row.timeline!==undefined) {
+      if(!Array.isArray(row.timeline)||row.timeline.length>16)throw new Error('Invalid tracking timeline.');
+      for(const value of row.timeline){
+        if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('Invalid status history.');
+        const step=value as Record<string,unknown>;
+        if(Object.keys(step).some(key=>!['status','at'].includes(key))||
+          !allowedStatuses.has(step.status as OrderStatus)||typeof step.at!=='string'||step.at.length>35)
+          throw new Error('Invalid timeline entry.');
+        timeline.push({status:step.status as OrderStatus,at:step.at});
+      }
     }
     return {
       reference: row.reference, status:row.status as OrderStatus,
-      created_at: row.created_at, updated_at: row.updated_at
+      created_at: row.created_at, updated_at: row.updated_at,
+      ...(typeof row.delivery_date==='string'?{delivery_date:row.delivery_date}:{}),
+      ...(typeof row.delivery_slot==='string'?{delivery_slot:row.delivery_slot}:{}),
+      ...(row.payment_method==='cod'||row.payment_method==='other'?{payment_method:row.payment_method}:{}),
+      ...(row.payment_status==='pending'||row.payment_status==='paid'||row.payment_status==='failed'?{payment_status:row.payment_status}:{}),
+      ...(typeof row.subtotal==='number'?{subtotal:row.subtotal}:{}),
+      ...(typeof row.delivery_fee==='number'?{delivery_fee:row.delivery_fee}:{}),
+      ...(typeof row.discount_amount==='number'?{discount_amount:row.discount_amount}:{}),
+      ...(typeof row.total_amount==='number'?{total_amount:row.total_amount}:{}),
+      ...(row.items!==undefined?{items}:{}),
+      ...(row.timeline!==undefined?{timeline}:{})
     };
   });
 }
