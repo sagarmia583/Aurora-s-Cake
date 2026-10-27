@@ -339,9 +339,18 @@ function auroraBuildOrder_(book,request) {
       var productSale=auroraMoney_(product.sale_price,'product sale price');
       markdown=Math.max(0,regularProduct-productSale);
     }
+    if(regularVariantPrice<=0)auroraReject_('invalid_price','Cake size must have a positive regular price.');
+    if(explicitSale && Number(variant.sale_price)<=0)
+      auroraReject_('invalid_price','Cake size sale price must be greater than zero.');
+    if(product.sale_price!==''&&product.sale_price!==undefined&&product.sale_price!==null &&
+       Number(product.sale_price)<=0)
+      auroraReject_('invalid_price','Cake sale price must be greater than zero.');
+    if(markdown>=regularVariantPrice && (!explicitSale || Number(variant.sale_price)>=regularVariantPrice))
+      auroraReject_('invalid_price','This cake discount exceeds the selected size price. Please contact the bakery.');
     var basePrice=explicitSale && Number(variant.sale_price)<regularVariantPrice
       ? auroraMoney_(variant.sale_price,'variant sale price')
-      : auroraMoneyRound_(Math.max(0,regularVariantPrice-markdown));
+      : auroraMoneyRound_(regularVariantPrice-markdown);
+    if(basePrice<=0)auroraReject_('invalid_price','Cake cannot be ordered for zero taka.');
     var selectedAddons = line.addon_ids.map(function(id) {
       if (allowedAddons.indexOf(id) === -1) auroraReject_('unavailable_selection','The selected add-on is not allowed for this cake.');
       var addon = auroraCurrent_(addons,id,'Add-on');
