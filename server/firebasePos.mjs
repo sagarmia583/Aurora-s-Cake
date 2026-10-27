@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {has,requirePermission,numberMoney} from './firebaseAccess.mjs';
 const bad=(code,message)=>{throw Object.assign(new Error(message),{code,httpStatus:400});};
 const str=(value,max=100)=>String(value??'').trim().slice(0,max);
-const enabled=(value)=>value===true||value==='true';
+const enabled=(value)=>value===true||(typeof value==='string'&&value.trim().toLowerCase()==='true');
 export async function posCatalog(db,actor,{history=false}={}){
   requirePermission(actor,history?'sales_history':'sales_view');
   const [products,variants,settings]=await Promise.all([
