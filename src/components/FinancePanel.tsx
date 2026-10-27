@@ -4,7 +4,7 @@ import {financeSummary,recordCashDeposit,saveCakeCost,archiveCakeCost} from '../
 import type {FinanceSnapshot} from '../services/financeApi';
 
 type Props={endpoint:string;token:string;canEdit:boolean};
-const today=()=>new Date().toLocaleDateString('en-CA');
+const today=()=>{const d=new Date();return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');};
 const format=(value:number)=> (value<0?'-':'')+'৳'+Math.abs(value).toLocaleString('en-BD',{maximumFractionDigits:2});
 const newRequestId=()=>crypto.randomUUID();
 export default function FinancePanel({endpoint,token,canEdit}:Props){
