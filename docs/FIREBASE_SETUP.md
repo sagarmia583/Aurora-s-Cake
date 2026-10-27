@@ -1,6 +1,6 @@
 # Firebase foundation — Aurora's Cake
 
-This is an **opt-in, non-destructive Firebase foundation** for the existing Vite web app. It does not migrate any production orders, payments, staff credentials or inventory data. The native Expo app is NOT switched to Firebase. Existing Google Apps Script / Supabase workflows are intentionally unchanged.
+This is a **non-destructive, read-only Firebase foundation** for the existing Vite web app, preconfigured with the registered Firebase project `aurorascake-213a0`. It does not migrate any production orders, payments, staff credentials or inventory data. The native Expo app is NOT switched to Firebase. Existing Google Apps Script / Supabase workflows are intentionally unchanged.
 
 ## 1. Create or choose a Firebase project
 
@@ -12,15 +12,17 @@ This is an **opt-in, non-destructive Firebase foundation** for the existing Vite
 
 ## 2. Configure web application
 
-In a local `.env.local` (never commit it), set:
+The public Firebase Web SDK config from the registration screenshot is already included in `src/services/firebaseClient.ts` and `.env.example`. For a different project, override with local `.env.local` (never commit it). To temporarily disable Firebase, set `VITE_FIREBASE_ENABLED=false`. For the registered project, the following values are used:
 
 ```dotenv
 VITE_FIREBASE_ENABLED=true
-VITE_FIREBASE_API_KEY=your-public-web-api-key
-VITE_FIREBASE_AUTH_DOMAIN=your-project-id.firebaseapp.com
-VITE_FIREBASE_PROJECT_ID=your-project-id
-VITE_FIREBASE_APP_ID=your-web-app-id
-VITE_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
+VITE_FIREBASE_API_KEY=AIzaSyCNVQv0iH6fAvzG5WxAX6om5yQGizrgxug
+VITE_FIREBASE_AUTH_DOMAIN=aurorascake-213a0.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=aurorascake-213a0
+VITE_FIREBASE_APP_ID=1:102515276771:web:d06431a890c12808f8fed6
+VITE_FIREBASE_MESSAGING_SENDER_ID=102515276771
+VITE_FIREBASE_STORAGE_BUCKET=aurorascake-213a0.firebasestorage.app
+VITE_FIREBASE_MEASUREMENT_ID=G-WRX6GNLXK4
 ```
 
 Set the same environment variables for the correct **Vercel or Netlify** project, then redeploy the web app. The `VITE_` values are delivered to browsers. Never store an Admin SDK service account key or private token in `VITE_` variables.
@@ -38,7 +40,7 @@ if (status.enabled && status.configured) {
 }
 ```
 
-The SDK is loaded on demand from Firebase's official modular CDN. This avoids modifying the current npm lockfile; after project setup you can move it to the npm SDK during implementation of the real data layer.
+The integration uses Firebase's official modular `firebase` npm package (13.1.0), lazily loaded only in the diagnostics view. Run `npm ci` after `package-lock.json` is updated, and `npm run build` to verify. You may visit `/?firebase-check=1` on the deployed site for a read-only Firestore server check. The configuration alone does **not** activate order writes.
 
 ## 3. Deploy **security rules** before any data
 
@@ -51,7 +53,7 @@ firebase use --add
 firebase deploy --only firestore
 ```
 
-Select **the correct Firebase project**, read the current deployed rules first, and ensure this is a new database: a CLI deploy overwrites its existing Firestore rules. The included rules let browsers only **GET** `public/health` and deny all other reads and writes.
+Select **the correct Firebase project (`aurorascake-213a0`)**, read the current deployed rules first, and ensure this is a new database: a CLI deploy overwrites its existing Firestore rules. The included rules let browsers only **GET** `public/health` and deny all other reads and writes.
 
 After deploying, call `firebase.checkConnection()`. If it fails:
 - `Missing Firebase config`: web app environment variables incomplete.
