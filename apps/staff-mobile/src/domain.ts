@@ -62,8 +62,8 @@ export function nextOperation(order:StaffOrder,session:StaffSession):Operation|n
 export function visibleOrders(orders:StaffOrder[],session:StaffSession,tab:'tasks'|'orders'):StaffOrder[]{
   const source=orders.filter(o=>{
     if(session.role==='delivery_man' || (session.role!=='manager'&&
-       canOperate(session.role,'delivery_pickup',session.permissions)&&
-       !canOperate(session.role,'delivery_assign',session.permissions)&&
+       canOperate(session.role,'pick_up',session.permissions)&&
+       !canOperate(session.role,'assign',session.permissions)&&
        !canOperate(session.role,'confirm',session.permissions)))
       return String(o.rider_id||'').toLowerCase()===session.email.toLowerCase();
     return true;
