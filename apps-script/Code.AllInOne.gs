@@ -3348,7 +3348,13 @@ function auroraInventoryPost_(input){
     if(action==='staff_stock_adjust'){
       var key=auroraInventoryRequest_(input.request_id),table=auroraPrivateTable_(book,'inventory_movements');
       var prior=table.rows.filter(function(m){return m.request_id===key;})[0];
-      if(prior)return {ok:true,already_saved:true,state:auroraInventoryState_(book)};
+      if(prior){
+        if(String(prior.item_id)!==String(input.item_id||'')||
+           Number(prior.delta)!==Number(input.delta)||
+           String(prior.reason)!==String(input.reason||'').trim())
+          auroraReject_('idempotency_conflict','Stock adjustment request ID has different details.');
+        return {ok:true,already_saved:true,state:auroraInventoryState_(book)};
+      }
       var stock=auroraInventoryState_(book).stock.filter(function(i){return i.id===input.item_id;})[0];
       var delta=Number(input.delta),reason=String(input.reason||'').trim();
       if(!stock||!isFinite(delta)||delta===0||Math.abs(delta)>1000000||
