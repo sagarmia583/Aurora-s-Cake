@@ -101,18 +101,29 @@ export const CustomerAccountPortal: React.FC<Props> = ({
       return;
     }
     setBusy(true); setError(''); setMessage('');
+    const updated = { ...contact, name, phone, address };
+    let storedLocally = false;
+    try {
+      localStorage.setItem('aurora_customer_profile_v1', JSON.stringify(updated));
+      storedLocally = true;
+      setContact(updated);
+    } catch {
+      // Browser storage may be disabled; the form still remains available.
+    }
     try {
       const saved = await privatePost(endpoint, {
         action: 'customer_contact_submit', name, phone, address
       });
       if (saved.saved !== true) throw new Error('The bakery did not confirm your details.');
-      const updated = { ...contact, name, phone, address };
-      localStorage.setItem('aurora_customer_profile_v1', JSON.stringify(updated));
-      setContact(updated);
-      setMessage('Details saved. They will be available for your next checkout on this device.');
+      setMessage(storedLocally
+        ? 'Details saved in the bakery database and on this device.'
+        : 'Details saved in the bakery database. Browser storage is disabled.');
       setTab('orders');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not save your details.');
+      const details = cause instanceof Error ? cause.message : 'The bakery connection failed.';
+      setError((storedLocally ? 'Saved on this device only. ' : 'Details were not saved. ') +
+        'Google Sheets did not confirm this update: ' + details +
+        ' Check the deployed Apps Script version and customer_contact_requests Sheet.');
     } finally {
       setBusy(false);
     }
