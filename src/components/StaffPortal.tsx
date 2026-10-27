@@ -11,6 +11,7 @@ import { activeStaffOrderAlertIds, detectNewStaffOrderAlerts } from '../services
 // Download the larger forms only if the user opens those workspaces.
 const WebsiteManager=React.lazy(()=>import('./WebsiteManager').then(m=>({default:m.WebsiteManager})));
 const FinancePanel=React.lazy(()=>import('./FinancePanel'));
+const InventoryPanel=React.lazy(()=>import('./InventoryPanel'));
 const CustomCakeQueue=React.lazy(()=>import('./CustomCakeQueue').then(m=>({default:m.CustomCakeQueue})));
 
 type GoogleSdk = {
@@ -932,7 +933,10 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
               )}
               <React.Suspense fallback={<div className="rounded-2xl bg-white border p-8 text-center text-slate-500" role="status">Opening your workspace…</div>}>
                 {activeTab==='cakes'&&has('custom_cakes_view') && <CustomCakeQueue endpoint={endpoint} token={identity.token} />}
-                {activeTab==='finance'&&has('finance_view')&& <FinancePanel endpoint={endpoint} token={identity.token} canEdit={has('finance_edit')}/>}
+                {activeTab==='finance'&&has('finance_view')&& <div className="space-y-8">
+                  <FinancePanel endpoint={endpoint} token={identity.token} canEdit={has('finance_edit')}/>
+                  <InventoryPanel endpoint={endpoint} token={identity.token} canEdit={has('finance_edit')}/>
+                </div>}
                 {activeTab==='website'&&has('catalog_view') && <WebsiteManager endpoint={endpoint} token={identity.token}
                   role={identity.role} canArchive={has('catalog_archive')} canEdit={has('catalog_edit')} onUpdated={() => onCatalogUpdated?.()} />}
               </React.Suspense>
