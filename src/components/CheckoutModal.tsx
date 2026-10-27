@@ -69,8 +69,9 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cod');
 
   // Coupon
-  const [couponInput, setCouponInput] = useState(initialCoupon);
-  const [appliedCoupon, setAppliedCoupon] = useState<string | null>(initialCoupon || null);
+  const validInitialCoupon = coupons.find(c=>c.is_active && c.code.toUpperCase()===initialCoupon.trim().toUpperCase());
+  const [couponInput, setCouponInput] = useState(validInitialCoupon?.code||'');
+  const [appliedCoupon, setAppliedCoupon] = useState<string | null>(validInitialCoupon?.code.toUpperCase()||null);
   const [couponError, setCouponError] = useState<string | null>(null);
 
   // Submitting
@@ -212,6 +213,10 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     }
     if (!items.length || !selectedZone || !selectedDeliverySlot) {
       setErrorMessage('Add a cake and choose an available delivery zone and time.');
+      return;
+    }
+    if (appliedCoupon && (!coupon || itemsSubtotal < coupon.min_order_amount)) {
+      setErrorMessage('This coupon is no longer applicable. Remove or reapply it before ordering.');
       return;
     }
     if (!deliveryDate || deliveryDate < localDate()) {
@@ -473,7 +478,11 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
                 type="text"
                 aria-label="Coupon code" placeholder="Enter coupon code"
                 value={couponInput}
-                onChange={(e) => setCouponInput(e.target.value)}
+                onChange={(e) => {
+                  setCouponInput(e.target.value);
+                  if(e.target.value.trim().toUpperCase()!==appliedCoupon)setAppliedCoupon(null);
+                  setCouponError(null);
+                }}
                 className="flex-1 px-3.5 py-2 text-xs rounded-xl border border-slate-200 uppercase tracking-wider font-semibold"
               />
               <button
