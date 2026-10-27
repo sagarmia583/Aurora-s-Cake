@@ -5,7 +5,7 @@
 // Leave blank when this script is bound to the intended Sheet through Extensions > Apps Script.
 var AURORA_SPREADSHEET_ID = '18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4';
 var AURORA_SCHEMA_VERSION = 1;
-var AURORA_BACKEND_RELEASE = 'aurora-2026-10-27-finance-inventory-r8';
+var AURORA_BACKEND_RELEASE = 'aurora-2026-10-27-unified-mobile-mirror-r10';
 var PUBLIC_TABLE_SCHEMAS = {
   settings: ['key','value'],
   content: ['key','value'],
@@ -91,6 +91,7 @@ var PRIVATE_ORDER_SCHEMAS = {
   inventory_items: ['id','name','unit','reorder_level','created_at'],
   inventory_movements: ['id','request_id','item_id','delta','unit_cost','reason','order_id','actor','created_at'],
   refund_returns: ['id','request_id','order_id','kind','amount','reason','status','created_by','created_at','approved_by','approved_at','settled_at','settlement_note','settled_by'],
+  pos_sales: ['id','sale_number','request_id','request_hash','sold_at','staff_id','staff_name','customer_name','customer_phone','subtotal','discount_amount','total_amount','payment_method','payment_reference','amount_received','change_amount','receipt_json'],
   order_cost_snapshots: ['id','order_id','order_number','recorded_at','total_cost','missing_recipe','lines_json']
 };
 
@@ -117,6 +118,8 @@ function doPost(e) {
     if (input && input.action === 'staff_customer_lookup') return auroraResponse_(auroraStaffCustomerLookup_(input));
     if (input && input.action === 'customer_contact_submit') return auroraResponse_(auroraGuestContactSubmit_(input));
     if (input && input.action === 'customer_receipt_recover') return auroraResponse_(auroraCustomerReceiptRecover_(input));
+    if(input && input.action==='staff_mirror_status') return auroraResponse_(auroraMirrorStatus_(input));
+    if(input && /^(staff_pos_catalog|staff_pos_create|staff_pos_history)$/.test(String(input.action||''))) return auroraResponse_(auroraPosPost_(input));
     if(input && /^(staff_inventory_summary|staff_stock_item_create|staff_stock_adjust|staff_refund_request|staff_refund_approve|staff_refund_settle)$/.test(String(input.action||''))) return auroraResponse_(auroraInventoryPost_(input));
     if(input && /^(staff_finance_summary|staff_cash_deposit|staff_cash_deposit_approve|staff_cash_deposit_void|staff_cake_cost_save|staff_cake_cost_archive)$/.test(String(input.action||''))) return auroraResponse_(auroraFinancePost_(input));
     if (input && input.action === 'customer_phone_tracking') return auroraResponse_(auroraPhoneOnlyTracking_(input));

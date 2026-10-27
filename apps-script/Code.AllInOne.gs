@@ -16,7 +16,7 @@
 // Leave blank when this script is bound to the intended Sheet through Extensions > Apps Script.
 var AURORA_SPREADSHEET_ID = '18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4';
 var AURORA_SCHEMA_VERSION = 1;
-var AURORA_BACKEND_RELEASE = 'aurora-2026-10-27-finance-inventory-r8';
+var AURORA_BACKEND_RELEASE = 'aurora-2026-10-27-unified-mobile-mirror-r10';
 var PUBLIC_TABLE_SCHEMAS = {
   settings: ['key','value'],
   content: ['key','value'],
@@ -102,6 +102,7 @@ var PRIVATE_ORDER_SCHEMAS = {
   inventory_items: ['id','name','unit','reorder_level','created_at'],
   inventory_movements: ['id','request_id','item_id','delta','unit_cost','reason','order_id','actor','created_at'],
   refund_returns: ['id','request_id','order_id','kind','amount','reason','status','created_by','created_at','approved_by','approved_at','settled_at','settlement_note','settled_by'],
+  pos_sales: ['id','sale_number','request_id','request_hash','sold_at','staff_id','staff_name','customer_name','customer_phone','subtotal','discount_amount','total_amount','payment_method','payment_reference','amount_received','change_amount','receipt_json'],
   order_cost_snapshots: ['id','order_id','order_number','recorded_at','total_cost','missing_recipe','lines_json']
 };
 
@@ -128,6 +129,8 @@ function doPost(e) {
     if (input && input.action === 'staff_customer_lookup') return auroraResponse_(auroraStaffCustomerLookup_(input));
     if (input && input.action === 'customer_contact_submit') return auroraResponse_(auroraGuestContactSubmit_(input));
     if (input && input.action === 'customer_receipt_recover') return auroraResponse_(auroraCustomerReceiptRecover_(input));
+    if(input && input.action==='staff_mirror_status') return auroraResponse_(auroraMirrorStatus_(input));
+    if(input && /^(staff_pos_catalog|staff_pos_create|staff_pos_history)$/.test(String(input.action||''))) return auroraResponse_(auroraPosPost_(input));
     if(input && /^(staff_inventory_summary|staff_stock_item_create|staff_stock_adjust|staff_refund_request|staff_refund_approve|staff_refund_settle)$/.test(String(input.action||''))) return auroraResponse_(auroraInventoryPost_(input));
     if(input && /^(staff_finance_summary|staff_cash_deposit|staff_cash_deposit_approve|staff_cash_deposit_void|staff_cake_cost_save|staff_cake_cost_archive)$/.test(String(input.action||''))) return auroraResponse_(auroraFinancePost_(input));
     if (input && input.action === 'customer_phone_tracking') return auroraResponse_(auroraPhoneOnlyTracking_(input));
@@ -3245,7 +3248,8 @@ var AURORA_STAFF_CAPABILITIES_=[
   'orders_view','order_confirm','order_cancel','kitchen_start','kitchen_ready',
   'delivery_assign','delivery_pickup','delivery_start','delivery_complete',
   'custom_cakes_view','custom_cakes_quote','customers_lookup',
-  'catalog_view','catalog_edit','catalog_archive','finance_view','finance_edit'
+  'catalog_view','catalog_edit','catalog_archive','finance_view','finance_edit',
+  'sales_view','sales_create','sales_discount','sales_history'
 ];
 var AURORA_OPERATION_CAPABILITY_={
   confirm:'order_confirm',cancel:'order_cancel',start_baking:'kitchen_start',
@@ -3259,11 +3263,11 @@ function auroraStaffDefaultPermissions_(role){
     return ['delivery_pickup','delivery_start','delivery_complete'].indexOf(x)===-1;
   });
   var groups={
-    order_manager:['orders_view','order_confirm','order_cancel','customers_lookup','custom_cakes_view','custom_cakes_quote'],
+    order_manager:['orders_view','order_confirm','order_cancel','customers_lookup','custom_cakes_view','custom_cakes_quote','sales_view','sales_create','sales_history'],
     kitchen_manager:['orders_view','kitchen_start','kitchen_ready'],
     delivery_manager:['orders_view','delivery_assign','customers_lookup'],
     delivery_man:['orders_view','delivery_pickup','delivery_start','delivery_complete'],
-    accountant:['orders_view','finance_view']
+    accountant:['orders_view','finance_view','sales_view','sales_history']
   };
   return (groups[role]||[]).slice();
 }
@@ -3303,7 +3307,6 @@ function auroraStaffCandidate_(role,stored){
     return auroraStaffParsePermissions_(stored,role).indexOf(p)!==-1;
   });
 }
-
 /* ==== END apps-script/StaffPermissions.gs ==== */
 
 /* ==== BEGIN apps-script/InventoryOperations.gs ==== */
@@ -3490,3 +3493,254 @@ function auroraSnapshotProduction_(book,order,actor){
 }
 
 /* ==== END apps-script/InventoryOperations.gs ==== */
+
+/* ==== BEGIN apps-script/POSOperations.gs ==== */
+/**
+ * Counter sales: private, append-only receipts. These are NOT delivery/COD orders.
+ * Payments are staff-attested (no payment gateway / mobile-money verification).
+ * Do not consume ingredients here: production inventory is consumed at Start Baking
+ * and doing so again at POS checkout would double-count recipe stock.
+ */
+function auroraPosCash_(value, field) {
+  var amount=Number(value);
+  if(!isFinite(amount)||amount<0||amount>10000000||Math.round(amount*100)!==amount*100 && Math.abs(Math.round(amount*100)-amount*100)>0.00001)
+    auroraReject_('invalid_amount','Invalid '+field+' amount. Use up to 2 decimal places.');
+  return Math.round(amount*100);
+}
+function auroraPosItems_(book) {
+  var products=auroraRows_(book,'products').filter(function(p){return auroraActive_(p.is_active);});
+  var variants=auroraRows_(book,'product_variants').filter(function(v){return auroraActive_(v.is_active);});
+  var names={};products.forEach(function(p){names[String(p.id)]=String(p.name||'');});
+  return variants.filter(function(v){return names[String(v.product_id)];}).map(function(v){
+    var base=v.sale_price!==''&&v.sale_price!==undefined&&v.sale_price!==null?Number(v.sale_price):Number(v.price);
+    if(!isFinite(base)||base<0)return null;
+    return {product_id:String(v.product_id),product_name:names[String(v.product_id)],
+      variant_id:String(v.id),variant_name:String(v.name||''),price:Math.round(base*100)/100};
+  }).filter(Boolean);
+}
+function auroraPosSnapshot_(book, withHistory) {
+  var settings=auroraRows_(book,'settings'),shop={name:"Aurora's Cake",phone:'',address:''};
+  settings.forEach(function(s){
+    if(s.key==='shop_name'&&s.value)shop.name=String(s.value).slice(0,120);
+    if(s.key==='phone'&&s.value)shop.phone=String(s.value).slice(0,80);
+    if(s.key==='address'&&s.value)shop.address=String(s.value).slice(0,180);
+  });
+  var result={ok:true,shop:shop,products:auroraPosItems_(book)};
+  if(withHistory) {
+    var table=auroraPrivateTable_(book,'pos_sales');
+    result.sales=table.rows.slice(-100).reverse().map(function(r){
+      try{return JSON.parse(String(r.receipt_json||''));}catch(_){return null;}
+    }).filter(Boolean);
+  }
+  return result;
+}
+function auroraPosPost_(input) {
+  var actor=auroraStaffAuthenticate_(input),action=String(input.action||'');
+  if(action==='staff_pos_catalog'){auroraStaffRequire_(actor,'sales_view');return auroraPosSnapshot_(auroraSpreadsheet_(),false);}
+  if(action==='staff_pos_history'){auroraStaffRequire_(actor,'sales_history');return auroraPosSnapshot_(auroraSpreadsheet_(),true);}
+  if(action!=='staff_pos_create')auroraReject_('invalid_action','Unsupported counter sale action.');
+  auroraStaffRequire_(actor,'sales_create');
+  var requestId=String(input.request_id||'').trim();
+  if(!/^[a-f0-9-]{36}$/i.test(requestId))auroraReject_('invalid_request','A stable sale request ID is required.');
+  var inputLines=input.items;
+  if(!Array.isArray(inputLines)||inputLines.length<1||inputLines.length>25)
+    auroraReject_('invalid_cart','Choose between 1 and 25 product variants.');
+  var method=String(input.payment_method||'').trim().toLowerCase();
+  if(['cash','bkash','nagad'].indexOf(method)<0)auroraReject_('invalid_payment','Choose Cash, bKash or Nagad.');
+  var discount=auroraPosCash_(input.discount_amount||0,'discount');
+  if(discount>0)auroraStaffRequire_(actor,'sales_discount');
+  var phone=String(input.customer_phone||'').trim().replace(/[\s-]/g,'');
+  if(phone&&!/^\+?[0-9]{7,15}$/.test(phone))auroraReject_('invalid_phone','Enter a valid customer phone or leave it blank.');
+  var name=String(input.customer_name||'Walk-in').trim().slice(0,100)||'Walk-in';
+  var reference=String(input.payment_reference||'').trim().slice(0,100);
+  if(method!=='cash'&&(!/^[a-zA-Z0-9-]{6,50}$/.test(reference)))
+    auroraReject_('reference_required','Enter the bKash/Nagad transaction reference (6–50 letters/numbers).');
+  var received=method==='cash'?auroraPosCash_(input.amount_received,'cash received'):0;
+  var normalized=inputLines.map(function(line){
+    var variant=String(line&&line.variant_id||'').trim(),qty=Number(line&&line.quantity);
+    if(!variant||!Number.isInteger(qty)||qty<1||qty>50)
+      auroraReject_('invalid_cart','Check product variant and quantity (1–50).');
+    return {variant_id:variant,quantity:qty};
+  });
+  var uniq={};
+  normalized.forEach(function(l){if(uniq[l.variant_id])auroraReject_('invalid_cart','Duplicate product variant. Adjust quantity instead.');uniq[l.variant_id]=true;});
+  var fingerprint=auroraAccountDigest_(JSON.stringify({items:normalized,discount:discount,method:method,
+    amount_received:received,reference:reference,customer_name:name,customer_phone:phone}));
+  var lock=LockService.getScriptLock();
+  if(!lock.tryLock(10000))auroraReject_('busy','Another checkout is saving. Retry the same sale.');
+  try {
+    var book=auroraSpreadsheet_(),table=auroraPrivateTable_(book,'pos_sales');
+    var duplicate=table.rows.filter(function(r){return String(r.request_id)===requestId;})[0];
+    if(duplicate){
+      if(String(duplicate.request_hash)!==fingerprint)
+        auroraReject_('idempotency_conflict','This request ID already belongs to a different sale.');
+      return {ok:true,already_saved:true,sale:JSON.parse(String(duplicate.receipt_json))};
+    }
+    if(method!=='cash'&&table.rows.some(function(r){return String(r.payment_method)===method&&
+      String(r.payment_reference||'').toLowerCase()===reference.toLowerCase();}))
+      auroraReject_('reference_duplicate','This mobile-money transaction reference was already recorded.');
+    var catalog=auroraPosItems_(book),byVariant={};
+    catalog.forEach(function(x){byVariant[x.variant_id]=x;});
+    var subtotal=0,lines=normalized.map(function(l){
+      var p=byVariant[l.variant_id];
+      if(!p)auroraReject_('unavailable_selection','A product variant is no longer available. Refresh the POS.');
+      var unit=Math.round(p.price*100),amount=unit*l.quantity;
+      subtotal+=amount;
+      return {product_id:p.product_id,product_name:p.product_name,variant_id:p.variant_id,variant_name:p.variant_name,
+        quantity:l.quantity,unit_price:unit/100,subtotal:amount/100};
+    });
+    if(subtotal>1000000000||discount>subtotal)
+      auroraReject_('invalid_discount','Discount cannot exceed sale subtotal.');
+    var total=subtotal-discount;
+    if(method==='cash'&&received<total)
+      auroraReject_('insufficient_cash','Cash received is less than the bill.');
+    var now=new Date(),saleId='pos_'+Utilities.getUuid();
+    var sale={id:saleId,sale_number:'POS-'+Utilities.formatDate(now,'Asia/Dhaka','yyMMdd')+'-'+saleId.slice(-6).toUpperCase(),
+      sold_at:now.toISOString(),staff_name:String(actor.name||'Staff').slice(0,100),
+      staff_id:String(actor.username||actor.email||'').slice(0,120),customer_name:name,customer_phone:phone,
+      items:lines,subtotal:subtotal/100,discount_amount:discount/100,total_amount:total/100,
+      payment_method:method,payment_reference:reference,amount_received:method==='cash'?received/100:total/100,
+      change_amount:method==='cash'?(received-total)/100:0,payment_confirmation:'staff_attested'};
+    auroraAppendPrivate_(table,{id:sale.id,sale_number:sale.sale_number,request_id:requestId,
+      request_hash:fingerprint,sold_at:sale.sold_at,staff_id:sale.staff_id,staff_name:sale.staff_name,
+      customer_name:name,customer_phone:phone,subtotal:sale.subtotal,discount_amount:sale.discount_amount,
+      total_amount:sale.total_amount,payment_method:method,payment_reference:reference,
+      amount_received:sale.amount_received,change_amount:sale.change_amount,receipt_json:JSON.stringify(sale)});
+    return {ok:true,already_saved:false,sale:sale};
+  }finally {lock.releaseLock();}
+}
+/* ==== END apps-script/POSOperations.gs ==== */
+
+/* ==== BEGIN apps-script/SupabaseMirror.gs ==== */
+/**
+ * One-way, eventual-consistency Google Sheets -> private Supabase replica.
+ *
+ * Configure these PRIVATE Apps Script Properties (do not expose in frontend):
+ * AURORA_MIRROR_ENDPOINT=https://YOUR-VERCEL-DOMAIN/api/mirror-ingest
+ * AURORA_MIRROR_SHARED_SECRET=at-least-32-random-characters
+ *
+ * Vercel holds its own matching AURORA_MIRROR_SHARED_SECRET and separately the
+ * SUPABASE_SERVICE_ROLE_KEY. Apps Script never receives the Supabase service key.
+ *
+ * Run setupAuroraMirrorTriggerOnce() manually as the Sheet owner.
+ * Each 5min run scans 3 tables / up to 25 records each with durable cursors.
+ * Rows are UPSERTED by table and ID; updates are eventually reflected.
+ * No claims of atomic dual writes or instant replication.
+ */
+var AURORA_MIRROR_TABLES_=['orders','order_items','pos_sales','custom_cake_requests',
+ 'inventory_items','inventory_movements','cake_cost_items','order_cost_snapshots',
+ 'refund_returns','rider_cash_deposits','customer_master',
+ 'products','product_variants','categories','settings'];
+function auroraMirrorSanitize_(source,depth){
+  if(depth>8)return null;
+  if(source===null||source===undefined)return null;
+  if(source instanceof Date)return source.toISOString();
+  if(Array.isArray(source))return source.slice(0,1000).map(function(x){return auroraMirrorSanitize_(x,depth+1);});
+  if(typeof source==='object'){
+    var obj={};
+    Object.keys(source).forEach(function(k){
+      if(/password|passcode|(^|_)token|(^|_)otp|secret|_salt|_hash|proof|authorization|keychain/i.test(k))return;
+      obj[k]=auroraMirrorSanitize_(source[k],depth+1);
+    });
+    return obj;
+  }
+  if(typeof source==='string')return source.slice(0,40000);
+  if(typeof source==='number')return isFinite(source)?source:null;
+  return typeof source==='boolean'?source:null;
+}
+function auroraMirrorRow_(header,values){
+  var row={},id='';
+  header.forEach(function(key,i){
+    if(!key||/password|passcode|(^|_)token|(^|_)otp|secret|_salt|_hash|proof|authorization/i.test(key))return;
+    var value=values[i];
+    if(key==='receipt_json'||key==='addons_json'||key==='lines_json'){
+      try{value=auroraMirrorSanitize_(JSON.parse(String(value||'{}')),0);}
+      catch(_){value=null;}
+    } else value=auroraMirrorSanitize_(value,0);
+    row[key]=value;
+  });
+  id=String(row.id||row.key||'').trim();
+  if(!id||id.length>180)return null;
+  return {source_id:id,data:row};
+}
+function setupAuroraMirrorTriggerOnce(){
+  var props=PropertiesService.getScriptProperties();
+  var endpoint=String(props.getProperty('AURORA_MIRROR_ENDPOINT')||'');
+  var secret=String(props.getProperty('AURORA_MIRROR_SHARED_SECRET')||'');
+  if(!/^https:\/\/[a-z0-9.-]+\/api\/mirror-ingest$/i.test(endpoint)||secret.length<32)
+    throw new Error('Configure the private mirror endpoint and shared secret first.');
+  var existing=ScriptApp.getProjectTriggers().some(function(t){
+    return t.getHandlerFunction()==='auroraSyncSupabaseMirror';
+  });
+  if(!existing)ScriptApp.newTrigger('auroraSyncSupabaseMirror').timeBased().everyMinutes(5).create();
+  return {configured:true,created:!existing,frequency_minutes:5};
+}
+function auroraMirrorSend_(endpoint,secret,records){
+  if(!records.length)return;
+  var raw=JSON.stringify({records:records});
+  if(raw.length>170000)throw new Error('Mirror row batch exceeds the safe request limit.');
+  var response=UrlFetchApp.fetch(endpoint,{method:'post',contentType:'application/json',
+    headers:{'x-aurora-mirror-secret':secret},payload:raw,muteHttpExceptions:true,
+    followRedirects:false});
+  if(response.getResponseCode()!==200)throw new Error('Supabase mirror unavailable; cursor not advanced.');
+  var parsed;
+  try{parsed=JSON.parse(response.getContentText());}catch(_){throw new Error('Mirror acknowledgement missing.');}
+  if(parsed.ok!==true||parsed.synced!==records.length)throw new Error('Mirror batch was not acknowledged.');
+}
+function auroraSyncSupabaseMirror(){
+  var props=PropertiesService.getScriptProperties();
+  var endpoint=String(props.getProperty('AURORA_MIRROR_ENDPOINT')||'');
+  var secret=String(props.getProperty('AURORA_MIRROR_SHARED_SECRET')||'');
+  if(!/^https:\/\/[a-z0-9.-]+\/api\/mirror-ingest$/i.test(endpoint)||secret.length<32)
+    throw new Error('The mirror endpoint is not configured.');
+  // Use a trigger-only user lock so scheduled sync does not block customer checkouts.
+  var lock=LockService.getUserLock();
+  if(!lock.tryLock(10000))return {ok:false,busy:true};
+  try{
+    var book=auroraSpreadsheet_(),idx=Number(props.getProperty('AURORA_MIRROR_TABLE_INDEX')||0);
+    if(!isFinite(idx)||idx<0||idx>=AURORA_MIRROR_TABLES_.length)idx=0;
+    var total=0,visited=[];
+    for(var k=0;k<3;k++){
+      var tableName=AURORA_MIRROR_TABLES_[(idx+k)%AURORA_MIRROR_TABLES_.length];
+      var sheet=book.getSheetByName(tableName);
+      if(!sheet||sheet.getLastRow()<2)continue;
+      var cols=sheet.getLastColumn(),last=sheet.getLastRow();
+      if(cols<1||cols>100)throw new Error('Invalid mirror table width: '+tableName);
+      var headers=sheet.getRange(1,1,1,cols).getValues()[0].map(function(v){return String(v).trim().toLowerCase();});
+      if(headers.indexOf(tableName==='settings'?'key':'id')<0)
+        throw new Error('Table is missing its stable row key: '+tableName);
+      var cursorKey='AURORA_MIRROR_CURSOR_'+tableName;
+      var cursor=Number(props.getProperty(cursorKey)||1);
+      if(!Number.isInteger(cursor)||cursor<1||cursor>=last)cursor=1;
+      var start=cursor+1,count=Math.min(25,last-cursor);
+      var vals=sheet.getRange(start,1,count,cols).getValues(),records=[];
+      vals.forEach(function(v){
+        var row=auroraMirrorRow_(headers,v);
+        if(row)records.push({source_table:tableName,source_id:row.source_id,data:row.data});
+      });
+      // Record batches <=10 protect POST size and Apps Script UrlFetch payload quota.
+      for(var offset=0;offset<records.length;offset+=10)
+        auroraMirrorSend_(endpoint,secret,records.slice(offset,offset+10));
+      props.setProperty(cursorKey,String(cursor+count));
+      total+=records.length;visited.push(tableName);
+    }
+    props.setProperty('AURORA_MIRROR_TABLE_INDEX',String((idx+3)%AURORA_MIRROR_TABLES_.length));
+    props.setProperty('AURORA_MIRROR_LAST_SUCCESS',new Date().toISOString());
+    return {ok:true,submitted:total,tables:visited};
+  }finally{lock.releaseLock();}
+}
+
+
+/** Authenticated read-only mirror health; never returns endpoint, keys or PII. */
+function auroraMirrorStatus_(input){
+  var actor=auroraStaffAuthenticate_(input);
+  auroraStaffRequire_(actor,'finance_view');
+  var props=PropertiesService.getScriptProperties();
+  var configured=String(props.getProperty('AURORA_MIRROR_ENDPOINT')||'').length>0&&
+    String(props.getProperty('AURORA_MIRROR_SHARED_SECRET')||'').length>=32;
+  return {ok:true,configured:configured,source_of_truth:'google_sheets',
+    destination:'supabase_private_mirror',
+    last_success:String(props.getProperty('AURORA_MIRROR_LAST_SUCCESS')||''),
+    frequency_minutes:5,mode:'eventual_consistency'};
+}
+/* ==== END apps-script/SupabaseMirror.gs ==== */

@@ -2,11 +2,12 @@
 export type Role = 'super_admin' | 'admin' | 'manager' | 'order_manager' | 'kitchen_manager' | 'delivery_manager' | 'delivery_man' | 'accountant';
 export type Status = 'pending' | 'confirmed' | 'preparing' | 'ready' | 'assigned' | 'picked_up' | 'out_for_delivery' | 'delivered' | 'cancelled';
 export type Operation = 'confirm' | 'cancel' | 'start_baking' | 'mark_ready' | 'assign' | 'pick_up' | 'start_delivery' | 'deliver';
-export type Tab = 'tasks' | 'orders' | 'account';
+export type Tab = 'tasks' | 'orders' | 'sales' | 'more' | 'account' | 'finance' | 'inventory' | 'production' | 'team' | 'catalog' | 'custom' | 'sync';
 export interface StaffSession {
   name: string; email: string; username?: string; role: Role;
   riders: {email:string;name:string}[];
   permissions?: string[];
+  staff_profiles?: {name:string;username?:string;email:string;role:Role;active:boolean;permissions:string[]}[];
 }
 export interface OrderItem {product_name:string;variant_name?:string;quantity:number;subtotal:number}
 export interface StaffOrder {

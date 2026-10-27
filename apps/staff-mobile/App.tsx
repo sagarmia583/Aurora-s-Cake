@@ -4,7 +4,10 @@ import {
   Platform, Pressable, RefreshControl, ScrollView, StatusBar, StyleSheet,
   Text, TextInput, View
 } from 'react-native';
-import {ApiError, clearSession, login, mutate, ordersFor, restore} from './src/api';
+import {ApiError, clearSession, login, loginOwner, mutate, ordersFor, restore} from './src/api';
+import SalesScreen from './screens/SalesScreen';
+import OperationsScreen, {WorkMenu, availableModules, type Module} from './screens/OperationsScreen';
+import {allowedWorkspaces,hasPermission} from './src/work';
 import {
   money,canOperate,nextOperation,operationLabels,roleLabel,statusLabel,visibleOrders,
   type Operation,type StaffOrder,type StaffSession,type Tab
@@ -117,11 +120,12 @@ export default function App(){
   const [assignOrder,setAssignOrder]=useState<StaffOrder|null>(null);
   const [rider,setRider]=useState('');
   const refreshBusy=useRef(false),mutationEpoch=useRef(0);
+  const tabRef=useRef(tab);tabRef.current=tab;
   const alive=useRef(true);
   const sessionRef=useRef(session),tokenRef=useRef(token);
   useEffect(()=>{sessionRef.current=session;tokenRef.current=token;},[session,token]);
   const applyLogin=useCallback((nextToken:string,nextSession:StaffSession)=>{
-    setToken(nextToken);setSession(nextSession);setTab('tasks');
+    setToken(nextToken);setSession(nextSession);setTab(allowedWorkspaces(nextSession)[0]||'account');
     setOrders([]);setError('');setNotice('');
   },[]);
   const attemptRestore=useCallback(async()=>{
@@ -142,7 +146,7 @@ export default function App(){
   },[attemptRestore]);
   const refresh=useCallback(async(silent=false)=>{
     const activeToken=tokenRef.current;
-    if(!activeToken||refreshBusy.current)return;
+    if(!activeToken||refreshBusy.current||!sessionRef.current||!hasPermission(sessionRef.current,'orders_view'))return;
     refreshBusy.current=true;
     const startEpoch=mutationEpoch.current;
     if(!silent)setRefreshing(true);
@@ -163,10 +167,10 @@ export default function App(){
     if(!token)return;
     void refresh();
     const listener=AppState.addEventListener('change',v=>{
-      if(v==='active')void refresh(true);
+      if(v==='active'&&['tasks','orders'].includes(tabRef.current))void refresh(true);
     });
     const timer=setInterval(()=>{
-      if(AppState.currentState==='active'&&!workingId)void refresh(true);
+      if(AppState.currentState==='active'&&!workingId&&['tasks','orders'].includes(tabRef.current))void refresh(true);
     },30000);
     return()=>{listener.remove();clearInterval(timer);};
   },[token,workingId,refresh]);
@@ -176,6 +180,12 @@ export default function App(){
     setLoginBusy(true);setError('');
     try{const data=await login(username,password);applyLogin(data.token,data.session);setPassword('');}
     catch(e){setError(e instanceof Error?e.message:'Login unsuccessful.');}
+    finally{setLoginBusy(false);}
+  };
+  const submitOwner=async()=>{
+    if(loginBusy)return;setLoginBusy(true);setError('');
+    try{const result=await loginOwner();applyLogin(result.token,result.session);}
+    catch(e){setError(e instanceof Error?e.message:'Owner Google sign-in failed.');}
     finally{setLoginBusy(false);}
   };
   const signout=()=>Alert.alert('Sign out?','এই ডিভাইসের Staff session বন্ধ হবে।',[
@@ -246,7 +256,8 @@ export default function App(){
         <Input label="Password" value={password} onChange={setPassword} secure placeholder="Minimum 10 characters"/>
         {error?<Text style={s.error}>{error}</Text>:null}
         <ActionButton disabled={loginBusy} label={loginBusy?'Verifying account…':'Sign in to workspace →'} onPress={()=>void submitLogin()}/>
-        <Text style={s.note}>এই Login শুধু Super Admin-এর তৈরি Employee account-এর জন্য। Owner-এর Google Login ওয়েব Dashboard-এ থাকবে।</Text>
+        <Text style={s.note}>Staff: use the username/password created by Super Admin. Owner: use the verified Google account.</Text>
+        <ActionButton disabled={loginBusy} kind="secondary" label="Google sign-in · Shop Owner" onPress={()=>void submitOwner()}/>
       </View>
       <Pressable onPress={()=>void attemptRestore()}><Text style={s.reconnect}>Previous session? Tap to reconnect</Text></Pressable>
       <Text style={s.footer}>Private Staff App · Aurora's Cake</Text>
@@ -262,16 +273,16 @@ export default function App(){
         {refreshing?<ActivityIndicator color={C.brand}/>:<Text style={{fontSize:23,color:C.brand}}>↻</Text>}
       </Pressable>
     </View>
-    <View style={s.stats}>
+    {['tasks','orders'].includes(tab)&&<View style={s.stats}>
       <View style={s.stat}><Text style={s.statValue}>{counts.tasks}</Text><Text style={s.statLabel}>To do</Text></View>
       <View style={s.stat}><Text style={s.statValue}>{counts.active}</Text><Text style={s.statLabel}>Active</Text></View>
       <View style={s.stat}><Text style={s.statValue}>{counts.done}</Text><Text style={s.statLabel}>Delivered</Text></View>
-    </View>
+    </View>}
     {error?<View style={s.bannerError}><Text style={{color:C.warn,flex:1}}>{error}</Text>
       <Pressable onPress={()=>setError('')}><Text style={{color:C.warn,fontWeight:'800'}}>✕</Text></Pressable></View>:null}
     {notice?<View style={s.bannerSuccess}><Text style={{color:C.brand,flex:1}}>{notice}</Text>
       <Pressable onPress={()=>setNotice('')}><Text style={{color:C.brand}}>✕</Text></Pressable></View>:null}
-    {tab==='account'?<ScrollView contentContainerStyle={{padding:18,gap:14}}>
+    {tab==='sales'?<SalesScreen token={token} session={session}/>:tab==='more'?<WorkMenu session={session} onOpen={m=>setTab(m)}/>:availableModules(session).includes(tab as Module)&&tab!=='account'&&tab!=='tasks'&&tab!=='orders'?<OperationsScreen module={tab as Module} token={token} session={session} onBack={()=>setTab('more')}/>:tab==='account'?<ScrollView contentContainerStyle={{padding:18,gap:14}}>
       <View style={s.infoCard}><Text style={s.infoTitle}>👤 My Profile</Text>
         <Text style={s.customer}>{session.name}</Text>
         <SmallLabel>{session.username?'@'+session.username:session.email}</SmallLabel>
@@ -312,7 +323,8 @@ export default function App(){
       />
     </>}
     <View style={s.tabBar}>
-      {([{id:'tasks',icon:'✅',name:'My tasks'},{id:'orders',icon:'📦',name:'Orders'},{id:'account',icon:'👤',name:'Account'}] as const).map(item=>
+      {([{id:'tasks',icon:'✅',name:'Today'},{id:'orders',icon:'📦',name:'Orders'},{id:'sales',icon:'🛍️',name:'Sales'},{id:'more',icon:'▦',name:'More'},{id:'account',icon:'👤',name:'Account'}] as const)
+        .filter(item=>allowedWorkspaces(session).includes(item.id)).map(item=>
         <Pressable key={item.id} accessibilityRole="tab" accessibilityState={{selected:tab===item.id}}
           onPress={()=>setTab(item.id)} style={[s.tab,tab===item.id&&s.tabActive]}>
           <Text style={s.tabIcon}>{item.icon}</Text><Text style={[s.tabText,tab===item.id&&s.tabTextActive]}>{item.name}</Text>
