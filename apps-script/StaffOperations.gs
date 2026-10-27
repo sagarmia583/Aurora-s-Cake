@@ -417,9 +417,9 @@ function auroraCustomerReceiptRecover_(input){
 
 /**
  * Passwordless, phone-only tracking. Public response is intentionally restricted
- * to a caller-supplied phone number. Shop owner deliberately opted for
- * passwordless full display across devices. Never return any auth secrets,
- * internal order UUID, OTP, raw receipt_json or internal staff tokens.
+ * to a masked reference and coarse delivery status. No receipt, customer name,
+ * address, amount, notes, order UUID, bearer key or delivery OTP is returned.
+ * A phone number is NOT a proof of ownership.
  */
 function auroraPhoneOnlyTracking_(input){
   var raw=String(input&&input.phone||'').replace(/\D/g,'');
@@ -470,17 +470,6 @@ function auroraPhoneOnlyTracking_(input){
     var receipt=auroraFastReceipt_(table,i+2);
     if(receipt && String(receipt.customer_phone||'').replace(/\D/g,'').replace(/^880(?=1[3-9]\d{8}$)/,'0')===phone){
       function safeMoney(value){var n=Number(value);return isFinite(n)&&n>=0?Math.round(n*100)/100:0;}
-      // Owner-authorized phone-only full receipt, explicitly projected fields.
-      // It is public to anyone who knows the number: NEVER return bearer keys.
-      entry.order_number=String(receipt.order_number||ref||'').slice(0,140);
-      entry.customer_name=String(receipt.customer_name||'').slice(0,100);
-      entry.customer_phone=phone;
-      entry.delivery_address=String(receipt.delivery_address||'').slice(0,500);
-      entry.delivery_zone=String(receipt.delivery_zone&&receipt.delivery_zone.name||'').slice(0,150);
-      entry.rider_name=String(receipt.rider_name||'').slice(0,100);
-      entry.order_note=String(receipt.order_note||'').slice(0,1200);
-      entry.coupon_code=String(receipt.coupon_code||'').slice(0,60);
-      entry.cod_collected=receipt.cod_collected===true;
       entry.delivery_date=String(receipt.delivery_date||'').slice(0,30);
       entry.delivery_slot=String(receipt.delivery_slot||'').slice(0,100);
       entry.payment_method=receipt.payment_method==='cod'?'cod':'other';
@@ -494,19 +483,12 @@ function auroraPhoneOnlyTracking_(input){
           variant_name:String(item.variant_name||'').slice(0,100),
           flavor_name:String(item.flavor_name||'').slice(0,80),
           quantity:Math.max(1,Math.min(100,Math.round(Number(item.quantity)||1))),
-          writing_message:String(item.writing_message||'').slice(0,300),
-          addons:(Array.isArray(item.addons)?item.addons:[]).slice(0,15).map(function(addon){
-            return {addon_name:String(addon.addon_name||'').slice(0,100),
-              quantity:Math.max(1,Math.min(100,Math.round(Number(addon.quantity)||1))),
-              unit_price:safeMoney(addon.unit_price),subtotal:safeMoney(addon.subtotal)};
-          }),
           unit_price:safeMoney(item.unit_price),subtotal:safeMoney(item.subtotal)};
       });
       entry.timeline=(Array.isArray(receipt.history)?receipt.history:[]).slice(-16).filter(function(item){
         return item&&allowed.indexOf(String(item.status))>=0;
       }).map(function(item){return {status:String(item.status),
-        at:String(item.created_at||'').slice(0,35),
-        notes:String(item.notes||'').slice(0,300)};});
+        at:String(item.created_at||'').slice(0,35)};});
     }
     result.push(entry);
     if(result.length===10) {
