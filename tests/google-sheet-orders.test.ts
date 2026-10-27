@@ -1269,3 +1269,17 @@ test('product markdown exceeding a smaller size price never produces a free cake
   assert.equal(result.code,'invalid_price');
   assert.equal(h.records('orders').length,0);
 });
+
+test('coupon usage counter reflects committed orders and cancellation, not repeated requests',()=>{
+  const h=harness({singleFile:true});
+  h.tables.coupons[0].push('usage_count');
+  h.tables.coupons[1].push(0);
+  const first=h.post(request());
+  assert.equal(first.persisted,true);
+  assert.equal(h.records('coupons')[0].usage_count,1);
+  assert.equal(h.post(request()).persisted,true);
+  assert.equal(h.records('coupons')[0].usage_count,1);
+  assert.equal(h.post({action:'staff_mutate',id_token:ADMIN_TOKEN,
+    order_id:first.order.id,operation:'cancel'}).ok,true);
+  assert.equal(h.records('coupons')[0].usage_count,0);
+});
