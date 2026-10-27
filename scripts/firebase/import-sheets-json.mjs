@@ -13,15 +13,26 @@ const commit=args.includes('--commit');
 const ack=args.includes('--ack-reviewed-export');
 const tables=['categories','products','product_variants','orders','order_items','pos_sales',
   'custom_cake_requests','inventory_items','inventory_movements','cake_cost_items',
-  'order_cost_snapshots','refund_returns','rider_cash_deposits'];
+  'order_cost_snapshots','refund_returns','rider_cash_deposits','settings'];
 const blocked=/password|passwd|(^|_)token|(^|_)otp|secret|salt|hash|proof|credential|auth_session|customer_access_key/i;
+const monetary=new Set(['price','base_price','sale_price','total_amount','subtotal','discount_amount','amount','unit_cost','cost','delivery_fee','quantity','weight_grams','reorder_level']);
+const booleanFields=new Set(['active','is_active','is_featured','accepting_orders','delivery_enabled','cod_collected']);
 function cleaned(value,level=0){
  if(level>9)return null;
  if(value===null||value===undefined)return null;
  if(Array.isArray(value))return value.slice(0,1000).map(x=>cleaned(x,level+1));
  if(typeof value==='object'){
   const dest={};
-  for(const [k,v] of Object.entries(value))if(!blocked.test(k))dest[k]=cleaned(v,level+1);
+  for(const [k,v] of Object.entries(value)){
+   if(blocked.test(k)||k==='receipt_json')continue;
+   if(k.endsWith('_json')&&typeof v==='string'){
+    try{dest[k]=cleaned(JSON.parse(v),level+1);}catch{dest[k]=null;}
+   }else if(booleanFields.has(k)&&typeof v==='string'&&/^(true|false)$/i.test(v.trim()))
+    dest[k]=v.trim().toLowerCase()==='true';
+   else if(monetary.has(k)&&typeof v==='string'&&v.trim()!==''&&Number.isFinite(Number(v)))
+    dest[k]=Number(v);
+   else dest[k]=cleaned(v,level+1);
+  }
   return dest;
  }
  return typeof value==='string'?value.slice(0,45000):value;
@@ -31,7 +42,10 @@ function parseReceipt(record){
  try{
   const receipt=JSON.parse(record.receipt_json);
   // Canonical receipt status and amount live inside this serialized record.
-  if(receipt&&typeof receipt==='object'&&!Array.isArray(receipt))return {...record,...receipt};
+  if(receipt&&typeof receipt==='object'&&!Array.isArray(receipt)){
+   const {receipt_json:removed,...withoutRawReceipt}=record;
+   return {...withoutRawReceipt,...receipt};
+  }
  }catch{throw Error('Invalid receipt_json: '+String(record.id||'unknown'));}
  return record;
 }
@@ -51,6 +65,14 @@ if(!inputPath|| (commit&&!ack)){
   for(const [table,rows] of Object.entries(document.tables)){
    if(!tables.includes(table))throw Error('Unapproved import table: '+table);
    if(!Array.isArray(rows))throw Error('Input table must be an array: '+table);
+   if(table==='settings'){
+    const settings={};
+    for(const r of rows){if(typeof r?.key!=='string'||typeof r.value==='object')throw Error('Invalid shop settings.');
+     if(!blocked.test(r.key)&&/^[a-z][a-z0-9_]{0,80}$/i.test(r.key))settings[r.key]=r.value;
+    }
+    all.push({table,id:'shop',data:cleaned(settings)});
+    continue;
+   }
    for(const value of rows){
     if(!value||typeof value!=='object'||Array.isArray(value))throw Error('Invalid row: '+table);
     const id=sourceId(table,value);
