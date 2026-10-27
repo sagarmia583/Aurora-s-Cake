@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DEFAULT_PUBLIC_SITE_DATA } from '../src/content/defaultSiteData';
-import { reconcilePublicCart, reorderFromPublicOrder } from '../src/services/reconcilePublicCart';
+import { reconcilePublicCart, reorderFromPublicOrder, isAuthoritativeCartCatalog } from '../src/services/reconcilePublicCart';
 import { variantPrice } from '../src/services/productPricing';
 import type { CartItem, Order } from '../src/types';
 
@@ -159,3 +159,9 @@ test('reorder preserves zero Sheet sale price and removes unavailable add-ons',(
   assert.equal(result.removedCount,0);
 });
 
+
+test('cold start keeps real saved cakes until a verified catalog is loaded',()=>{
+  assert.equal(isAuthoritativeCartCatalog('bundled_preview'),false);
+  assert.equal(isAuthoritativeCartCatalog('saved_snapshot'),true);
+  assert.equal(isAuthoritativeCartCatalog('google_sheets'),true);
+});
