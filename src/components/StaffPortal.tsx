@@ -1,6 +1,8 @@
+import {STAFF_CAPABILITIES, STAFF_CAPABILITY_GROUPS, defaultStaffPermissions, hasStaffPermission, canStaffOperation} from '../services/staffPermissions';
+import type {StaffCapability} from '../services/staffPermissions';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, RefreshCw, ShieldCheck, Truck, PackageCheck, LayoutDashboard, ShoppingBag, UsersRound, CakeSlice, Store, Search, ChevronDown, ChevronUp, LogOut, Clock3, BadgeCheck, ArrowRight, AlertCircle, CreditCard, MapPin } from 'lucide-react';
-import { checkStaffSession, getStaffOrders, mutateStaffOrder, signInStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword, lookupStaffCustomer } from '../services/sheetStaffApi';
+import { checkStaffSession, getStaffOrders, mutateStaffOrder, signInStaffPassword, createStaffAccount, changeStaffPermissions, changeStaffStatus, resetStaffPassword, lookupStaffCustomer } from '../services/sheetStaffApi';
 import type { StaffCustomerMatch, StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
 import { getBrowserWorkspaceStorage, loadStaffCredential, saveStaffCredential, clearStaffCredential, loadStaffTab, saveStaffTab } from '../services/staffWorkspaceSession';
@@ -18,16 +20,8 @@ type GoogleSdk = {
 const googleSdk = (): GoogleSdk | undefined =>
   (window as Window & { google?: { accounts?: { id?: GoogleSdk } } }).google?.accounts?.id;
 
-function canOperate(role: StaffRoleName, operation: StaffOperation): boolean {
-  // Rider actions require an actual rider session, even for admins.
-  if (['pick_up', 'start_delivery', 'deliver'].includes(operation)) return role === 'delivery_man';
-  if (role === 'super_admin' || role === 'admin') return true;
-  const rules: Partial<Record<StaffRoleName, StaffOperation[]>> = {
-    order_manager: ['confirm', 'cancel'],
-    kitchen_manager: ['start_baking', 'mark_ready'],
-    delivery_manager: ['assign'],
-  };
-  return (rules[role] || []).includes(operation);
+function canOperate(role:StaffRoleName,operation:StaffOperation,permissions?:StaffCapability[]):boolean{
+  return canStaffOperation(role,permissions,operation);
 }
 const actionForStatus: Record<string, { operation: StaffOperation; label: string } | null> = {
   pending: { operation: 'confirm', label: 'Confirm order' },
@@ -76,6 +70,10 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [username,setUsername]=useState('');
   const [password,setPassword]=useState('');
   const [newStaff,setNewStaff]=useState({name:'',username:'',password:'',role:'kitchen_manager' as StaffRoleName});
+  const [newStaffPermissions,setNewStaffPermissions]=useState<StaffCapability[]>(defaultStaffPermissions('kitchen_manager'));
+  const [permissionEditFor,setPermissionEditFor]=useState('');
+  const [permissionDraft,setPermissionDraft]=useState<StaffCapability[]>([]);
+  const [savingPermissions,setSavingPermissions]=useState(false);
   const [creatingStaff,setCreatingStaff]=useState(false);
   const [resetFor,setResetFor]=useState('');
   const [resetPassword,setResetPassword]=useState('');
@@ -163,37 +161,36 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     }catch(error){setCustomerLookupMessage(error instanceof Error?error.message:'Customer search failed.');}
     finally{setCustomerLookupBusy(false);}
   };
-  const isActionable=(order:StaffOrder,role:StaffRoleName):boolean=>{
+  const isActionable=(order:StaffOrder,role:StaffRoleName,permissions?:StaffCapability[]):boolean=>{
     const next=actionForStatus[order.status];
-    return Boolean(next&&canOperate(role,next.operation));
+    return Boolean(next&&canOperate(role,next.operation,permissions));
   };
+  const has=(cap:StaffCapability)=>!!identity&&hasStaffPermission(identity.role,identity.permissions,cap);
   useEffect(()=>{
     if(!identity)return;
-    const operational=['kitchen_manager','delivery_manager','delivery_man','order_manager'].includes(identity.role);
-    const stored=loadStaffTab(getBrowserWorkspaceStorage());
-    const allowed=['orders','overview',...(['super_admin','admin','order_manager'].includes(identity.role)?['cakes']:[]),
-      ...(identity.role==='super_admin'?['team']:[]),
-      ...(['super_admin','admin'].includes(identity.role)?['website']:[])];
-    const next=allowed.includes(stored)?stored as StaffTab:operational?'orders':'overview';
-    setActiveTab(next);
-    // Keep every authorized order visible as it moves between roles/stages.
-    // The old default 'Needs my action' made successfully updated orders
-    // disappear immediately, even when still present in state and Sheets.
+    const allowed:StaffTab[]=[
+      ...(hasStaffPermission(identity.role,identity.permissions,'orders_view')?['overview','orders'] as StaffTab[]:[]),
+      ...(hasStaffPermission(identity.role,identity.permissions,'custom_cakes_view')?['cakes'] as StaffTab[]:[]),
+      ...(identity.role==='super_admin'?['team'] as StaffTab[]:[]),
+      ...(hasStaffPermission(identity.role,identity.permissions,'catalog_view')?['website'] as StaffTab[]:[]),
+      ...(hasStaffPermission(identity.role,identity.permissions,'finance_view')?['finance'] as StaffTab[]:[])];
+    const saved=loadStaffTab(getBrowserWorkspaceStorage()) as StaffTab;
+    setActiveTab(allowed.includes(saved)?saved:allowed[0]||'overview');
     setOrderFilter('all');
-  },[identity?.role]);
+  },[identity?.role,identity?.email,identity?.permissions?.join(',')]);
   useEffect(()=>{if(identity)saveStaffTab(getBrowserWorkspaceStorage(),activeTab);},[activeTab,identity]);
-  const actionableCount=identity?orders.filter(order=>isActionable(order,identity.role)).length:0;
+  const actionableCount=identity?orders.filter(order=>isActionable(order,identity.role,identity.permissions)).length:0;
   const activeCount=orders.filter(order=>!terminalStatuses.has(order.status)).length;
   const deliveryCount=orders.filter(order=>['assigned','picked_up','out_for_delivery'].includes(order.status)).length;
   const collectedCOD=orders.filter(order=>order.payment_method==='cod'&&order.payment_status==='paid'&&order.cod_collected)
     .reduce((total,order)=>total+order.total_amount,0);
   const roleTabs:{id:StaffTab;label:string;hint:string;icon:typeof LayoutDashboard;show:boolean}[]=[
-    {id:'overview',label:'Overview',hint:'Shop pulse',icon:LayoutDashboard,show:true},
-    {id:'orders',label:'Orders & delivery',hint:'Live workflow',icon:ShoppingBag,show:true},
-    {id:'cakes',label:'Custom cake requests',hint:'Quotes & approvals',icon:CakeSlice,show:['super_admin','admin','order_manager'].includes(identity?.role||'')},
+    {id:'overview',label:'Overview',hint:'Shop pulse',icon:LayoutDashboard,show:has('orders_view')},
+    {id:'orders',label:'Orders & delivery',hint:'Live workflow',icon:ShoppingBag,show:has('orders_view')},
+    {id:'cakes',label:'Custom cake requests',hint:'Quotes & approvals',icon:CakeSlice,show:has('custom_cakes_view')},
     {id:'team',label:'Staff & access',hint:'People and roles',icon:UsersRound,show:identity?.role==='super_admin'},
-    {id:'finance',label:'Cash & costs',hint:'Rider settlements and cake expenses',icon:CreditCard,show:['super_admin','admin','accountant'].includes(identity?.role||'')},
-    {id:'website',label:'Website manager',hint:'Shop content',icon:Store,show:identity?.role==='super_admin'||identity?.role==='admin'},
+    {id:'finance',label:'Cash & costs',hint:'Rider settlements and cake expenses',icon:CreditCard,show:has('finance_view')},
+    {id:'website',label:'Website manager',hint:'Shop content',icon:Store,show:has('catalog_view')},
   ];
   const tabs=roleTabs.filter(tab=>tab.show);
   const pipeline=['pending','confirmed','preparing','ready','assigned','picked_up','out_for_delivery','delivered'];
@@ -201,11 +198,11 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     const query=orderSearch.trim().toLowerCase();
     const matches=!query||[order.order_number,order.customer_name,order.customer_phone,order.delivery_address,order.rider_name]
       .some(value=>String(value||'').toLowerCase().includes(query));
-    const filterMatch=orderFilter==='all'||(orderFilter==='actionable'&&isActionable(order,identity.role))||
+    const filterMatch=orderFilter==='all'||(orderFilter==='actionable'&&isActionable(order,identity.role,identity.permissions))||
       (orderFilter==='active'&&!terminalStatuses.has(order.status))||
       (orderFilter==='completed'&&terminalStatuses.has(order.status));
     return matches&&filterMatch;
-  }).sort((a,b)=>Number(isActionable(b,identity.role))-Number(isActionable(a,identity.role))||
+  }).sort((a,b)=>Number(isActionable(b,identity.role,identity.permissions))-Number(isActionable(a,identity.role,identity.permissions))||
     Date.parse(b.updated_at||'')-Date.parse(a.updated_at||'')):[];
 
   useEffect(()=>{
@@ -292,8 +289,9 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     e.preventDefault();if(!identity||identity.role!=='super_admin')return;
     setCreatingStaff(true);setError('');
     try {
-      await createStaffAccount(endpoint,identity.token,newStaff.name,newStaff.username,newStaff.password,newStaff.role);
-      setNewStaff({name:'',username:'',password:'',role:'kitchen_manager'});
+      await createStaffAccount(endpoint,identity.token,newStaff.name,newStaff.username,newStaff.password,newStaff.role,newStaffPermissions);
+      setNewStaff({name:'',username:'',password:'',role:'kitchen_manager'});setNewStaffPermissions(defaultStaffPermissions('kitchen_manager'));
+      setPermissionEditFor('');
       const result=await checkStaffSession(endpoint,identity.token);
       setStaffProfiles(result.staff_profiles??[]);
     }catch(caught){setError(caught instanceof Error?caught.message:'Staff account could not be created.');}
@@ -343,7 +341,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   },[orders,identity?.token,identity?.role,identity?.email,viewingSavedOrders]);
 
   const refresh = useCallback(async () => {
-    if (!identity || !isOpen) return;
+    if (!identity || !isOpen || !hasStaffPermission(identity.role,identity.permissions,'orders_view')) return;
     if (ordersRefreshInFlight.current===identity.token) {
       // An explicit mutation refresh must run after an older poll completes.
       queuedOrderRefresh.current=true;
@@ -407,7 +405,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   }, [endpoint, identity?.token, isOpen,playOrderBeep,beepEnabled]);
 
   useEffect(() => {
-    if (!isOpen || !identity) return;
+    if (!isOpen || !identity || !hasStaffPermission(identity.role,identity.permissions,'orders_view')) return;
     void refresh();
     // Continue watching new COD orders even while the owner edits website content.
     // The current tab stays responsive; hidden tabs poll less aggressively.
@@ -426,6 +424,24 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     };
   }, [isOpen, identity, activeTab, refresh]);
 
+  const editPermissions=(person:StaffProfile)=>{
+    if(!person.username||person.role==='manager')return;
+    setPermissionEditFor(person.username);
+    setPermissionDraft(person.permissions||defaultStaffPermissions(person.role));
+    setError('');
+  };
+  const savePermissions=async()=>{
+    if(!identity||identity.role!=='super_admin'||!permissionEditFor||savingPermissions)return;
+    setSavingPermissions(true);setError('');
+    try{
+      await changeStaffPermissions(endpoint,identity.token,permissionEditFor,permissionDraft);
+      const profile=await checkStaffSession(endpoint,identity.token);
+      setStaffProfiles(profile.staff_profiles??[]);
+      setPermissionEditFor('');
+      setOrderUpdateMessage('Staff access updated. Previous employee sessions were revoked; they must sign in again.');
+    }catch(e){setError(e instanceof Error?e.message:'Could not update staff permissions.');}
+    finally{setSavingPermissions(false);}
+  };
   const toggleStaff=async(username:string,active:boolean)=>{
     if(!identity||identity.role!=='super_admin'||!window.confirm(active?'Enable this staff account?':'Disable this staff account and revoke its sessions?'))return;
     setRefreshingStaff(true);setError('');
@@ -759,7 +775,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                         className="w-full bg-transparent py-1 outline-none text-sm" placeholder="Search order, customer, phone or rider"/>
                     </label>
                   </div>
-                  {activeTab==='orders'&&['super_admin','admin','order_manager','delivery_manager'].includes(identity.role)&&(
+                  {activeTab==='orders'&&has('customers_lookup')&&(
                     <section className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4 space-y-3" aria-label="Customer Master Lookup">
                       <h4 className="font-bold text-emerald-950">Customer Master · Phone VLOOKUP</h4>
                       <form className="flex flex-wrap gap-2" onSubmit={lookupCustomer}>
@@ -794,9 +810,9 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                   <div className="grid gap-3">
                     {matchingOrders.slice(0,activeTab==='overview'?5:100).map(order => {
                   const next = actionForStatus[order.status] || null;
-                  const canCancel = canOperate(identity.role, 'cancel') && ['pending','confirmed','preparing','ready','assigned'].includes(order.status);
+                  const canCancel = canOperate(identity.role, 'cancel',identity.permissions) && ['pending','confirmed','preparing','ready','assigned'].includes(order.status);
                   const expanded=expandedOrders.includes(order.id);
-                  return <article key={order.id} className={'bg-white rounded-[20px] border p-4 sm:p-5 space-y-4 transition-colors '+(next&&canOperate(identity.role,next.operation)?'border-emerald-300 shadow-[0_2px_18px_rgba(10,80,60,.07)]':'border-slate-200')}>
+                  return <article key={order.id} className={'bg-white rounded-[20px] border p-4 sm:p-5 space-y-4 transition-colors '+(next&&canOperate(identity.role,next.operation,identity.permissions)?'border-emerald-300 shadow-[0_2px_18px_rgba(10,80,60,.07)]':'border-slate-200')}>
                     <div className="flex flex-wrap justify-between items-start gap-3">
                       <div className="flex gap-3 min-w-0">
                         <div className="shrink-0 h-11 w-11 rounded-2xl bg-[#eaf2eb] text-[#20533e] grid place-items-center"><PackageCheck size={21}/></div>
@@ -818,7 +834,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                         <a className="font-bold text-emerald-800 underline whitespace-nowrap" target="_blank" rel="noopener noreferrer"
                           href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.delivery_address)}`}>Directions</a>
                       </div>}
-                    {next&&canOperate(identity.role,next.operation)&&
+                    {next&&canOperate(identity.role,next.operation,identity.permissions)&&
                       <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900">
                         Your next step: {next.label}. Customer progress updates after a successful save.
                       </p>}
@@ -847,7 +863,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                       {order.rider_name&&<p className="flex items-center gap-2"><Truck size={15}/> Rider: {order.rider_name}</p>}
                     </div>}
                     <div className="flex flex-wrap gap-2 items-center">
-                      {next && canOperate(identity.role, next.operation) && next.operation !== 'deliver' && (
+                      {next && canOperate(identity.role, next.operation,identity.permissions) && next.operation !== 'deliver' && (
                         <>
                           {next.operation === 'assign' && <select aria-label="Assign registered rider" value={riderEmail} onChange={e => setRiderEmail(e.target.value)} className="min-h-12 border rounded-xl px-3 py-3 text-sm bg-white">
                             {identity.riders.map(rider => <option key={rider.email} value={rider.email}>{rider.name} — {rider.email}</option>)}
@@ -856,7 +872,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                             className="min-h-12 rounded-xl bg-[#1a493b] hover:bg-[#27644e] text-white px-5 py-3 text-sm font-bold disabled:opacity-50 flex items-center gap-2"><PackageCheck size={18} /> {busyOrderId===order.id?'Saving to Sheets…':next.label}</button>
                         </>
                       )}
-                      {next?.operation === 'deliver' && canOperate(identity.role,'deliver') && (
+                      {next?.operation === 'deliver' && canOperate(identity.role,'deliver',identity.permissions) && (
                         deliveryConfirmOrderId === order.id ? (
                           <div className="flex flex-col gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 w-full sm:w-auto">
                             <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={packageHandedOver} onChange={e => setPackageHandedOver(e.target.checked)} /> Cake handed over to the customer</label>
@@ -876,10 +892,10 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                 </section>
               )}
               <React.Suspense fallback={<div className="rounded-2xl bg-white border p-8 text-center text-slate-500" role="status">Opening your workspace…</div>}>
-                {activeTab==='cakes'&&(['super_admin','admin','order_manager'] as string[]).includes(identity.role) && <CustomCakeQueue endpoint={endpoint} token={identity.token} />}
-                {activeTab==='finance'&&['super_admin','admin','accountant'].includes(identity.role)&& <FinancePanel endpoint={endpoint} token={identity.token} canEdit={identity.role==='super_admin'||identity.role==='admin'}/>}
-                {activeTab==='website'&&(identity.role === 'super_admin' || identity.role === 'admin') && <WebsiteManager endpoint={endpoint} token={identity.token}
-                  role={identity.role} onUpdated={() => onCatalogUpdated?.()} />}
+                {activeTab==='cakes'&&has('custom_cakes_view') && <CustomCakeQueue endpoint={endpoint} token={identity.token} />}
+                {activeTab==='finance'&&has('finance_view')&& <FinancePanel endpoint={endpoint} token={identity.token} canEdit={has('finance_edit')}/>}
+                {activeTab==='website'&&has('catalog_view') && <WebsiteManager endpoint={endpoint} token={identity.token}
+                  role={identity.role} canArchive={has('catalog_archive')} canEdit={has('catalog_edit')} onUpdated={() => onCatalogUpdated?.()} />}
               </React.Suspense>
               </div>
             </div>
