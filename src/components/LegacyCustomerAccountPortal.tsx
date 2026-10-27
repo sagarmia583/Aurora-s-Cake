@@ -5,6 +5,7 @@ import { verifyCustomerGoogle, linkCustomerReceipt, recoverCustomerReceipts } fr
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
 import { getPhoneCustomerProfile, signupPhoneCustomer, loginPhoneCustomer, updatePhoneCustomerProfile, phoneCustomerOrders, linkPhoneCustomerReceipt, logoutPhoneCustomer, changePhoneCustomerPassword, closePhoneCustomerAccount } from '../services/phoneCustomerApi';
 import type { PhoneCustomerProfile } from '../services/phoneCustomerApi';
+import { normalizeCheckoutPhone } from '../services/customerPhoneLookup';
 
 type GoogleSdk = {
   initialize: (options: { client_id: string; callback: (result:{credential?:string})=>void; ux_mode?:'popup'; use_fedcm_for_button?:boolean;auto_select?:boolean }) => void;
@@ -21,8 +22,10 @@ interface Props {
   onRecover:(orders:Order[])=>void;
   onIdentityToken:(token:string)=>void;
   onSignOut?:()=>void;
+  onTrackOrder?:(orderId:string)=>void;
+  onSwitchToGuest?:()=>void;
 }
-export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,localReceipts,onRecover,onIdentityToken,onSignOut})=>{
+export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,localReceipts,onRecover,onIdentityToken,onSignOut,onTrackOrder,onSwitchToGuest})=>{
   const clientId=getAuroraGoogleClientId();
   const loginRef=useRef<HTMLDivElement>(null);
   const [account,setAccount]=useState<{email:string;name:string;token:string}|null>(null);
@@ -101,13 +104,27 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
       const info=phoneMode==='signup'
         ? await signupPhoneCustomer(endpoint,phoneForm.name,phoneForm.phone,phoneForm.password)
         : await loginPhoneCustomer(endpoint,phoneForm.phone,phoneForm.password);
-      const history=await phoneCustomerOrders(endpoint,info.token);
+      // Link confirmed original receipts from this device after proving account
+      // credentials. Never attach a guessed order by phone number alone.
+      let history=await phoneCustomerOrders(endpoint,info.token);
+      let linkedCount=0;
+      const ownPhone=normalizeCheckoutPhone(info.profile.phone);
+      const candidates=localReceipts.filter(order=>order.persistence==='google_sheets'
+        && !!order.customer_access_token
+        && normalizeCheckoutPhone(order.customer_phone)===ownPhone
+        && !history.some(item=>item.id===order.id)).slice(0,8);
+      for(const receipt of candidates){
+        try{await linkPhoneCustomerReceipt(endpoint,info.token,receipt);linkedCount++;}
+        catch{ /* Keep the original receipt on device; retry with its private key. */ }
+      }
+      if(linkedCount)history=await phoneCustomerOrders(endpoint,info.token);
       try{sessionStorage.setItem('aurora_customer_phone_session_v1',info.token);}catch{}
       setPhoneAccount(info);
       setPhoneHistory(history);
       setPhoneProfileDraft({name:info.profile.name,email:info.profile.email,address:info.profile.address});
       setPhoneForm({name:'',phone:'',password:''});
       onRecover(history);
+      if(candidates.length>linkedCount)setError('Signed in. Some older receipts could not be linked automatically; check the original receipt key.');
     }catch(e){setError(e instanceof Error?e.message:'Phone account sign-in failed.');}
     finally{setBusy(false);}
   };
@@ -237,9 +254,13 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
               {phoneMode==='signup'?'Already registered? Sign in':'New customer? Create an account'}
             </button>
             <p className="text-xs text-amber-800 bg-amber-50 p-3 rounded-lg">
-              Your mobile number is not SMS verified. Your password protects this account; knowing a phone number alone never reveals previous orders.
-              If you forget the password, contact the shop for manual recovery.
+              Your mobile number is your login ID. Enter your account password to view saved delivery details and order history on any device.
+              Phone ownership is not SMS verified, so a phone number alone cannot unlock private orders. Contact the shop if you forget your password.
             </p>
+            {onSwitchToGuest && <button type="button" onClick={onSwitchToGuest}
+              className="w-full rounded-xl border border-slate-200 p-3 text-sm font-medium text-slate-700">
+              Continue as guest / Recover original receipt
+            </button>}
           </section>
         ):(
           <section className="rounded-2xl bg-emerald-50 p-4 space-y-4">
@@ -282,7 +303,13 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
                 <button onClick={()=>void refreshPhone()} disabled={busy} type="button" className="text-sm underline">Refresh</button></div>
               {phoneHistory.length===0&&<p className="text-sm text-slate-600">No linked orders yet. Link an original receipt below or place a new order while signed in.</p>}
               {phoneHistory.map(order=><div key={order.id} className="text-sm p-3 bg-white rounded-xl break-all space-y-2">
-                <p><strong>{order.order_number}</strong> · {order.status.replaceAll('_',' ')} · ৳{order.total_amount}</p>
+                <div className="flex items-center gap-2 justify-between flex-wrap">
+                  <p><strong>{order.order_number}</strong> · {order.status.replaceAll('_',' ')} · ৳{order.total_amount}</p>
+                  {onTrackOrder&&<button type="button" onClick={()=>onTrackOrder(order.id)}
+                    className="bg-emerald-800 text-white font-semibold rounded-xl px-3 py-2 text-xs">
+                    Track live order
+                  </button>}
+                </div>
                 {order.status==='out_for_delivery'&&
                   <p className="rounded-lg bg-amber-50 border border-amber-200 p-3">
                     <strong className="block text-amber-900">Delivery Verification OTP</strong>
