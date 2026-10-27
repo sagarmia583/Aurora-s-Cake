@@ -2625,16 +2625,17 @@ function auroraCmsValidateRefs_(book,name,row,oldId){
 }
 function auroraCmsPost_(input){
   var actor=auroraStaffAuthenticate_(input);
-  if(actor.role!=='super_admin'&&actor.role!=='admin')auroraReject_('forbidden','Only authorized shop administrators can edit public content.');
+  auroraStaffRequire_(actor,'catalog_view');
   var name=auroraCmsTable_(String(input.table||'')),action=String(input.action||'');
   if(action==='staff_cms_list'){
     var snapshot=auroraCmsRead_(auroraSpreadsheet_(),name);
     return {ok:true,table:name,columns:snapshot.columns,rows:auroraCmsRowsSafe_(snapshot),
-      total:snapshot.rows.length,truncated:snapshot.rows.length>500,can_delete:actor.role==='super_admin'};
+      total:snapshot.rows.length,truncated:snapshot.rows.length>500,can_delete:auroraStaffHas_(actor,'catalog_archive')};
   }
   if(['staff_cms_create','staff_cms_update','staff_cms_delete'].indexOf(action)===-1)
     auroraReject_('invalid_action','Unsupported website edit.');
-  if(action==='staff_cms_delete'&&actor.role!=='super_admin')auroraReject_('forbidden','Only Super Admin can archive public records.');
+  if(action==='staff_cms_delete')auroraStaffRequire_(actor,'catalog_archive');
+  else auroraStaffRequire_(actor,'catalog_edit');
   var lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))auroraReject_('busy','Another website change is being saved.');
   try {
