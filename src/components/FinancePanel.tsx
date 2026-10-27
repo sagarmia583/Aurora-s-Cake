@@ -1,6 +1,6 @@
 import React,{useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import { RefreshCw, WalletCards, Banknote, CakeSlice, Plus } from 'lucide-react';
-import {financeSummary,recordCashDeposit,saveCakeCost,archiveCakeCost} from '../services/financeApi';
+import {financeSummary,recordCashDeposit,voidCashDeposit,saveCakeCost,archiveCakeCost} from '../services/financeApi';
 import type {FinanceSnapshot} from '../services/financeApi';
 
 type Props={endpoint:string;token:string;canEdit:boolean};
@@ -42,6 +42,17 @@ export default function FinancePanel({endpoint,token,canEdit}:Props){
       setData(result);setAmount('');setNote('');requestId.current='';
       setNotice('Cash deposit recorded as a debit. Rider outstanding balance reduced.');
     }catch(err){setError(err instanceof Error?err.message:'Deposit not confirmed. Retry the same request.');}
+    finally{setBusy(false);}
+  };
+  const voidDeposit=async(id:string)=>{
+    if(!canEdit||busy)return;
+    const reason=window.prompt('Reason for reversing this cash deposit (minimum 8 characters):');
+    if(reason===null)return;
+    if(reason.trim().length<8){setError('A meaningful correction reason of at least 8 characters is required.');return;}
+    if(!window.confirm('Void this cash deposit? Rider outstanding cash will increase by its amount; the original row remains in the audit trail.'))return;
+    setBusy(true);setError('');setNotice('');
+    try{setData(await voidCashDeposit(endpoint,token,id,reason.trim()));setNotice('Cash deposit voided and outstanding balance recalculated. Original ledger row preserved.');}
+    catch(err){setError(err instanceof Error?err.message:'Cash correction failed. Refresh the ledger.');}
     finally{setBusy(false);}
   };
   const recordCost=async(e:React.FormEvent)=>{
@@ -106,6 +117,9 @@ export default function FinancePanel({endpoint,token,canEdit}:Props){
           <div className="space-y-2 pt-3">{data.deposits.map(d=><div key={d.id} className="rounded-xl border p-3 text-xs">
             <strong>{d.rider_id}</strong> · {d.date} · <strong>{format(d.amount)}</strong>
             <div className="text-slate-500">{d.actor_name} {d.notes&&'· '+d.notes}</div>
+            {d.voided_at ? <p className="mt-2 text-red-700 font-semibold">Voided {d.voided_at} by {d.voided_by} — {d.void_reason}</p> :
+              canEdit && <button type="button" disabled={busy} onClick={()=>void voidDeposit(d.id)}
+                className="mt-2 text-red-700 font-semibold underline disabled:opacity-50">Correct / Void deposit</button>}
           </div>)}</div>
         </details>
       </section>
