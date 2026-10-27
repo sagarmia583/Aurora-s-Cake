@@ -112,7 +112,7 @@ export default function App(){
   const [workingId,setWorkingId]=useState('');
   const [lastRefresh,setLastRefresh]=useState('');
   const [otpOrder,setOtpOrder]=useState<StaffOrder|null>(null);
-  const [otp,setOtp]=useState('');
+  const [handedOver,setHandedOver]=useState(false);
   const [cash,setCash]=useState(false);
   const [assignOrder,setAssignOrder]=useState<StaffOrder|null>(null);
   const [rider,setRider]=useState('');
@@ -195,7 +195,7 @@ export default function App(){
       if(!alive.current)return;
       setOrders(prev=>prev.map(o=>o.id===updated.id?{...o,...updated}:o));
       setNotice('#'+order.order_number+' — '+statusLabel(updated.status)+' ✓');
-      setOtpOrder(null);setOtp('');setCash(false);setAssignOrder(null);
+      setOtpOrder(null);setHandedOver(false);setCash(false);setAssignOrder(null);
       // Do not block UI waiting for a slow second Sheets read.
     }catch(e){if(alive.current)setError(e instanceof Error?e.message:'Order was not updated.');}
     finally{if(alive.current)setWorkingId('');}
@@ -205,15 +205,15 @@ export default function App(){
       {text:'Back',style:'cancel'},{text:'Cancel order',style:'destructive',
         onPress:()=>void applyMutation(order,'cancel')}]);return;}
     if(op==='start_delivery'){
-      Alert.alert('Start delivery','এখন Customer-এর order tracking-এ OTP তৈরি হবে।',[
+      Alert.alert('Start delivery','Customer-কে কেক পৌঁছে দেওয়ার পরে delivery confirmation সম্পন্ন করো।',[
         {text:'Back',style:'cancel'},{text:'Start delivery',onPress:()=>void applyMutation(order,op)}]);return;
     }
     void applyMutation(order,op);
   };
   const finishDelivery=()=>{
-    if(!otpOrder||!/^\d{4}$/.test(otp)){setError('Customer-এর সঠিক ৪ সংখ্যার OTP দাও।');return;}
+    if(!otpOrder||!handedOver){setError('Customer-এর হাতে কেক তুলে দেওয়া নিশ্চিত করো।');return;}
     if(otpOrder.payment_method==='cod'&&!cash){setError('পুরো COD Cash সংগ্রহ নিশ্চিত করো।');return;}
-    void applyMutation(otpOrder,'deliver',{delivery_otp:otp,cash_collected:cash});
+    void applyMutation(otpOrder,'deliver',{package_handed_over:true,cash_collected:cash});
   };
   const visible=useMemo(()=>{
     if(!session)return [];
@@ -282,7 +282,7 @@ export default function App(){
       <View style={s.infoCard}><Text style={s.infoTitle}>⚡ Quick Help</Text>
         <Text style={s.infoLine}>• Pull down to refresh orders.</Text>
         <Text style={s.infoLine}>• Order status refreshes about every 30 seconds while open.</Text>
-        <Text style={s.infoLine}>• Rider OTP appears on customer's tracking page only after Start delivery.</Text>
+        <Text style={s.infoLine}>• Rider confirms the cake was handed to the customer. No delivery OTP.</Text>
         <Text style={s.infoLine}>• Cash on delivery must be collected before completion.</Text>
       </View>
       <ActionButton kind="danger" label="Sign out securely" onPress={signout}/>
@@ -304,7 +304,7 @@ export default function App(){
         keyboardShouldPersistTaps="handled" initialNumToRender={8} maxToRenderPerBatch={8} windowSize={5}
         renderItem={({item})=><OrderTile order={item} session={session} working={workingId===item.id}
           onNext={action} onAssign={o=>{setAssignOrder(o);setRider(readyToAssign[0]?.email||'');}}
-          onOtp={o=>{setOtpOrder(o);setOtp('');setCash(false);}}
+          onOtp={o=>{setOtpOrder(o);setHandedOver(false);setCash(false);}}
           onCancel={o=>action(o,'cancel')}/>}
         ListEmptyComponent={<View style={s.empty}><Text style={{fontSize:40}}>✨</Text>
           <Text style={s.emptyTitle}>{refreshing?'Loading orders…':'Nothing waiting here'}</Text>
@@ -334,17 +334,15 @@ export default function App(){
     {otpOrder?<View style={s.overlay}><View style={s.sheet}>
       <Text style={s.sheetTitle}>✅ Complete delivery</Text>
       <SmallLabel>#{otpOrder.order_number} · {money(otpOrder.cod_amount??otpOrder.total_amount)}</SmallLabel>
-      <Text style={s.infoLine}>Ask the customer for the 4-digit OTP shown on their private tracking receipt.</Text>
-      <TextInput style={[s.input,{fontSize:26,textAlign:'center',letterSpacing:14,marginVertical:14}]}
-        value={otp} onChangeText={t=>setOtp(t.replace(/[^\d]/g,'').slice(0,4))}
-        maxLength={4} keyboardType="number-pad" secureTextEntry placeholder="••••"
-        accessibilityLabel="Customer delivery OTP"/>
+      <Pressable style={[s.cashConfirm,handedOver&&s.cashConfirmed]} onPress={()=>setHandedOver(x=>!x)}>
+        <Text style={{color:C.ink,fontSize:15,fontWeight:'700'}}>{handedOver?'☑':'☐'}  Cake handed over to the customer</Text>
+      </Pressable>
       {otpOrder.payment_method==='cod'?<Pressable style={[s.cashConfirm,cash&&s.cashConfirmed]} onPress={()=>setCash(x=>!x)}>
         <Text style={{color:C.ink,fontSize:15,fontWeight:'700'}}>{cash?'☑':'☐'}  Full COD cash collected: {money(otpOrder.cod_amount??otpOrder.total_amount)}</Text>
       </Pressable>:null}
-      <ActionButton disabled={otp.length!==4||(otpOrder.payment_method==='cod'&&!cash)||!!workingId}
-        label={workingId?'Verifying…':'Verify OTP and mark delivered'} onPress={finishDelivery}/>
-      <ActionButton kind="secondary" label="Back" onPress={()=>{setOtpOrder(null);setOtp('');setCash(false);}}/>
+      <ActionButton disabled={!handedOver||(otpOrder.payment_method==='cod'&&!cash)||!!workingId}
+        label={workingId?'Saving…':'Mark delivered'} onPress={finishDelivery}/>
+      <ActionButton kind="secondary" label="Back" onPress={()=>{setOtpOrder(null);setHandedOver(false);setCash(false);}}/>
     </View></View>:null}
   </View>;
 }
