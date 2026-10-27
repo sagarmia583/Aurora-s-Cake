@@ -3,7 +3,7 @@ import { Database, RefreshCw, Plus, Save, Archive, Search } from 'lucide-react';
 import { CMS_TABLE_OPTIONS, fetchCmsTable, mutateCmsTable, uploadCmsImage } from '../services/sheetStaffApi';
 import type { CmsSnapshot, CmsTable } from '../services/sheetStaffApi';
 
-interface Props {endpoint:string;token:string;role:'super_admin'|'admin';onUpdated:()=>void}
+interface Props {endpoint:string;token:string;role:string;canEdit:boolean;canArchive:boolean;onUpdated:()=>void}
 type Cell = string|number|boolean;
 const numberFields=new Set(['sort_order','base_price','sale_price','price','weight_grams','rating','review_count','delivery_fee','discount_value','min_order_amount','max_discount_amount','usage_count']);
 const boolFields=new Set(['is_active','is_featured','accepting_orders','delivery_enabled']);
@@ -20,7 +20,7 @@ const convert=(key:string,value:Cell):Cell=>{
 };
 const isLocked=(name:string)=>name==='id'||name==='key'||name==='created_at';
 const columnsFor=(data:CmsSnapshot)=>data.columns.filter(col=>!isLocked(col));
-export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
+export const WebsiteManager:React.FC<Props>=({endpoint,token,role,canEdit,canArchive,onUpdated})=>{
   const [table,setTable]=useState<CmsTable>('products');
   const [data,setData]=useState<CmsSnapshot|null>(null);
   const [loading,setLoading]=useState(false);
@@ -57,7 +57,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
     setNotice('');setError('');
   };
   const save=async()=>{
-    if(!data||saving)return;
+    if(!data||saving||!canEdit)return;
     setSaving(true);setError('');setNotice('');
     try{
       const values:Record<string,Cell>={};
@@ -75,7 +75,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
     finally{setSaving(false);}
   };
   const uploadImage=async(file:File,field:string)=>{
-    if(uploading||saving)return;
+    if(uploading||saving||!canEdit)return;
     setUploading(true);setError('');setNotice('');
     try{
       if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>12000000)
@@ -128,7 +128,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
    *  updates it, then archives it; never touches existing public or private rows.
    */
   const runCmsSmoke=async()=>{
-    if(role!=='super_admin'||saving||loading||uploading)return;
+    if(!canEdit||saving||loading||uploading)return;
     if(!window.confirm('Run a real Google Sheets CRUD test? This adds one clearly labeled, hidden FAQ test row (preserved/archived for audit). No existing orders or products will be changed.'))return;
     setSaving(true);setError('');setNotice('');
     const marker='AURORA_CMS_TEST_'+Date.now();
@@ -152,7 +152,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
     finally{setSaving(false);}
   };
   const archive=async()=>{
-    if(!data||!selected||role!=='super_admin'||saving)return;
+    if(!data||!selected||!canArchive||saving)return;
     if(!window.confirm('Archive this public record? Historical orders stay intact. This cannot be used for private orders.'))return;
     setSaving(true);setError('');setNotice('');
     try{
@@ -246,7 +246,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
             <button type="button" disabled={saving||loading} onClick={()=>void save()} className="rounded-xl bg-emerald-800 text-white px-4 py-2 font-semibold text-sm flex gap-2 items-center">
               <Save size={15}/>{saving?'Saving…':creating?'Create in Sheet':'Save to Sheet'}
             </button>
-            {!creating&&role==='super_admin'&&table!=='settings'&&table!=='content'&&
+            {!creating&&canArchive&&table!=='settings'&&table!=='content'&&
               <button type="button" disabled={saving} onClick={()=>void archive()}
                 className="rounded-xl border border-red-300 text-red-700 px-3 py-2 text-sm flex items-center gap-2">
                 <Archive size={15}/> Archive / hide
