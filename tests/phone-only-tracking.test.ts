@@ -31,6 +31,21 @@ function trackingEnvironment() {
     })},
     auroraReject_: (code:string,message:string) => {throw new Error(code+': '+message);},
     auroraSpreadsheet_: () => ({}),
+    auroraFastReceipt_: (_table:unknown,row:number) => ({
+      customer_phone:rows[row-2][0],
+      delivery_date:'2026-10-28',
+      delivery_slot:'10:00 AM - 11:00 AM',
+      payment_method:'cod',
+      payment_status:'pending',
+      subtotal:800,
+      delivery_fee:50,
+      discount_amount:0,
+      total_amount:850,
+      items:[{product_name:'Chocolate Cake',variant_name:'1 pound',flavor_name:'Chocolate',quantity:1,unit_price:800,subtotal:800,writing_message:'PRIVATE NAME'}],
+      history:[{status:'pending',created_at:'2026-10-27T10:00:00.000Z',notes:'PRIVATE STAFF NOTE'}],
+      delivery_address:'PRIVATE STREET',customer_name:'PRIVATE CUSTOMER',delivery_otp:'1234',
+      customer_access_token:'PRIVATE TOKEN',
+    }),
     auroraFastOrderTable_: () => ({
       headers, sheet:{
         getLastRow:()=>rows.length+1,
@@ -56,10 +71,15 @@ test('phone-only lookup lists only matching orders with masked reference and sta
   assert.equal(result.orders[0].status,'out_for_delivery');
   assert.equal(result.orders[1].status,'pending');
   assert.deepEqual(Object.keys(result.orders[0]).sort(),
-    ['created_at','reference','status','updated_at']);
+    ['created_at','delivery_date','delivery_fee','delivery_slot','discount_amount',
+      'items','payment_method','payment_status','reference','status','subtotal',
+      'timeline','total_amount','updated_at']);
+  assert.equal((result.orders[0].items as Record<string,unknown>[])[0].product_name,'Chocolate Cake');
+  assert.equal(result.orders[0].total_amount,850);
   assert.ok(!JSON.stringify(result).includes('01700000000'));
   assert.ok(!JSON.stringify(result).includes('AURORA-1003'));
-  assert.ok(!JSON.stringify(result).includes('otp'));
+  for(const privateValue of ['PRIVATE STREET','PRIVATE CUSTOMER','PRIVATE NAME','PRIVATE STAFF NOTE','PRIVATE TOKEN','1234'])
+    assert.ok(!JSON.stringify(result).includes(privateValue));
   assert.equal((track('01811111111') as {orders:unknown[]}).orders.length,1);
   assert.deepEqual((track('01922222222') as {orders:unknown[]}).orders.length,0);
 });
