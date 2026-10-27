@@ -1837,6 +1837,7 @@ function auroraOperationsPost_(input) {
       order.rider_id = riderEmail;
       order.rider_name = String(rider.name||riderEmail).slice(0,100);
     }
+    if (action === 'start_baking') auroraSnapshotProduction_(book,order,actor);
     if (action === 'deliver') {
       // Delivery OTP is intentionally disabled. Only the assigned, signed-in
       // rider can close an out_for_delivery order after explicit confirmation.
@@ -3387,6 +3388,60 @@ function auroraInventoryPost_(input){
     }
     auroraReject_('invalid_action','Unknown inventory/refund action.');
   }finally{lock.releaseLock();}
+}
+
+/** Freeze recipe unit costs at the moment baking starts. */
+function auroraSnapshotProduction_(book,order,actor){
+  var table=auroraPrivateTable_(book,'order_cost_snapshots');
+  var recipes=auroraPrivateTable_(book,'cake_cost_items').rows;
+  var existed=table.rows.filter(function(r){return String(r.order_id)===String(order.id);})[0];
+  var lines=[],total=0,missing=false;
+  if(existed)lines=JSON.parse(String(existed.lines_json||'[]'));
+  else{
+    (order.items||[]).forEach(function(item){
+      var found=recipes.filter(function(r){return (r.active===true||String(r.active)==='true') &&
+        String(r.product_id)===String(item.product_id)&&String(r.variant_id)===String(item.variant_id);});
+      if(!found.length)missing=true;
+      found.forEach(function(r){
+        var qty=Number(r.quantity)*Number(item.quantity),unitCost=Number(r.unit_cost);
+        if(!isFinite(qty)||qty<=0||!isFinite(unitCost)||unitCost<0)
+          auroraReject_('invalid_recipe','Invalid ingredient cost or quantity.');
+        var line={recipe_id:String(r.id),item_id:String(r.inventory_item_id||''),
+          component:String(r.component),unit:String(r.unit_label),quantity:qty,
+          unit_cost:unitCost,total:Math.round(qty*unitCost*100)/100};
+        lines.push(line);total=Math.round((total+line.total)*100)/100;
+      });
+    });
+  }
+  var movements=auroraPrivateTable_(book,'inventory_movements');
+  var stock=auroraInventoryState_(book).stock,requirements={};
+  lines.forEach(function(line){
+    if(!line.item_id)return;
+    var key='production:'+order.id+':'+line.recipe_id;
+    if(movements.rows.some(function(r){return r.request_id===key;}))return;
+    var available=stock.filter(function(r){return r.id===line.item_id&&r.unit===line.unit;})[0];
+    if(!available)auroraReject_('unmapped_stock','Ingredient unit and inventory mapping do not match.');
+    requirements[line.item_id]=(requirements[line.item_id]||0)+line.quantity;
+  });
+  Object.keys(requirements).forEach(function(itemId){
+    var entry=stock.filter(function(r){return r.id===itemId;})[0];
+    if(!entry||entry.balance+0.000001<requirements[itemId])
+      auroraReject_('insufficient_stock','Stock is insufficient for production: '+(entry?entry.name:itemId));
+  });
+  if(!existed)auroraAppendPrivate_(table,{id:'snapshot_'+Utilities.getUuid(),
+    order_id:String(order.id),order_number:String(order.order_number),
+    recorded_at:new Date().toISOString(),total_cost:total,missing_recipe:missing,
+    lines_json:JSON.stringify(lines)});
+  lines.forEach(function(line){
+    if(!line.item_id)return;
+    var key='production:'+order.id+':'+line.recipe_id;
+    if(movements.rows.some(function(r){return r.request_id===key;}))return;
+    auroraAppendPrivate_(movements,{id:'move_'+Utilities.getUuid(),request_id:key,
+      item_id:line.item_id,delta:-Number(line.quantity),unit_cost:Number(line.unit_cost),
+      reason:'Production '+order.order_number,order_id:String(order.id),
+      actor:String(actor.username||actor.email||actor.name),created_at:new Date().toISOString()});
+  });
+  return {total_cost:existed?Number(existed.total_cost):total,missing_recipe:missing};
 }
 
 /* ==== END apps-script/InventoryOperations.gs ==== */
