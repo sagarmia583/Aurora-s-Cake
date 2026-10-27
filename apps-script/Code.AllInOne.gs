@@ -2875,8 +2875,7 @@ function auroraCustomCakePost_(input) {
     return {ok:true,request_id:id,status:current.status,quoted_price:current.quoted_price,updated_at:current.updated_at};
   }
   var actor=auroraStaffAuthenticate_(input);
-  if(['super_admin','admin','order_manager'].indexOf(actor.role)===-1)
-    auroraReject_('forbidden','Only authorized managers may read custom cake requests.');
+  auroraStaffRequire_(actor,'custom_cakes_view');
   if(input.action==='staff_custom_cakes'){
     var table=auroraPrivateTable_(auroraSpreadsheet_(),'custom_cake_requests');
     var requests=auroraCustomCakeRows_(table);
@@ -2884,6 +2883,7 @@ function auroraCustomCakePost_(input) {
     return {ok:true,requests:requests.slice(0,100)};
   }
   if(input.action==='staff_custom_quote'){
+    auroraStaffRequire_(actor,'custom_cakes_quote');
     var id=auroraOrderText_(input.request_id,'Request ID',36,36).toLowerCase();
     var status=String(input.status||'');
     if(['quoted','declined'].indexOf(status)===-1)auroraReject_('invalid_status','Choose quoted or declined.');
