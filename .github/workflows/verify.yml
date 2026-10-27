@@ -18,6 +18,8 @@ jobs:
       - name: Audit production dependencies (advisory)
         run: npm audit --omit=dev --audit-level=high
         continue-on-error: true
+      - name: Verify Firebase SDK component registry
+        run: node scripts/verify-firebase-singleton.cjs
       - name: TypeScript checks
         run: npm run lint
       - name: Unit and integration tests
