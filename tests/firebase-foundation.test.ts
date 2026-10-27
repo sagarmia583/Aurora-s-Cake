@@ -16,7 +16,7 @@ class MemoryDb{
  async runTransaction(callback:(tx:any)=>Promise<unknown>){
   const writes:{key:string;data:Record<string,unknown>}[]=[];
   const value=await callback({
-   get:async(ref:any)=>{const d=this.rows.get(ref.key);return {exists:!!d,data:()=>d};},
+   get:async(ref:any)=>{const d=this.rows.get(ref.key);return {id:ref.id,exists:!!d,data:()=>d};},
    create:(ref:any,data:Record<string,unknown>)=>{if(this.rows.has(ref.key)||writes.some(x=>x.key===ref.key))throw new Error('Already exists.');
     writes.push({key:ref.key,data});}
   });
