@@ -1,6 +1,6 @@
 import { privatePost } from './sheetStaffApi';
 export type FinanceRider = {rider_id:string;rider_name:string;collected:number;deposited:number;remaining:number;delivered_count:number};
-export type CakeCost = {id:string;product_id:string;variant_id:string;component:string;unit_label:string;quantity:number;unit_cost:number;total:number};
+export type CakeCost = {id:string;product_id:string;variant_id:string;component:string;unit_label:string;inventory_item_id?:string;quantity:number;unit_cost:number;total:number};
 export type FinanceSnapshot = {
   riders:FinanceRider[];
   deposits:{id:string;rider_id:string;amount:number;date:string;actor_name:string;created_at:string;notes:string;voided_at:string;voided_by:string;void_reason:string;status:string;initiated_by_id:string;approved_by_id:string}[];
@@ -44,7 +44,7 @@ export async function voidCashDeposit(endpoint:string,token:string,depositId:str
     deposit_id:depositId,reason});
   return checkSnapshot(data.snapshot);
 }
-export async function saveCakeCost(endpoint:string,token:string,input:{request_id:string;product_id:string;variant_id:string;component:string;unit_label:string;quantity:number;unit_cost:number}):Promise<FinanceSnapshot>{
+export async function saveCakeCost(endpoint:string,token:string,input:{request_id:string;product_id:string;variant_id:string;component:string;unit_label:string;inventory_item_id?:string;quantity:number;unit_cost:number}):Promise<FinanceSnapshot>{
   const data=await privatePost(endpoint,{action:'staff_cake_cost_save',...cred(token),...input});
   return checkSnapshot(data.snapshot);
 }
