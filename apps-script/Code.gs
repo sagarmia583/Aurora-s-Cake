@@ -85,7 +85,9 @@ var PRIVATE_ORDER_SCHEMAS = {
   customer_accounts: ['id','phone','name','address','email','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'],
   auth_sessions: ['token_hash','account_type','account_id','created_at','expires_at','revoked'],
   customer_master: ['id','phone_key','name','delivery_address','created_at','updated_at','order_count','last_order_id','last_order_at'],
-  customer_contact_requests: ['id','phone_key','name','delivery_address','created_at','status']
+  customer_contact_requests: ['id','phone_key','name','delivery_address','created_at','status'],
+  rider_cash_deposits: ['id','request_id','rider_id','amount','date','actor_name','created_at','notes'],
+  cake_cost_items: ['id','product_id','variant_id','component','unit_label','quantity','unit_cost','active','updated_at']
 };
 
 // This handler creates a private COD receipt. GET never calls these functions.
@@ -111,6 +113,7 @@ function doPost(e) {
     if (input && input.action === 'staff_customer_lookup') return auroraResponse_(auroraStaffCustomerLookup_(input));
     if (input && input.action === 'customer_contact_submit') return auroraResponse_(auroraGuestContactSubmit_(input));
     if (input && input.action === 'customer_receipt_recover') return auroraResponse_(auroraCustomerReceiptRecover_(input));
+    if(input && /^(staff_finance_summary|staff_cash_deposit|staff_cake_cost_save|staff_cake_cost_archive)$/.test(String(input.action||''))) return auroraResponse_(auroraFinancePost_(input));
     if (input && input.action === 'customer_phone_tracking') return auroraResponse_(auroraPhoneOnlyTracking_(input));
     if (input && input.action === 'get_order_status') return auroraResponse_(auroraCustomerOrderStatus_(input));
     if (input && /^staff_cms_(list|create|update|delete)$/.test(String(input.action||''))) return auroraResponse_(auroraCmsPost_(input));
