@@ -1625,14 +1625,18 @@ function auroraOperationsOrders_(actor, table) {
     try { order = JSON.parse(String(row.receipt_json || '')); }
     catch (_) { complete = false; return; }
     if (!order || !order.id) { complete = false; return; }
-    if (actor.role === 'delivery_man' && String(order.rider_id || '').toLowerCase() !== actor.email) return;
+    // Delivery-only employees see just their own assigned orders.
+    var assigned=String(order.rider_id||'').toLowerCase()===actor.email;
+    var deliveryOnly=auroraStaffHas_(actor,'delivery_pickup')&&
+      !auroraStaffHas_(actor,'order_confirm')&&!auroraStaffHas_(actor,'delivery_assign');
+    if ((actor.role==='delivery_man'||deliveryOnly)&&!assigned)return;
     if (actor.role === 'kitchen_manager' && ['pending','cancelled','delivered'].indexOf(order.status) !== -1) return;
     // Staff never receives the delivery OTP or the customer's bearer capability.
     if(actor.role==='super_admin'&&!order.customer_access_token&&order.status==='out_for_delivery')
       order.legacy_receipt_missing=true;
     delete order.customer_access_token;
     delete order.customer_google_sub;
-    if (actor.role === 'kitchen_manager') {
+    if (!auroraStaffHas_(actor,'customers_lookup') && !assigned) {
       delete order.customer_phone;
       delete order.delivery_address;
     }
