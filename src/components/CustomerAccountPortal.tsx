@@ -284,20 +284,45 @@ export const CustomerAccountPortal: React.FC<Props> = ({
                     </button>
                   </div>
                   <details className="group mt-4 border-t pt-3">
-                    <summary className="cursor-pointer text-sm font-bold text-[#174b3b]">View order details</summary>
+                    <summary className="cursor-pointer text-sm font-bold text-[#174b3b]">Full order information</summary>
                     <div className="grid gap-3 text-sm mt-4">
+                      <p><strong>Customer:</strong> {order.customer_name} · {order.customer_phone}</p>
                       <div className="flex items-start gap-2 text-slate-700"><MapPin size={16} className="shrink-0 mt-1"/>
-                        <span>{order.delivery_address}</span></div>
-                      <p className="text-slate-600">Delivery: {order.delivery_date} · {order.delivery_slot}</p>
-                      <ul className="rounded-xl bg-slate-50 p-3 space-y-2">
+                        <span>{order.delivery_address} · {order.delivery_zone?.name}</span></div>
+                      <p><strong>Delivery:</strong> {order.delivery_date} · {order.delivery_slot}</p>
+                      {order.rider_name && <p><strong>Rider:</strong> {order.rider_name}</p>}
+                      {order.order_note && <p className="rounded-xl bg-amber-50 p-3"><strong>Order note:</strong> {order.order_note}</p>}
+                      <div className="rounded-xl bg-slate-50 p-3 space-y-3">
                         {order.items.map(item => (
-                          <li key={item.id} className="flex items-start justify-between gap-3">
-                            <span>{item.quantity} × {item.product_name} ({item.variant_name})</span>
-                            <strong className="whitespace-nowrap">৳{item.subtotal.toLocaleString('en-BD')}</strong>
-                          </li>
+                          <div key={item.id} className="border-b last:border-b-0 pb-2 last:pb-0">
+                            <div className="flex items-start justify-between gap-2">
+                              <strong>{item.quantity} × {item.product_name} ({item.variant_name})</strong>
+                              <strong className="whitespace-nowrap">৳{item.subtotal.toLocaleString('en-BD')}</strong>
+                            </div>
+                            {item.flavor_name && <p className="text-xs text-slate-600">Flavor: {item.flavor_name}</p>}
+                            {item.writing_message && <p className="text-xs text-slate-600">Cake writing: {item.writing_message}</p>}
+                            {item.addons?.map((addon,index)=><p key={index} className="text-xs text-slate-600">+ {addon.addon_name} × {addon.quantity}: ৳{addon.subtotal.toLocaleString('en-BD')}</p>)}
+                          </div>
                         ))}
-                      </ul>
-                      <p className="text-xs text-slate-500">Payment: {order.payment_method.toUpperCase()} · {order.payment_status}</p>
+                      </div>
+                      <dl className="space-y-1 rounded-xl border p-3">
+                        <div className="flex justify-between"><dt>Subtotal</dt><dd>৳{order.subtotal.toLocaleString('en-BD')}</dd></div>
+                        <div className="flex justify-between"><dt>Delivery fee</dt><dd>৳{order.delivery_fee.toLocaleString('en-BD')}</dd></div>
+                        <div className="flex justify-between"><dt>Discount</dt><dd>-৳{order.discount_amount.toLocaleString('en-BD')}</dd></div>
+                        {order.coupon_code && <p className="text-xs text-slate-600">Coupon: {order.coupon_code}</p>}
+                        <div className="flex justify-between font-black border-t pt-2"><dt>Total</dt><dd>৳{order.total_amount.toLocaleString('en-BD')}</dd></div>
+                      </dl>
+                      <p><strong>Payment:</strong> {order.payment_method.toUpperCase()} · {order.payment_status}
+                        {order.payment_method==='cod' ? (order.cod_collected?' · Cash collected':' · Cash pending') : ''}</p>
+                      <div className="rounded-xl border p-3">
+                        <strong className="text-sm">Order timeline</strong>
+                        <ol className="mt-2 space-y-2">
+                          {order.history.map((event,index)=><li key={event.id||index} className="text-xs text-slate-700">
+                            <strong>{orderStage[event.status] || event.status}</strong> · {new Date(event.created_at).toLocaleString('en-BD')}
+                            {event.notes && <span className="block text-slate-500">{event.notes}</span>}
+                          </li>)}
+                        </ol>
+                      </div>
                     </div>
                   </details>
                 </article>
