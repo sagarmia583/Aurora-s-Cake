@@ -60,13 +60,11 @@ function auroraFinanceSnapshot_(book) {
 function auroraFinancePost_(input){
   var actor=auroraStaffAuthenticate_(input);
   var action=String(input.action||'');
-  if(['super_admin','admin','accountant'].indexOf(actor.role)<0)
-    auroraReject_('forbidden','Only authorized financial staff can access private cash reports.');
+  auroraStaffRequire_(actor,'finance_view');
   if(action==='staff_finance_summary')return auroraFinanceSnapshot_(auroraSpreadsheet_());
   if(['staff_cash_deposit','staff_cake_cost_save','staff_cake_cost_archive'].indexOf(action)<0)
     auroraReject_('invalid_action','Unknown finance operation.');
-  if(actor.role!=='super_admin'&&actor.role!=='admin')
-    auroraReject_('forbidden','Only an administrator can record cash deposits or edit recipe costs.');
+  auroraStaffRequire_(actor,'finance_edit');
   var lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))auroraReject_('busy','Another financial update is being saved.');
   try{
