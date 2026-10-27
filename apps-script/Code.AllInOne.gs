@@ -147,6 +147,7 @@ function doPost(e) {
       if (!receipt || !receipt.id || !Array.isArray(receipt.items) || receipt.id !== String(previous[0].id)) throw new Error('Incomplete committed receipt.');
       auroraRepairOrderItems_(itemTable,receipt);
       auroraCustomerMasterUpsert_(book,orders,receipt);
+      auroraSyncCouponUsage_(book,receipt.coupon_code);
       return auroraResponse_({success:true,persisted:true,order:auroraCheckoutReceiptSafe_(receipt)});
     }
     if (!request.checkout_proof) auroraReject_('upgrade_required','Refresh the website before placing a new order.');
@@ -166,6 +167,7 @@ function doPost(e) {
     });
     auroraRepairOrderItems_(itemTable,order);
     auroraCustomerMasterUpsert_(book,orders,order);
+    auroraSyncCouponUsage_(book,order.coupon_code);
     return auroraResponse_({success:true,persisted:true,order:auroraCheckoutReceiptSafe_(order)});
   } catch (error) {
     if (error && error.auroraValidation) return auroraResponse_({ok:false,success:false,persisted:false,code:error.code,error:error.message});
@@ -601,6 +603,35 @@ function setupSheetDatabase() {
   CacheService.getScriptCache().remove(auroraCacheKey_());
   console.log(report.join('\n'));
   return report.join('\n');
+}
+
+/**
+ * Rebuild coupon usage from committed orders rather than incrementing a
+ * counter. Replaying a checkout request can never count the coupon twice.
+ * Called while the existing checkout/order ScriptLock is held.
+ */
+function auroraSyncCouponUsage_(book,code) {
+  var normalized=String(code||'').trim().toUpperCase();
+  if(!normalized)return;
+  var sheet=book.getSheetByName('coupons');
+  if(!sheet||sheet.getLastRow()<2)return;
+  var headers=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0]
+    .map(function(x){return String(x).trim().toLowerCase();});
+  var codeCol=headers.indexOf('code'),usageCol=headers.indexOf('usage_count');
+  if(codeCol<0||usageCol<0)return; // older schema, never damage it
+  var values=sheet.getRange(2,1,sheet.getLastRow()-1,headers.length).getValues();
+  var row=-1;
+  for(var i=0;i<values.length;i++) {
+    if(String(values[i][codeCol]||'').trim().toUpperCase()===normalized){row=i+2;break;}
+  }
+  if(row<0)return;
+  var orders=auroraPrivateTable_(book,'orders').rows;
+  var count=orders.filter(function(order){
+    return String(order.coupon_code||'').trim().toUpperCase()===normalized &&
+      String(order.status||'')!=='cancelled';
+  }).length;
+  sheet.getRange(row,usageCol+1,1,1).setValues([[count]]);
+  CacheService.getScriptCache().remove(auroraCacheKey_());
 }
 
 function auroraSeedRows_(name,seed) {
