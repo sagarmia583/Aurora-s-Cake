@@ -171,6 +171,46 @@ export function createSheetOrderAttempt(endpoint: string, draft: SheetOrderDraft
   return Object.freeze({ endpoint: safeEndpoint, fingerprint, request_id: requestId, body: JSON.stringify({ action: 'create_order', request_id: requestId, checkout_proof: checkoutProof, ...payload }) });
 }
 
+
+const PENDING_ATTEMPT_KEY = 'aurora_pending_cod_checkout_v1';
+/** A pending COD write is not a confirmed order.
+ * Keep its exact idempotency reference across a page refresh in the current tab,
+ * so an uncertain response is never retried as a new payment/order request.
+ */
+export function storePendingSheetOrderAttempt(attempt: SheetOrderAttempt): boolean {
+  try {
+    if (!loadableAttempt(attempt)) return false;
+    globalThis.sessionStorage?.setItem(PENDING_ATTEMPT_KEY, JSON.stringify(attempt));
+    return globalThis.sessionStorage?.getItem(PENDING_ATTEMPT_KEY) !== null;
+  } catch { return false; }
+}
+function loadableAttempt(value: unknown): value is SheetOrderAttempt {
+  if (!isObject(value) || ![value.endpoint,value.fingerprint,value.request_id,value.body].every(isText)) return false;
+  if (value.body.length > 75000 || value.fingerprint.length > 75000 ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.request_id)) return false;
+  try {
+    const endpoint=normalizeEndpoint(value.endpoint);
+    const body:unknown=JSON.parse(value.body);
+    if (!isObject(body)||body.action!=='create_order'||body.request_id!==value.request_id||
+       typeof body.checkout_proof!=='string'||body.checkout_proof.length<60) return false;
+    const {action:_action,request_id:_requestId,checkout_proof:_proof,...draft}=body;
+    const payload=cleanDraft(draft as unknown as SheetOrderDraft);
+    return value.fingerprint===JSON.stringify({endpoint,payload});
+  } catch { return false; }
+}
+export function loadPendingSheetOrderAttempt(endpoint:string): SheetOrderAttempt | null {
+  try {
+    const raw=globalThis.sessionStorage?.getItem(PENDING_ATTEMPT_KEY);
+    if (!raw || raw.length > 160000) return null;
+    const parsed:unknown=JSON.parse(raw);
+    return loadableAttempt(parsed) && parsed.endpoint===normalizeEndpoint(endpoint)
+      ? Object.freeze(parsed as SheetOrderAttempt) : null;
+  } catch { return null; }
+}
+export function clearPendingSheetOrderAttempt(): void {
+  try {globalThis.sessionStorage?.removeItem(PENDING_ATTEMPT_KEY);}catch{/* Browser storage is optional. */}
+}
+
 export async function submitSheetOrder(attempt: SheetOrderAttempt, options: { timeoutMs?: number; fetcher?: typeof fetch } = {}): Promise<Order> {
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(() => controller.abort(), options.timeoutMs ?? 45000);
