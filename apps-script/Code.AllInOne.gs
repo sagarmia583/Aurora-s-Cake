@@ -101,7 +101,7 @@ var PRIVATE_ORDER_SCHEMAS = {
   cake_cost_items: ['id','request_id','product_id','variant_id','component','unit_label','quantity','unit_cost','active','updated_at','inventory_item_id'],
   inventory_items: ['id','name','unit','reorder_level','created_at'],
   inventory_movements: ['id','request_id','item_id','delta','unit_cost','reason','order_id','actor','created_at'],
-  refund_returns: ['id','request_id','order_id','kind','amount','reason','status','created_by','created_at','approved_by','approved_at','settled_at'],
+  refund_returns: ['id','request_id','order_id','kind','amount','reason','status','created_by','created_at','approved_by','approved_at','settled_at','settlement_note','settled_by'],
   order_cost_snapshots: ['id','order_id','order_number','recorded_at','total_cost','missing_recipe','lines_json']
 };
 
@@ -128,7 +128,7 @@ function doPost(e) {
     if (input && input.action === 'staff_customer_lookup') return auroraResponse_(auroraStaffCustomerLookup_(input));
     if (input && input.action === 'customer_contact_submit') return auroraResponse_(auroraGuestContactSubmit_(input));
     if (input && input.action === 'customer_receipt_recover') return auroraResponse_(auroraCustomerReceiptRecover_(input));
-    if(input && /^(staff_inventory_summary|staff_stock_item_create|staff_stock_adjust|staff_refund_request|staff_refund_approve)$/.test(String(input.action||''))) return auroraResponse_(auroraInventoryPost_(input));
+    if(input && /^(staff_inventory_summary|staff_stock_item_create|staff_stock_adjust|staff_refund_request|staff_refund_approve|staff_refund_settle)$/.test(String(input.action||''))) return auroraResponse_(auroraInventoryPost_(input));
     if(input && /^(staff_finance_summary|staff_cash_deposit|staff_cash_deposit_approve|staff_cash_deposit_void|staff_cake_cost_save|staff_cake_cost_archive)$/.test(String(input.action||''))) return auroraResponse_(auroraFinancePost_(input));
     if (input && input.action === 'customer_phone_tracking') return auroraResponse_(auroraPhoneOnlyTracking_(input));
     if (input && input.action === 'get_order_status') return auroraResponse_(auroraCustomerOrderStatus_(input));
@@ -3370,7 +3370,23 @@ function auroraInventoryPost_(input){
       auroraAppendPrivate_(table,{id:'refund_'+Utilities.getUuid(),request_id:key,
         order_id:String(input.order_id),kind:input.kind==='return'?'return':'refund',
         amount:amount,reason:reason,status:'requested',created_by:who,
-        created_at:new Date().toISOString(),approved_by:'',approved_at:'',settled_at:''});
+        created_at:new Date().toISOString(),approved_by:'',approved_at:'',settled_at:'',settlement_note:'',settled_by:''});
+      return auroraInventoryState_(book);
+    }
+    if(action==='staff_refund_settle'){
+      var table=auroraPrivateTable_(book,'refund_returns');
+      var idx=table.rows.findIndex(function(r){return r.id===input.refund_id;});
+      if(idx<0)auroraReject_('not_found','Refund not found.');
+      var row=table.rows[idx],note=String(input.settlement_note||'').trim();
+      if(row.status==='settled')return {ok:true,already_settled:true,state:auroraInventoryState_(book)};
+      if(row.status!=='approved'||note.length<8||note.length>300)
+        auroraReject_('approval_required','Approve the refund and enter cash/transfer settlement evidence.');
+      [['status','settled'],['settled_at',new Date().toISOString()],
+        ['settlement_note',note],['settled_by',who]].forEach(function(kv){
+        var col=table.headers.indexOf(kv[0]);
+        if(col<0)auroraReject_('upgrade_required','Missing refund settlement columns. Run database setup.');
+        table.sheet.getRange(idx+2,col+1,1,1).setValues([[kv[1]]]);
+      });
       return auroraInventoryState_(book);
     }
     if(action==='staff_refund_approve'){
