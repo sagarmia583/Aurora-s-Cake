@@ -1094,6 +1094,16 @@ test('password-free receipt recovery needs both original long key and phone; OTP
 });
 
 
+function secondCashApprover(h:ReturnType<typeof harness>):string {
+ const username='cashreview01';
+ const created=h.post({action:'staff_account_create',id_token:ADMIN_TOKEN,name:'Cash Reviewer',
+   username,role:'manager',password:'StrongCashReviewer123!'});
+ assert.equal(created.created,true);
+ const login=h.post({action:'staff_password_login',username,password:'StrongCashReviewer123!'});
+ assert.equal(login.ok,true);
+ return login.auth_token;
+}
+
 test('rider COD cash ledger applies daily deposit debit once and never overdraws',()=>{
  const h=harness({singleFile:true});h.context.setupSheetDatabase();
  const placed=h.post(request());assert.equal(placed.persisted,true);
@@ -1112,7 +1122,11 @@ test('rider COD cash ledger applies daily deposit debit once and never overdraws
    rider_id:'rider@example.com',amount:500,date:'2026-10-27',notes:'Daily cash'};
  assert.equal(h.post({...deposit,id_token:RIDER_TOKEN}).code,'forbidden');
  assert.equal(h.post({...deposit,amount:2000}).code,'balance_exceeded');
- assert.equal(h.post(deposit).snapshot.riders[0].remaining,1180);
+ const submitted=h.post(deposit);
+ assert.equal(submitted.snapshot.riders[0].remaining,1680);
+ assert.equal(submitted.snapshot.deposits[0].status,'pending');
+ assert.equal(h.post({action:'staff_cash_deposit_approve',id_token:ADMIN_TOKEN,deposit_id:submitted.deposit_id}).code,'independent_approval_required');
+ assert.equal(h.post({action:'staff_cash_deposit_approve',auth_token:secondCashApprover(h),deposit_id:submitted.deposit_id}).snapshot.riders[0].remaining,1180);
  assert.equal(h.post(deposit).already_saved,true);
  assert.equal(h.post({...deposit,amount:600}).code,'idempotency_conflict');
  assert.equal(h.records('rider_cash_deposits').length,1);
@@ -1297,7 +1311,8 @@ test('mistaken rider deposit is voided with audit reason and outstanding cash re
  const dep=h.post({action:'staff_cash_deposit',id_token:ADMIN_TOKEN,
    request_id:'12345678-2222-4333-8444-000000000000',rider_id:'rider@example.com',amount:500,
    date:'2026-10-27',notes:'Wrong amount entered'});
- assert.equal(dep.snapshot.riders[0].remaining,1180);
+ assert.equal(dep.snapshot.riders[0].remaining,1680);
+ assert.equal(h.post({action:'staff_cash_deposit_approve',auth_token:secondCashApprover(h),deposit_id:dep.deposit_id}).snapshot.riders[0].remaining,1180);
  const did=dep.deposit_id;
  assert.equal(h.post({action:'staff_cash_deposit_void',id_token:RIDER_TOKEN,deposit_id:did,reason:'Wrong cash entry'}).code,'forbidden');
  assert.equal(h.post({action:'staff_cash_deposit_void',id_token:ADMIN_TOKEN,deposit_id:did,reason:'short'}).code,'invalid_reason');
