@@ -189,7 +189,11 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
   const [reorderedOrderId, setReorderedOrderId] = useState<string | null>(null);
   const [reorderNotification, setReorderNotification] = useState<string | null>(null);
 
-  const filteredOrders = userOrders.filter((o) => {
+  // A verified mobile account sees its own phone's orders, not another
+  // household member's guest receipts left in this browser.
+  const visibleOrders=serverProfile?userOrders.filter(order=>
+    normalizeCheckoutPhone(order.customer_phone)===normalizeCheckoutPhone(customerPhone)):userOrders;
+  const filteredOrders = visibleOrders.filter((o) => {
     if (orderFilter === 'active') {
       return o.status !== 'delivered' && o.status !== 'cancelled';
     }
@@ -200,8 +204,8 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
   });
 
   // Calculate summary metrics
-  const totalSpent = userOrders.reduce((sum, o) => sum + (o.status !== 'cancelled' ? o.total_amount : 0), 0);
-  const activeOrdersCount = userOrders.filter((o) => o.status !== 'delivered' && o.status !== 'cancelled').length;
+  const totalSpent = visibleOrders.reduce((sum, o) => sum + (o.status !== 'cancelled' ? o.total_amount : 0), 0);
+  const activeOrdersCount = visibleOrders.filter((o) => o.status !== 'delivered' && o.status !== 'cancelled').length;
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -381,7 +385,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
         <div className="grid grid-cols-3 gap-2 px-6 py-3 bg-slate-50 border-b border-slate-200/80 text-xs">
           <div className="space-y-0.5">
             <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Total Orders</span>
-            <span className="text-base font-black text-slate-800">{userOrders.length}</span>
+            <span className="text-base font-black text-slate-800">{visibleOrders.length}</span>
           </div>
           <div className="space-y-0.5 border-l border-slate-200 pl-3">
             <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Total Spent</span>
@@ -405,7 +409,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
               }`}
             >
               <ShoppingBag className="w-4 h-4" />
-              <span>Recent Orders ({userOrders.length})</span>
+              <span>Recent Orders ({visibleOrders.length})</span>
             </button>
             <button
               onClick={() => setActiveTab('profile')}
