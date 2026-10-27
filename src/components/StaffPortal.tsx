@@ -8,6 +8,7 @@ import { reconcileStaffOrders, loadStaffOrdersSnapshot, saveStaffOrdersSnapshot,
 import { activeStaffOrderAlertIds, detectNewStaffOrderAlerts } from '../services/staffOrderAlerts';
 // Download the larger forms only if the user opens those workspaces.
 const WebsiteManager=React.lazy(()=>import('./WebsiteManager').then(m=>({default:m.WebsiteManager})));
+const FinancePanel=React.lazy(()=>import('./FinancePanel'));
 const CustomCakeQueue=React.lazy(()=>import('./CustomCakeQueue').then(m=>({default:m.CustomCakeQueue})));
 
 type GoogleSdk = {
@@ -39,7 +40,7 @@ const actionForStatus: Record<string, { operation: StaffOperation; label: string
   delivered: null, cancelled: null,
 };
 
-type StaffTab = 'overview' | 'orders' | 'cakes' | 'team' | 'website';
+type StaffTab = 'overview' | 'orders' | 'cakes' | 'team' | 'website' | 'finance';
 type OrderFilter = 'actionable' | 'active' | 'completed' | 'all';
 const terminalStatuses = new Set(['delivered','cancelled']);
 const stageNames:Record<string,string>={pending:'New order',confirmed:'Confirmed',preparing:'Baking',ready:'Ready for rider',assigned:'Rider assigned',picked_up:'Picked up',out_for_delivery:'On the way',delivered:'Delivered',cancelled:'Cancelled'};
@@ -191,6 +192,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     {id:'orders',label:'Orders & delivery',hint:'Live workflow',icon:ShoppingBag,show:true},
     {id:'cakes',label:'Custom cake requests',hint:'Quotes & approvals',icon:CakeSlice,show:['super_admin','admin','order_manager'].includes(identity?.role||'')},
     {id:'team',label:'Staff & access',hint:'People and roles',icon:UsersRound,show:identity?.role==='super_admin'},
+    {id:'finance',label:'Cash & costs',hint:'Rider settlements and cake expenses',icon:CreditCard,show:['super_admin','admin','accountant'].includes(identity?.role||'')},
     {id:'website',label:'Website manager',hint:'Shop content',icon:Store,show:identity?.role==='super_admin'||identity?.role==='admin'},
   ];
   const tabs=roleTabs.filter(tab=>tab.show);
@@ -875,6 +877,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
               )}
               <React.Suspense fallback={<div className="rounded-2xl bg-white border p-8 text-center text-slate-500" role="status">Opening your workspace…</div>}>
                 {activeTab==='cakes'&&(['super_admin','admin','order_manager'] as string[]).includes(identity.role) && <CustomCakeQueue endpoint={endpoint} token={identity.token} />}
+                {activeTab==='finance'&&['super_admin','admin','accountant'].includes(identity.role)&& <FinancePanel endpoint={endpoint} token={identity.token} canEdit={identity.role==='super_admin'||identity.role==='admin'}/>}
                 {activeTab==='website'&&(identity.role === 'super_admin' || identity.role === 'admin') && <WebsiteManager endpoint={endpoint} token={identity.token}
                   role={identity.role} onUpdated={() => onCatalogUpdated?.()} />}
               </React.Suspense>
