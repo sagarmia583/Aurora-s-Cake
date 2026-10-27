@@ -337,6 +337,18 @@ export default function App() {
   },[isTrackOrderOpen,latestOrderId,sheetContent.endpoint,customerGoogleToken,trackingRefreshKey]);
 
   // Reorders use the current Sheet catalogue; removed sizes/cakes are not recreated.
+  const handleRecoveredCustomerOrders = (recovered:Order[]) => {
+    const existing = new Set(loadConfirmedSheetOrders().map(order=>order.id));
+    setRestoredSessionOrderIds(previous => [...new Set([...previous,
+      ...recovered.filter(order=>!existing.has(order.id)).map(order=>order.id)])]);
+    recovered.forEach(rememberConfirmedSheetOrder);
+    setOrders(previous => {
+      const byId=new Map(previous.map(order=>[order.id,order]));
+      recovered.forEach(order=>byId.set(order.id,order));
+      return Array.from(byId.values());
+    });
+  };
+
   const handleReorder = (order: Order) => {
     const result = reorderFromPublicOrder(order, publicData);
     if (result.changed) setCartNotice('Your reorder uses the latest cake prices and available options. Unavailable selections were left out. Please review your bag.');
@@ -540,7 +552,7 @@ export default function App() {
       {activeRole !== 'customer' && <div className="mx-auto my-3 w-full max-w-6xl px-5 text-xs text-slate-500">Website content is managed in Google Sheets. These Studio tools are local demonstrations. Manage real orders in the private orders and order_items Sheet tabs. Content edits here are replaced on the next Sheet refresh.</div>}
 
       {isStaffPortalOpen && <Suspense fallback={null}><StaffPortal isOpen={isStaffPortalOpen} onClose={closeStaffPortal} endpoint={sheetContent.endpoint} onCatalogUpdated={() => { void sheetContent.refresh(); }} /></Suspense>}
-      {isCustomerAccountOpen && <Suspense fallback={null}><CustomerAccountPortal open={isCustomerAccountOpen} onTrackOrder={id => { setLatestOrderId(id); setIsCustomerAccountOpen(false); setIsTrackOrderOpen(true); }} onClose={() => setIsCustomerAccountOpen(false)} endpoint={sheetContent.endpoint} localReceipts={orders.filter(o => o.persistence === 'google_sheets')} onIdentityToken={setCustomerGoogleToken} onSignOut={() => { removeConfirmedSheetOrdersById(restoredSessionOrderIds); setOrders(previous => previous.filter(order => !restoredSessionOrderIds.includes(order.id))); setRestoredSessionOrderIds([]); }} onRecover={recovered => { const existing = new Set(loadConfirmedSheetOrders().map(order => order.id)); setRestoredSessionOrderIds(previous => [...new Set([...previous, ...recovered.filter(order => !existing.has(order.id)).map(order => order.id)])]); recovered.forEach(rememberConfirmedSheetOrder); setOrders(previous => { const byId = new Map(previous.map(o => [o.id,o])); recovered.forEach(o => byId.set(o.id,o)); return Array.from(byId.values()); }); }} /></Suspense>}
+      {isCustomerAccountOpen && <Suspense fallback={null}><CustomerAccountPortal open={isCustomerAccountOpen} onTrackOrder={id => { setLatestOrderId(id); setIsCustomerAccountOpen(false); setIsTrackOrderOpen(true); }} onClose={() => setIsCustomerAccountOpen(false)} endpoint={sheetContent.endpoint} localReceipts={orders.filter(o => o.persistence === 'google_sheets')} onIdentityToken={setCustomerGoogleToken} onSignOut={() => { removeConfirmedSheetOrdersById(restoredSessionOrderIds); setOrders(previous => previous.filter(order => !restoredSessionOrderIds.includes(order.id))); setRestoredSessionOrderIds([]); }} onRecover={handleRecoveredCustomerOrders} /></Suspense>}
       {isSheetContentOpen && <Suspense fallback={null}><SheetContentPanel isOpen={isSheetContentOpen} onClose={() => setIsSheetContentOpen(false)} endpoint={sheetContent.endpoint} status={sheetContent.status} orderSubmissionEnabled={publicData.order_submission_enabled} onRefresh={sheetContent.refresh} onSaveEndpoint={sheetContent.updateEndpoint}/></Suspense>}
       {/* Modals & Slide-outs */}
       <Suspense fallback={null}>
@@ -557,6 +569,8 @@ export default function App() {
       {isProfileOpen && <CustomerProfileModal
         isOpen={isProfileOpen}
         accountEndpoint={sheetContent.endpoint}
+        onRecover={handleRecoveredCustomerOrders}
+        onOpenAccount={()=>setIsCustomerAccountOpen(true)}
         historySyncing={historySyncing}
         onSyncHistory={() => setHistorySyncVersion(previous => previous + 1)}
         onClose={() => setIsProfileOpen(false)}
