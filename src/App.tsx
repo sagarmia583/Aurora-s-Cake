@@ -436,6 +436,12 @@ export default function App() {
                 flavors={flavors}
                 banners={banners}
                 reviews={reviews}
+                coupons={coupons}
+                onUseCoupon={code=>{
+                  setCheckoutCoupon(code);
+                  if(cartItems.length){setIsCartOpen(false);setIsCheckoutOpen(true);}
+                  else {setCartNotice('Coupon '+code+' selected. Add a cake to use it at checkout.');}
+                }}
                 currency={settings.currency}
                 onSelectProduct={(p) => setSelectedProductForDetail(p)}
                 onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
