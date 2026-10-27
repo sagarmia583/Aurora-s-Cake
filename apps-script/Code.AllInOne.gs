@@ -1887,13 +1887,20 @@ function auroraPhoneOnlyTracking_(input){
     return idx+1;
   });
   var count=last-1;
+  // Opaque-to-the-browser pagination cursor is a descending Sheet data-row
+  // index. Historical records remain reachable without widening public PII.
+  var cursor=input&&input.cursor;
+  if(cursor!==undefined && (!Number.isSafeInteger(cursor)||cursor<0||cursor>=count))
+    auroraReject_('invalid_cursor','Tracking page is invalid. Start from the first page.');
+  var firstIndex=cursor===undefined?count-1:cursor;
+  var nextCursor=null;
   // Reading only these five columns protects receipt JSON and personal details.
   var cells=indexes.map(function(col){
     return table.sheet.getRange(2,col,count,1).getValues();
   });
   var allowed=['pending','confirmed','preparing','ready','assigned','picked_up','out_for_delivery','delivered','cancelled'];
   var result=[];
-  for(var i=count-1;i>=0&&result.length<10;i--){
+  for(var i=firstIndex;i>=0;i--){
     var saved=String(cells[0][i][0]||'').replace(/\D/g,'');
     if(saved.length===13&&saved.slice(0,3)==='880')saved='0'+saved.slice(3);
     if(saved!==phone)continue;
@@ -1930,8 +1937,14 @@ function auroraPhoneOnlyTracking_(input){
         at:String(item.created_at||'').slice(0,35)};});
     }
     result.push(entry);
+    if(result.length===10) {
+      // Resume from the next lower row on explicit Load More, never duplicate
+      // this page's final record.
+      if(i>0)nextCursor=i-1;
+      break;
+    }
   }
-  return {ok:true,orders:result};
+  return {ok:true,orders:result,next_cursor:nextCursor};
 }
 
 /* ==== END apps-script/StaffOperations.gs ==== */
