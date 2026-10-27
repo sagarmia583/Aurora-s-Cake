@@ -1,4 +1,4 @@
-import {STAFF_CAPABILITY_GROUPS, defaultStaffPermissions, hasStaffPermission, canStaffOperation} from '../services/staffPermissions';
+import {STAFF_CAPABILITY_GROUPS, defaultStaffPermissions, hasStaffPermission, canStaffOperation, canStaffOperateAssignedOrder} from '../services/staffPermissions';
 import type {StaffCapability} from '../services/staffPermissions';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, RefreshCw, ShieldCheck, Truck, PackageCheck, LayoutDashboard, ShoppingBag, UsersRound, CakeSlice, Store, Search, ChevronDown, ChevronUp, LogOut, Clock3, BadgeCheck, ArrowRight, AlertCircle, CreditCard, MapPin } from 'lucide-react';
@@ -163,8 +163,10 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   };
   const isActionable=(order:StaffOrder,role:StaffRoleName,permissions?:StaffCapability[]):boolean=>{
     const next=actionForStatus[order.status];
-    return Boolean(next&&canOperate(role,next.operation,permissions));
+    return Boolean(next&&canStaffOperateAssignedOrder(role,permissions,next.operation,identity?.email,order.rider_id));
   };
+  const canActOnOrder=(order:StaffOrder,operation:StaffOperation):boolean=>
+    !!identity&&canStaffOperateAssignedOrder(identity.role,identity.permissions,operation,identity.email,order.rider_id);
   const has=(cap:StaffCapability)=>!!identity&&hasStaffPermission(identity.role,identity.permissions,cap);
   useEffect(()=>{
     if(!identity)return;
@@ -848,7 +850,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                   const next = actionForStatus[order.status] || null;
                   const canCancel = canOperate(identity.role, 'cancel',identity.permissions) && ['pending','confirmed','preparing','ready','assigned'].includes(order.status);
                   const expanded=expandedOrders.includes(order.id);
-                  return <article key={order.id} className={'bg-white rounded-[20px] border p-4 sm:p-5 space-y-4 transition-colors '+(next&&canOperate(identity.role,next.operation,identity.permissions)?'border-emerald-300 shadow-[0_2px_18px_rgba(10,80,60,.07)]':'border-slate-200')}>
+                  return <article key={order.id} className={'bg-white rounded-[20px] border p-4 sm:p-5 space-y-4 transition-colors '+(next&&canActOnOrder(order,next.operation)?'border-emerald-300 shadow-[0_2px_18px_rgba(10,80,60,.07)]':'border-slate-200')}>
                     <div className="flex flex-wrap justify-between items-start gap-3">
                       <div className="flex gap-3 min-w-0">
                         <div className="shrink-0 h-11 w-11 rounded-2xl bg-[#eaf2eb] text-[#20533e] grid place-items-center"><PackageCheck size={21}/></div>
@@ -870,7 +872,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                         <a className="font-bold text-emerald-800 underline whitespace-nowrap" target="_blank" rel="noopener noreferrer"
                           href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.delivery_address)}`}>Directions</a>
                       </div>}
-                    {next&&canOperate(identity.role,next.operation,identity.permissions)&&
+                    {next&&canActOnOrder(order,next.operation)&&
                       <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900">
                         Your next step: {next.label}. Customer progress updates after a successful save.
                       </p>}
@@ -899,7 +901,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                       {order.rider_name&&<p className="flex items-center gap-2"><Truck size={15}/> Rider: {order.rider_name}</p>}
                     </div>}
                     <div className="flex flex-wrap gap-2 items-center">
-                      {next && canOperate(identity.role, next.operation,identity.permissions) && next.operation !== 'deliver' && (
+                      {next && canActOnOrder(order,next.operation) && next.operation !== 'deliver' && (
                         <>
                           {next.operation === 'assign' && <select aria-label="Assign registered rider" value={riderEmail} onChange={e => setRiderEmail(e.target.value)} className="min-h-12 border rounded-xl px-3 py-3 text-sm bg-white">
                             {identity.riders.map(rider => <option key={rider.email} value={rider.email}>{rider.name} — {rider.email}</option>)}
@@ -908,7 +910,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                             className="min-h-12 rounded-xl bg-[#1a493b] hover:bg-[#27644e] text-white px-5 py-3 text-sm font-bold disabled:opacity-50 flex items-center gap-2"><PackageCheck size={18} /> {busyOrderId===order.id?'Saving to Sheets…':next.label}</button>
                         </>
                       )}
-                      {next?.operation === 'deliver' && canOperate(identity.role,'deliver',identity.permissions) && (
+                      {next?.operation === 'deliver' && canActOnOrder(order,'deliver') && (
                         deliveryConfirmOrderId === order.id ? (
                           <div className="flex flex-col gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 w-full sm:w-auto">
                             <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={packageHandedOver} onChange={e => setPackageHandedOver(e.target.checked)} /> Cake handed over to the customer</label>
