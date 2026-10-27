@@ -1855,12 +1855,34 @@ function auroraPhoneOnlyTracking_(input){
     var ref=String(cells[1][i][0]||'').trim();
     var when=String(cells[4][i][0]||'').trim();
     var created=String(cells[3][i][0]||'').trim();
-    result.push({
-      reference:ref?('••••'+ref.slice(-4)):'••••',
-      status:status,
-      updated_at:when,
-      created_at:created
-    });
+    // Never serialize a raw receipt. These are explicitly approved,
+    // non-address order fields for a phone-only public lookup.
+    var entry={reference:ref?('••••'+ref.slice(-4)):'••••',
+      status:status,updated_at:when,created_at:created};
+    var receipt=auroraFastReceipt_(table,i+2);
+    if(receipt && String(receipt.customer_phone||'').replace(/\D/g,'').replace(/^880(?=1[3-9]\d{8}$)/,'0')===phone){
+      function safeMoney(value){var n=Number(value);return isFinite(n)&&n>=0?Math.round(n*100)/100:0;}
+      entry.delivery_date=String(receipt.delivery_date||'').slice(0,30);
+      entry.delivery_slot=String(receipt.delivery_slot||'').slice(0,100);
+      entry.payment_method=receipt.payment_method==='cod'?'cod':'other';
+      entry.payment_status=['pending','paid','failed'].indexOf(receipt.payment_status)>=0?receipt.payment_status:'pending';
+      entry.subtotal=safeMoney(receipt.subtotal);
+      entry.delivery_fee=safeMoney(receipt.delivery_fee);
+      entry.discount_amount=safeMoney(receipt.discount_amount);
+      entry.total_amount=safeMoney(receipt.total_amount);
+      entry.items=(Array.isArray(receipt.items)?receipt.items:[]).slice(0,30).map(function(item){
+        return {product_name:String(item.product_name||'Cake').slice(0,120),
+          variant_name:String(item.variant_name||'').slice(0,100),
+          flavor_name:String(item.flavor_name||'').slice(0,80),
+          quantity:Math.max(1,Math.min(100,Math.round(Number(item.quantity)||1))),
+          unit_price:safeMoney(item.unit_price),subtotal:safeMoney(item.subtotal)};
+      });
+      entry.timeline=(Array.isArray(receipt.history)?receipt.history:[]).slice(-16).filter(function(item){
+        return item&&allowed.indexOf(String(item.status))>=0;
+      }).map(function(item){return {status:String(item.status),
+        at:String(item.created_at||'').slice(0,35)};});
+    }
+    result.push(entry);
   }
   return {ok:true,orders:result};
 }
