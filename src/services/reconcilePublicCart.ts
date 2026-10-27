@@ -1,4 +1,4 @@
-import { variantPrice } from './productPricing';
+import { variantPrice as resolveVariantPrice } from './productPricing';
 import type { CartItem, Order } from '../types';
 import type { PublicSiteData } from '../types/siteContent';
 
@@ -38,7 +38,7 @@ export function reconcilePublicCart(items: CartItem[], data: PublicSiteData): Re
     cartIds.add(cartId);
     const product = data.products.find(value => value.id === productId && value.is_active);
     const variant = product?.variants.find(value => value.id === variantId && value.is_active);
-    const variantPrice = product && variant ? price(variantPrice(product,variant)) : undefined;
+    const variantPrice = product && variant ? price(resolveVariantPrice(product,variant)) : undefined;
     if (!product || !variant || variantPrice === undefined) { removeLine(); continue; }
 
     const oldFlavor = item.selected_flavor;
@@ -103,7 +103,7 @@ export function reorderFromPublicOrder(order: Order, data: PublicSiteData): Reco
     if (!line || !productId || !variantName || typeof quantity !== 'number' || !Number.isSafeInteger(quantity) || quantity <= 0) { removeLine(); continue; }
     const product = data.products.find(value => value.id === productId && value.is_active);
     const variant = product?.variants.find(value => value.name === variantName && value.is_active);
-    const variantPrice = product && variant ? price(variantPrice(product,variant)) : undefined;
+    const variantPrice = product && variant ? price(resolveVariantPrice(product,variant)) : undefined;
     if (!product || !variant || variantPrice === undefined) { removeLine(); continue; }
     const historicalFlavor = line.flavor_name;
     const flavorName = id(historicalFlavor);
