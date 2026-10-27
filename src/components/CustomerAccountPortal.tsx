@@ -6,6 +6,7 @@ import {
 import type { Order, OrderStatus } from '../types';
 import { privatePost } from '../services/sheetStaffApi';
 import { PhoneOrderTracking } from './PhoneOrderTracking';
+import type { PhoneTrackingStatus } from '../services/phoneOrderTracking';
 
 type Contact = { name: string; phone: string; address: string; email: string };
 type PanelTab = 'orders' | 'details';
@@ -70,6 +71,7 @@ export const CustomerAccountPortal: React.FC<Props> = ({
 }) => {
   const [contact, setContact] = useState<Contact>(() => initialContact(localReceipts));
   const [tab, setTab] = useState<PanelTab>('orders');
+  const [trackedOrders, setTrackedOrders] = useState<PhoneTrackingStatus[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -85,11 +87,8 @@ export const CustomerAccountPortal: React.FC<Props> = ({
     return [...unique.values()].sort((a, b) => b.created_at.localeCompare(a.created_at));
   }, [contact.phone, localReceipts]);
 
-  const activeOrders = ownReceipts.filter(order =>
+  const activeOrders = (trackedOrders ?? ownReceipts).filter(order =>
     order.status !== 'delivered' && order.status !== 'cancelled').length;
-  const totalSpent = ownReceipts
-    .filter(order => order.status !== 'cancelled')
-    .reduce((total, order) => total + order.total_amount, 0);
 
   const saveContact = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -161,16 +160,16 @@ export const CustomerAccountPortal: React.FC<Props> = ({
           </div>
           <div className="grid grid-cols-3 gap-2 sm:gap-3 mt-6">
             <div className="rounded-2xl bg-white/15 p-3">
-              <span className="block text-[11px] text-emerald-50">Saved orders</span>
-              <strong className="block text-xl font-black mt-1">{ownReceipts.length}</strong>
+              <span className="block text-[11px] text-emerald-50">Phone orders</span>
+              <strong className="block text-xl font-black mt-1"{trackedOrders?.length ?? ownReceipts.length}</strong>
             </div>
             <div className="rounded-2xl bg-white/15 p-3">
               <span className="block text-[11px] text-emerald-50">In progress</span>
               <strong className="block text-xl font-black mt-1">{activeOrders}</strong>
             </div>
             <div className="rounded-2xl bg-white/15 p-3">
-              <span className="block text-[11px] text-emerald-50">Order value</span>
-              <strong className="block text-lg sm:text-xl font-black mt-1">৳{totalSpent.toLocaleString('en-BD')}</strong>
+              <span className="block text-[11px] text-emerald-50">Full receipts</span>
+              <strong className="block text-lg sm:text-xl font-black mt-1">{ownReceipts.length}</strong>
             </div>
           </div>
         </header>
@@ -201,7 +200,7 @@ export const CustomerAccountPortal: React.FC<Props> = ({
 
           {tab === 'orders' && (
             <section role="tabpanel" aria-label="My Orders" className="space-y-4">
-              <PhoneOrderTracking endpoint={endpoint} initialPhone={contact.phone}/>
+              <PhoneOrderTracking endpoint={endpoint} initialPhone={contact.phone} onResults={setTrackedOrders}/>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h3 className="text-lg font-black text-slate-900">Full receipts saved on this device</h3>
