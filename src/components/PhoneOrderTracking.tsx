@@ -1,10 +1,24 @@
 import React, { useEffect, useState } from 'react';
-import { Phone, RotateCcw, Search, ShieldCheck, Truck } from 'lucide-react';
+import { ChevronDown, ChevronUp, CheckCircle2, Circle, Phone, RotateCcw, Search, ShieldCheck, Truck } from 'lucide-react';
 import {
   getPhoneOrderStatuses, normalizeTrackingPhone, type PhoneTrackingStatus
 } from '../services/phoneOrderTracking';
 
 const PHONE_STORAGE_KEY = 'aurora_tracking_phone_v1';
+const PROGRESS_STAGES = [
+  {status: 'pending', label: 'Order placed'},
+  {status: 'confirmed', label: 'Confirmed'},
+  {status: 'preparing', label: 'Preparing'},
+  {status: 'ready', label: 'Ready'},
+  {status: 'assigned', label: 'Rider assigned'},
+  {status: 'picked_up', label: 'Picked up'},
+  {status: 'out_for_delivery', label: 'On the way'},
+  {status: 'delivered', label: 'Delivered'}
+] as const;
+
+const orderCardKey = (order: PhoneTrackingStatus, index: number): string =>
+  order.reference + ':' + order.created_at + ':' + index;
+const formatCheckedTime = () => new Date().toLocaleTimeString('en-BD', {hour:'numeric',minute:'2-digit'});
 const labels: Record<PhoneTrackingStatus['status'], string> = {
   pending: 'Order placed',
   confirmed: 'Confirmed',
@@ -42,6 +56,8 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [backendWarning, setBackendWarning] = useState('');
+  const [expandedOrderKey, setExpandedOrderKey] = useState<string | null>(null);
+  const [checkedAt, setCheckedAt] = useState('');
 
   const search = async (candidate: string, signal?: { cancelled: boolean }) => {
     if (!endpoint || !candidate || signal?.cancelled) return;
@@ -52,10 +68,11 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
       setOrders(result);
       onResults?.(result);
       setSearched(true);
+      setCheckedAt(formatCheckedTime());
       try { localStorage.setItem(PHONE_STORAGE_KEY, normalizeTrackingPhone(candidate)); } catch { /* Private storage is optional. */ }
     } catch (cause) {
       if (signal?.cancelled) return;
-      setOrders([]); setSearched(false);
+      // A temporary network error must not erase already found orders.
       setError(cause instanceof Error ? cause.message : 'Could not check your order.');
     } finally {
       if (!signal?.cancelled) setLoading(false);
@@ -108,7 +125,8 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
           <input type="tel" inputMode="tel" autoComplete="tel" required
             value={phone}
             onChange={event => {
-              setPhone(event.target.value);setSearched(false);setOrders([]);onResults?.([]);setError('');
+              setPhone(event.target.value);setSearched(false);setOrders([]);
+              setExpandedOrderKey(null);setCheckedAt('');onResults?.([]);setError('');
             }}
             placeholder="01XXXXXXXXX" aria-label="Your 11-digit mobile number"
             className="w-full min-w-0 rounded-xl border border-emerald-200 bg-white py-3 pl-10 pr-3 outline-emerald-700"/>
@@ -120,7 +138,7 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
         </button>
       </form>
       {backendWarning && <p role="status" className="text-sm text-amber-900 bg-amber-50 rounded-lg p-3">{backendWarning}</p>}
-      {error && <p role="alert" className="text-sm text-red-700 bg-red-50 rounded-lg p-3">{error}</p>}
+      {error && <p role="alert" className="text-sm text-red-700 bg-red-50 rounded-lg p-3">{error}{searched && ' Showing the last successfully loaded statuses.'}</p>}
       {searched && <div role="status" className="space-y-2">
         {orders.length===0 ? (
           <p className="text-sm text-slate-600 rounded-xl bg-white p-3">
@@ -128,26 +146,95 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
           </p>
         ) : (
           <>
-            <p className="text-xs font-semibold text-emerald-900">{orders.length} recent order(s) found</p>
-            {orders.map((order,i)=>(
-              <div key={i} className="flex flex-wrap justify-between items-center gap-3 bg-white rounded-xl border border-emerald-100 p-3">
-                <div>
-                  <p className="font-bold text-slate-900">Order {order.reference}</p>
-                  <p className="text-xs text-slate-500">Placed {dateText(order.created_at)}</p>
-                </div>
-                <div className="text-right">
-                  <span className={'inline-block text-xs font-bold rounded-full px-3 py-1.5 ' +
-                    (order.status==='delivered'?'text-emerald-800 bg-emerald-100':
-                     order.status==='cancelled'?'text-red-800 bg-red-100':
-                     'text-amber-900 bg-amber-100')}>
-                    {labels[order.status]}
-                  </span>
-                  <p className="text-xs text-slate-500 mt-1">
-                    {dateText(order.updated_at) ? 'Updated ' + dateText(order.updated_at) : ''}
-                  </p>
-                </div>
-              </div>
-            ))}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-emerald-900">{orders.length} recent order(s) found</p>
+              {checkedAt && <p className="text-xs text-slate-500">Last checked {checkedAt}</p>}
+            </div>
+            {orders.map((order,i)=>{
+              const cardKey = orderCardKey(order,i);
+              const expanded = expandedOrderKey === cardKey;
+              const currentStage = PROGRESS_STAGES.findIndex(stage => stage.status === order.status);
+              const currentLabel = labels[order.status];
+              return (
+                <article key={cardKey} className="overflow-hidden bg-white rounded-xl border border-emerald-100">
+                  <button type="button" aria-expanded={expanded}
+                    aria-controls={'phone-order-progress-'+i}
+                    onClick={() => setExpandedOrderKey(current => current === cardKey ? null : cardKey)}
+                    className="w-full flex flex-wrap justify-between items-center gap-3 p-3 text-left hover:bg-emerald-50/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700">
+                    <div>
+                      <p className="font-bold text-slate-900">Order {order.reference}</p>
+                      <p className="text-xs text-slate-500">Placed {dateText(order.created_at)}</p>
+                    </div>
+                    <div className="ml-auto flex items-center gap-3">
+                      <div className="text-right">
+                        <span className={'inline-block text-xs font-bold rounded-full px-3 py-1.5 ' +
+                          (order.status==='delivered'?'text-emerald-800 bg-emerald-100':
+                           order.status==='cancelled'?'text-red-800 bg-red-100':
+                           'text-amber-900 bg-amber-100')}>
+                          {currentLabel}
+                        </span>
+                        <p className="text-xs text-slate-500 mt-1">
+                          {dateText(order.updated_at) ? 'Updated ' + dateText(order.updated_at) : ''}
+                        </p>
+                      </div>
+                      {expanded ? <ChevronUp size={18} className="text-emerald-800 shrink-0"/> :
+                        <ChevronDown size={18} className="text-emerald-800 shrink-0"/>}
+                    </div>
+                    <span className="basis-full text-xs font-semibold text-[#174b3b]">{expanded?'Hide progress':'View progress & actions'}</span>
+                  </button>
+                  {expanded && <div id={'phone-order-progress-'+i} className="border-t border-emerald-100 bg-[#fbfdfb] p-4 space-y-4">
+                    <div>
+                      <h4 className="text-sm font-black text-[#174b3b]">Order tracking</h4>
+                      <p className="text-xs text-slate-600 mt-1">
+                        {order.status === 'cancelled'
+                          ? 'This order is cancelled.'
+                          : order.status === 'delivered'
+                            ? 'This order has been delivered.'
+                            : 'Current update: ' + currentLabel + '. Tracking reflects the latest bakery status.'}
+                      </p>
+                    </div>
+                    {order.status === 'cancelled' ? (
+                      <p className="rounded-lg bg-red-50 text-red-800 text-sm p-3">
+                        Cancelled — contact the bakery if you need assistance.
+                      </p>
+                    ) : (
+                      <ol aria-label="Order progress" className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {PROGRESS_STAGES.map((stage,stageIndex)=>{
+                          const completed = stageIndex <= currentStage;
+                          const isCurrent = stageIndex === currentStage;
+                          return <li key={stage.status}
+                            aria-current={isCurrent ? 'step' : undefined}
+                            className={'rounded-xl border p-2.5 min-h-[68px] flex items-start gap-2 ' +
+                              (isCurrent ? 'border-emerald-500 bg-emerald-50 text-emerald-900' :
+                               completed ? 'border-emerald-200 bg-white text-emerald-900' :
+                               'border-slate-200 bg-white text-slate-400')}>
+                            {completed ? <CheckCircle2 size={16} className="shrink-0 mt-0.5"/> :
+                              <Circle size={16} className="shrink-0 mt-0.5"/>}
+                            <span className="text-xs font-semibold">
+                              {stage.label}
+                              {isCurrent && <span className="block text-[10px] font-normal mt-1">Current stage</span>}
+                            </span>
+                          </li>;
+                        })}
+                      </ol>
+                    )}
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button type="button" disabled={loading} onClick={() => void search(phone)}
+                        className="inline-flex items-center gap-2 rounded-lg bg-[#174b3b] px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50">
+                        <RotateCcw size={15} className={loading?'animate-spin':''}/>
+                        {loading?'Updating…':'Refresh status'}
+                      </button>
+                      <p className="text-xs text-slate-500">
+                        {checkedAt ? 'Last checked at ' + checkedAt : 'Check for the latest status'}
+                      </p>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Progress shows the current order stage, not real-time rider GPS. Detailed receipts and delivery OTP cannot be opened with a phone number alone.
+                    </p>
+                  </div>}
+                </article>
+              );
+            })}
           </>
         )}
       </div>}
