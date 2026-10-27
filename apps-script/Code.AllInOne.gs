@@ -2224,7 +2224,7 @@ function auroraCustomerMasterUpsert_(book,orders,order){
   var unique=Object.create(null),count=0;
   all.forEach(function(item){var id=String(item.id||'');if(id&&!unique[id]){unique[id]=true;count++;}});
   var latest=all.reduce(function(prev,item){
-    return !prev||String(item.created_at||'')>String(prev.created_at||'')?item:prev;
+    return !prev||String(item.created_at||'')>=String(prev.created_at||'')?item:prev;
   },null);
   var row=previous?Object.assign({},previous):{
     id:'customer_'+Utilities.getUuid(),phone_key:phone,
