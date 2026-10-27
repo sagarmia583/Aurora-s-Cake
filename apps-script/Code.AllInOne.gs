@@ -2721,8 +2721,16 @@ function auroraCmsPost_(input){
           return String(other.id)!==nowId&&String(other[uniqueField]||'').trim().toLowerCase()===candidate;
         }))auroraReject_('duplicate','Another record already uses this '+uniqueField+'.');
       }
-      if(name==='product_variants'&&row.sale_price!==''&&Number(row.sale_price)>Number(row.price))
-        auroraReject_('invalid_price','Sale price cannot exceed the regular price.');
+      if(name==='products' && auroraActive_(row.is_active) && Number(row.base_price)<=0)
+        auroraReject_('invalid_price','Active cake must have a positive base price.');
+      if(name==='products' && row.sale_price!=='' &&
+         (Number(row.sale_price)<=0 || Number(row.sale_price)>Number(row.base_price)))
+        auroraReject_('invalid_price','Cake sale price must be positive and no greater than the base price.');
+      if(name==='product_variants' && auroraActive_(row.is_active) && Number(row.price)<=0)
+        auroraReject_('invalid_price','Active cake size must have a positive price.');
+      if(name==='product_variants' && row.sale_price!=='' &&
+         (Number(row.sale_price)<=0 || Number(row.sale_price)>Number(row.price)))
+        auroraReject_('invalid_price','Cake size sale price must be positive and no greater than the regular price.');
       if(action==='staff_cms_create') {
         table.sheet.getRange(table.sheet.getLastRow()+1,1,1,table.headers.length).setValues([table.headers.map(function(field){return auroraSheetCell_(row[field]);})]);
       }else{
