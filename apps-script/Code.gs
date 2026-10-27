@@ -81,7 +81,7 @@ var PRIVATE_ORDER_SCHEMAS = {
   orders: ['id','order_number','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','delivery_address','delivery_zone_id','delivery_zone_name','delivery_fee','delivery_slot','delivery_date','status','subtotal','discount_amount','total_amount','coupon_code','order_note','payment_method','payment_status','receipt_json'],
   order_items: ['id','order_id','product_id','product_name','variant_id','variant_name','flavor_id','flavor_name','writing_message','unit_price','quantity','addons_json','subtotal'],
   custom_cake_requests: ['id','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','cake_type','approx_size','flavor','color_theme','writing_text','instructions','reference_image_url','status','estimated_price','quoted_price','receipt_json'],
-  staff_accounts: ['id','username','name','role','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'],
+  staff_accounts: ['id','username','name','role','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at','permissions'],
   customer_accounts: ['id','phone','name','address','email','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'],
   auth_sessions: ['token_hash','account_type','account_id','created_at','expires_at','revoked'],
   customer_master: ['id','phone_key','name','delivery_address','created_at','updated_at','order_count','last_order_id','last_order_at'],
@@ -105,7 +105,7 @@ function doPost(e) {
     if(input&&input.action==='staff_image_upload')return auroraResponse_(auroraImageUpload_(input));
     // Private operations authenticate every POST; never expose these reads via GET.
     // All credential/private account routes use POST; never exposed via public GET.
-    if(input && /^(staff_password_login|staff_password_logout|staff_account_create|staff_account_set_active|staff_account_reset_password)$/.test(String(input.action||'')))
+    if(input && /^(staff_password_login|staff_password_logout|staff_account_create|staff_account_set_active|staff_account_reset_password|staff_account_update_permissions)$/.test(String(input.action||'')))
       return auroraResponse_(auroraAccountStaffPost_(input));
     if(input && /^customer_phone_(signup|login|session|logout|orders|profile|claim|password|close)$/.test(String(input.action||'')))
       return auroraResponse_(auroraAccountCustomerPost_(input));
@@ -558,7 +558,19 @@ function setupSheetDatabase() {
   Object.keys(PRIVATE_ORDER_SCHEMAS).forEach(function(name) {
     var sheet = book.getSheetByName(name);
     if (!sheet) sheet = book.insertSheet(name);
-    if (sheet.getLastRow() !== 0) { report.push(name + ': existing private data preserved'); return; }
+    if (sheet.getLastRow() !== 0) {
+      if(name==='staff_accounts'){
+        // Safe, additive header migration: never rewrite existing account rows.
+        var existingHeaders=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0]
+          .map(function(x){return String(x).trim().toLowerCase();});
+        if(existingHeaders.indexOf('permissions')===-1){
+          if(existingHeaders.length>=100)throw new Error('Staff accounts table has no space for permissions header.');
+          sheet.getRange(1,existingHeaders.length+1,1,1).setValues([['permissions']]);
+          report.push(name + ': permissions header added; existing employee roles preserved');
+        }else report.push(name + ': existing private data preserved');
+      }else report.push(name + ': existing private data preserved');
+      return;
+    }
     var columns = PRIVATE_ORDER_SCHEMAS[name];
     sheet.getRange(1,1,1,columns.length).setValues([columns]);
     sheet.setFrozenRows(1);
