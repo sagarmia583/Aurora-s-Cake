@@ -1,7 +1,7 @@
 import {STAFF_CAPABILITY_GROUPS, defaultStaffPermissions, hasStaffPermission, canStaffOperation, canStaffOperateAssignedOrder} from '../services/staffPermissions';
 import type {StaffCapability} from '../services/staffPermissions';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, RefreshCw, ShieldCheck, Truck, PackageCheck, LayoutDashboard, ShoppingBag, UsersRound, CakeSlice, Store, Search, ChevronDown, ChevronUp, LogOut, Clock3, BadgeCheck, ArrowRight, AlertCircle, CreditCard, MapPin } from 'lucide-react';
+import { X, RefreshCw, ShieldCheck, Truck, PackageCheck, LayoutDashboard, ShoppingCart, ShoppingBag, UsersRound, CakeSlice, Store, Search, ChevronDown, ChevronUp, LogOut, Clock3, BadgeCheck, ArrowRight, AlertCircle, CreditCard, MapPin } from 'lucide-react';
 import { checkStaffSession, getStaffOrders, mutateStaffOrder, signInStaffPassword, createStaffAccount, changeStaffPermissions, changeStaffStatus, resetStaffPassword, lookupStaffCustomer } from '../services/sheetStaffApi';
 import type { StaffCustomerMatch, StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
@@ -12,6 +12,7 @@ import { activeStaffOrderAlertIds, detectNewStaffOrderAlerts } from '../services
 const WebsiteManager=React.lazy(()=>import('./WebsiteManager').then(m=>({default:m.WebsiteManager})));
 const FinancePanel=React.lazy(()=>import('./FinancePanel'));
 const InventoryPanel=React.lazy(()=>import('./InventoryPanel'));
+const SalesPOS=React.lazy(()=>import('./SalesPOS'));
 const CustomCakeQueue=React.lazy(()=>import('./CustomCakeQueue').then(m=>({default:m.CustomCakeQueue})));
 
 type GoogleSdk = {
@@ -35,7 +36,7 @@ const actionForStatus: Record<string, { operation: StaffOperation; label: string
   delivered: null, cancelled: null,
 };
 
-type StaffTab = 'overview' | 'orders' | 'cakes' | 'team' | 'website' | 'finance';
+type StaffTab = 'overview' | 'orders' | 'cakes' | 'team' | 'website' | 'finance' | 'sales';
 type OrderFilter = 'actionable' | 'active' | 'completed' | 'all';
 const terminalStatuses = new Set(['delivered','cancelled']);
 const stageNames:Record<string,string>={pending:'New order',confirmed:'Confirmed',preparing:'Baking',ready:'Ready for rider',assigned:'Rider assigned',picked_up:'Picked up',out_for_delivery:'On the way',delivered:'Delivered',cancelled:'Cancelled'};
@@ -58,7 +59,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [restoringSession, setRestoringSession] = useState(() => Boolean(loadStaffCredential(getBrowserWorkspaceStorage())));
   const [activeTab,setActiveTab]=useState<StaffTab>(() => {
     const saved=loadStaffTab(getBrowserWorkspaceStorage());
-    return ['overview','orders','cakes','team','website'].includes(saved)?saved as StaffTab:'overview';
+    return ['overview','orders','cakes','team','website','finance','sales'].includes(saved)?saved as StaffTab:'overview';
   });
   const [orderFilter,setOrderFilter]=useState<OrderFilter>('all');
   const [orderSearch,setOrderSearch]=useState('');
@@ -176,7 +177,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       ...(hasStaffPermission(identity.role,identity.permissions,'custom_cakes_view')?['cakes'] as StaffTab[]:[]),
       ...(identity.role==='super_admin'?['team'] as StaffTab[]:[]),
       ...(hasStaffPermission(identity.role,identity.permissions,'catalog_view')?['website'] as StaffTab[]:[]),
-      ...(hasStaffPermission(identity.role,identity.permissions,'finance_view')?['finance'] as StaffTab[]:[])];
+      ...(hasStaffPermission(identity.role,identity.permissions,'finance_view')?['finance'] as StaffTab[]:[]),
+      ...(hasStaffPermission(identity.role,identity.permissions,'sales_view')?['sales'] as StaffTab[]:[])];
     const saved=loadStaffTab(getBrowserWorkspaceStorage()) as StaffTab;
     setActiveTab(allowed.includes(saved)?saved:allowed[0]||'overview');
     setOrderFilter('all');
@@ -193,6 +195,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     {id:'cakes',label:'Custom cake requests',hint:'Quotes & approvals',icon:CakeSlice,show:has('custom_cakes_view')},
     {id:'team',label:'Staff & access',hint:'People and roles',icon:UsersRound,show:identity?.role==='super_admin'},
     {id:'finance',label:'Cash & costs',hint:'Rider settlements and cake expenses',icon:CreditCard,show:has('finance_view')},
+    {id:'sales',label:'Counter sales',hint:'POS billing & printing',icon:ShoppingCart,show:has('sales_view')},
     {id:'website',label:'Website manager',hint:'Shop content',icon:Store,show:has('catalog_view')},
   ];
   const tabs=roleTabs.filter(tab=>tab.show);
@@ -933,6 +936,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
               )}
               <React.Suspense fallback={<div className="rounded-2xl bg-white border p-8 text-center text-slate-500" role="status">Opening your workspace…</div>}>
                 {activeTab==='cakes'&&has('custom_cakes_view') && <CustomCakeQueue endpoint={endpoint} token={identity.token} />}
+                {activeTab==='sales'&&has('sales_view')&& <SalesPOS endpoint={endpoint} token={identity.token} canSell={has('sales_create')} canDiscount={has('sales_discount')} canHistory={has('sales_history')} />}
                 {activeTab==='finance'&&has('finance_view')&& <div className="space-y-8">
                   <FinancePanel endpoint={endpoint} token={identity.token} canEdit={has('finance_edit')}/>
                   <InventoryPanel endpoint={endpoint} token={identity.token} canEdit={has('finance_edit')}/>
