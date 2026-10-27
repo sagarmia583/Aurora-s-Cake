@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useCakeDialog } from './useCakeDialog';
 import { 
   X, 
@@ -26,7 +26,8 @@ import {
 } from 'lucide-react';
 import { Order, OrderStatus, Product, CartItem } from '../types';
 import { mockDb } from '../services/mockDatabase';
-import { getPhoneCustomerProfile, updatePhoneCustomerProfile } from '../services/phoneCustomerApi';
+import { getPhoneCustomerProfile, updatePhoneCustomerProfile, loginPhoneCustomer, phoneCustomerOrders, linkPhoneCustomerReceipt } from '../services/phoneCustomerApi';
+import { normalizeCheckoutPhone } from '../services/customerPhoneLookup';
 
 const readProfile = (): {name?: string; phone?: string; email?: string; address?: string} => {
   try {
@@ -47,6 +48,8 @@ interface CustomerProfileModalProps {
   currency: string;
   onReorder: (order: Order) => void;
   onTrackOrder: (orderId: string) => void;
+  onRecover: (orders: Order[]) => void;
+  onOpenAccount: () => void;
 }
 
 export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = (props) =>
@@ -63,6 +66,8 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
   currency,
   onReorder,
   onTrackOrder,
+  onRecover,
+  onOpenAccount,
 }) => {
 
   // Active Tab: default to Recent Orders
@@ -71,6 +76,16 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
   // Asynchronous fetching state for user's past orders
   const [userOrders, setUserOrders] = useState<Order[]>(orders || []);
   const [isFetchingOrders, setIsFetchingOrders] = useState<boolean>(false);
+  const [accountPhone,setAccountPhone]=useState('');
+  const [accountPassword,setAccountPassword]=useState('');
+  const [accountBusy,setAccountBusy]=useState(false);
+  const [accountError,setAccountError]=useState('');
+  const [hasAccountSession,setHasAccountSession]=useState(false);
+  const [activePhoneToken,setActivePhoneToken]=useState('');
+  const historySignature=useRef('');
+  const onRecoverRef=useRef(onRecover);
+  onRecoverRef.current=onRecover;
+
 
   // Fetch past orders from database / cache upon modal open
   useEffect(() => {
@@ -95,20 +110,70 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
   const [isEditingProfile, setIsEditingProfile] = useState(() => !readProfile().name);
   const [profileSuccessMsg, setProfileSuccessMsg] = useState<string | null>(null);
   const [serverProfile,setServerProfile]=useState(false);
+
   useEffect(()=>{
     if(!isOpen)return;
-    let token='';try{token=sessionStorage.getItem('aurora_customer_phone_session_v1')||'';}catch{}
-    setServerProfile(!!token);
+    let token=activePhoneToken;try{token=token||sessionStorage.getItem('aurora_customer_phone_session_v1')||'';}catch{}
+    setHasAccountSession(!!token);
+    setAccountPhone(readProfile().phone||'');
+    setServerProfile(false);
     if(!token)return;
-    let active=true;
-    getPhoneCustomerProfile(accountEndpoint,token).then(profile=>{
-      if(!active)return;
-      setCustomerName(profile.name);setCustomerPhone(profile.phone);
-      setCustomerEmail(profile.email);setSavedAddress(profile.address);
-    }).catch(()=>{if(active)setProfileSuccessMsg('Sign in again under My bakery orders to load your saved profile.');});
-    return()=>{active=false;};
-  },[isOpen,accountEndpoint]);
+    let active=true,loading=false;
+    const sync=async()=>{
+      if(!active||loading||document.visibilityState==='hidden')return;
+      loading=true;
+      try{
+        const [profile,history]=await Promise.all([
+          getPhoneCustomerProfile(accountEndpoint,token),
+          phoneCustomerOrders(accountEndpoint,token)
+        ]);
+        if(!active)return;
+        setServerProfile(true);setHasAccountSession(true);
+        setCustomerName(profile.name);setCustomerPhone(profile.phone);
+        setCustomerEmail(profile.email);setSavedAddress(profile.address);
+        const signature=JSON.stringify(history.map(order=>[order.id,order.status,order.updated_at,order.delivery_otp]));
+        if(historySignature.current!==signature){
+          historySignature.current=signature;
+          onRecoverRef.current(history);
+        }
+      }catch{
+        if(active)setProfileSuccessMsg('Mobile account could not refresh. Sign in again with your phone and password.');
+      }finally{loading=false;}
+    };
+    void sync();
+    const timer=window.setInterval(()=>{void sync();},20000);
+    return()=>{active=false;window.clearInterval(timer);};
+  },[isOpen,accountEndpoint,activePhoneToken]);
 
+  const handleAccountSignIn=async(event:React.FormEvent)=>{
+    event.preventDefault();if(accountBusy)return;
+    setAccountBusy(true);setAccountError('');
+    try{
+      const info=await loginPhoneCustomer(accountEndpoint,accountPhone,accountPassword);
+      let history=await phoneCustomerOrders(accountEndpoint,info.token);
+      let added=0;
+      const proven=orders.filter(order=>order.persistence==='google_sheets'
+        && !!order.customer_access_token
+        && normalizeCheckoutPhone(order.customer_phone)===normalizeCheckoutPhone(info.profile.phone)
+        && !history.some(item=>item.id===order.id)).slice(0,8);
+      for(const receipt of proven){
+        try{await linkPhoneCustomerReceipt(accountEndpoint,info.token,receipt);added++;}
+        catch{ /* Original proof remains on this device; manual linking is available. */ }
+      }
+      if(added)history=await phoneCustomerOrders(accountEndpoint,info.token);
+      try{sessionStorage.setItem('aurora_customer_phone_session_v1',info.token);}catch{}
+      setActivePhoneToken(info.token);
+      setHasAccountSession(true);setServerProfile(true);
+      setCustomerName(info.profile.name);setCustomerPhone(info.profile.phone);
+      setCustomerEmail(info.profile.email);setSavedAddress(info.profile.address);
+      setAccountPassword('');
+      historySignature.current=JSON.stringify(history.map(order=>[order.id,order.status,order.updated_at,order.delivery_otp]));
+      onRecoverRef.current(history);
+      setProfileSuccessMsg(added?'Signed in. Your original receipts were linked to this account.':'Signed in. Your Google Sheets history is ready.');
+      if(added<proven.length)setAccountError('Some receipts could not be linked automatically. Use My Orders to retry with the private key.');
+    }catch(error){setAccountError(error instanceof Error?error.message:'Phone sign-in failed.');}
+    finally{setAccountBusy(false);}
+  };
 
   // Filter orders: all, active, delivered
   const [orderFilter, setOrderFilter] = useState<'all' | 'active' | 'delivered'>('all');
@@ -124,7 +189,11 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
   const [reorderedOrderId, setReorderedOrderId] = useState<string | null>(null);
   const [reorderNotification, setReorderNotification] = useState<string | null>(null);
 
-  const filteredOrders = userOrders.filter((o) => {
+  // A verified mobile account sees its own phone's orders, not another
+  // household member's guest receipts left in this browser.
+  const visibleOrders=serverProfile?userOrders.filter(order=>
+    normalizeCheckoutPhone(order.customer_phone)===normalizeCheckoutPhone(customerPhone)):userOrders;
+  const filteredOrders = visibleOrders.filter((o) => {
     if (orderFilter === 'active') {
       return o.status !== 'delivered' && o.status !== 'cancelled';
     }
@@ -135,8 +204,8 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
   });
 
   // Calculate summary metrics
-  const totalSpent = userOrders.reduce((sum, o) => sum + (o.status !== 'cancelled' ? o.total_amount : 0), 0);
-  const activeOrdersCount = userOrders.filter((o) => o.status !== 'delivered' && o.status !== 'cancelled').length;
+  const totalSpent = visibleOrders.reduce((sum, o) => sum + (o.status !== 'cancelled' ? o.total_amount : 0), 0);
+  const activeOrdersCount = visibleOrders.filter((o) => o.status !== 'delivered' && o.status !== 'cancelled').length;
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -292,12 +361,31 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
           </button>
         </div>
 
-        <p className="text-xs text-slate-600 bg-rose-50 px-6 py-3">Customer details do not need a password. Checkout and saved contact submissions are stored in the bakery's private Google Sheets. On this device, confirmed receipts are available in My orders. On another device, use your original receipt access key; a phone number alone cannot reveal personal information.</p>
+        <div className="bg-rose-50 px-6 py-4 border-b border-rose-100 space-y-3">
+           <p className="text-sm font-semibold text-rose-950">Mobile number → Order history → Live tracking</p>
+           <p className="text-xs text-slate-700">Sign in with mobile number and account password to securely recover orders on any browser. A phone number alone cannot unlock private addresses or delivery OTP.</p>
+           {!serverProfile&&<form onSubmit={handleAccountSignIn} className="grid sm:grid-cols-[1fr_1fr_auto] gap-2">
+             <input aria-label="Mobile account phone number" required type="tel" autoComplete="tel" inputMode="tel"
+               value={accountPhone} onChange={e=>setAccountPhone(e.target.value)}
+               placeholder="01XXXXXXXXX" className="rounded-xl border bg-white p-3 text-sm"/>
+             <input aria-label="Mobile account password" required minLength={10} type="password" autoComplete="current-password"
+               value={accountPassword} onChange={e=>setAccountPassword(e.target.value)}
+               placeholder="Account password" className="rounded-xl border bg-white p-3 text-sm"/>
+             <button type="submit" disabled={accountBusy} className="rounded-xl bg-rose-700 px-4 py-3 font-bold text-white text-sm disabled:opacity-50">
+               {accountBusy?'Loading…':'Load my orders'}
+             </button>
+           </form>}
+           {serverProfile&&<p className="text-xs font-semibold text-emerald-800">Signed in · Order history syncs from Google Sheets every 20 seconds while your profile is open.</p>}
+           {accountError&&<p role="alert" className="text-xs bg-red-100 rounded-lg p-2 text-red-800">{accountError}</p>}
+           <button type="button" onClick={()=>{onClose();onOpenAccount();}} className="text-xs font-semibold text-rose-900 underline">
+             {hasAccountSession?'Manage mobile account & link old receipts':'Create mobile account / recover original receipt'}
+           </button>
+         </div>
         {/* Quick Metrics Bar */}
         <div className="grid grid-cols-3 gap-2 px-6 py-3 bg-slate-50 border-b border-slate-200/80 text-xs">
           <div className="space-y-0.5">
             <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Total Orders</span>
-            <span className="text-base font-black text-slate-800">{userOrders.length}</span>
+            <span className="text-base font-black text-slate-800">{visibleOrders.length}</span>
           </div>
           <div className="space-y-0.5 border-l border-slate-200 pl-3">
             <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Total Spent</span>
@@ -321,7 +409,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
               }`}
             >
               <ShoppingBag className="w-4 h-4" />
-              <span>Recent Orders ({userOrders.length})</span>
+              <span>Recent Orders ({visibleOrders.length})</span>
             </button>
             <button
               onClick={() => setActiveTab('profile')}

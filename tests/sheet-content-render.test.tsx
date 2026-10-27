@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Navbar } from '../src/components/Navbar';
+import { CustomerProfileModal } from '../src/components/CustomerProfileModal';
 import { CustomerStorefront } from '../src/components/CustomerStorefront';
 import { DEFAULT_PUBLIC_SITE_DATA } from '../src/content/defaultSiteData';
 import { normalizePublicSiteData } from '../src/services/googleSheets';
@@ -118,4 +119,18 @@ test('checkout shortcut is directly beside bag and signup/my-orders navigation i
   assert.ok(nav.indexOf('Order Now')>nav.indexOf('Open shopping bag'));
   assert.ok(!nav.includes('Customer details / My orders'));
   assert.ok(!nav.includes('Sign up / My orders'));
+});
+
+test('Customer Profile offers mobile account login and secure cross-device history tracking',()=>{
+  const markup=renderToStaticMarkup(<CustomerProfileModal
+    isOpen={true} onClose={noop} accountEndpoint="https://script.google.com/macros/s/test/exec"
+    historySyncing={false} onSyncHistory={noop} orders={[]}
+    products={[]} currency="৳" onReorder={noop} onTrackOrder={noop}
+    onRecover={noop} onOpenAccount={noop}
+  />);
+  assert.ok(markup.includes('Mobile number'));
+  assert.ok(markup.includes('Load my orders'));
+  assert.ok(markup.includes('Mobile account password'));
+  assert.ok(markup.includes('Create mobile account / recover original receipt'));
+  assert.ok(markup.includes('phone number alone cannot unlock private addresses'));
 });
