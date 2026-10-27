@@ -26,7 +26,7 @@
 1. Backup the owner's actual Google Sheets `orders`, `order_items`, customer and staff tables.
 2. Copy all of `apps-script/Code.AllInOne.gs` from branch `feat/passwordless-customer-order-panel` to the current Apps Script project's single `Code.gs`. Do not leave duplicate old modules alongside it.
 3. **Deploy > Manage deployments > Edit > New version > Deploy**, retain the existing `/exec` URL.
-4. The backend release must be `aurora-2026-10-27-audit-hardening-r7`; visit the preview's `/api/backend-health` to confirm `up_to_date:true`.
+4. The backend release must be `aurora-2026-10-27-finance-inventory-r8`; visit the preview's `/api/backend-health` to confirm `up_to_date:true`.
 5. Test a safe staging COD order from checkout through Owner Confirm > Kitchen Preparing > Ready > Assign Rider > Pickup > Start delivery > Rider handover + Cash collection > Delivered. Validate the buyer sees order details by phone after refresh, and neither rider nor customer needs an OTP.
 6. The previous deployed backend version still requires OTP and will reject the new rider request; **do not roll out the OTP-free interface into production without upgrading the Apps Script endpoint first**.
 
@@ -47,7 +47,7 @@ This workflow retains free-tier Google Apps Script/Vercel limits. Browser/real-S
 
 ## Migration verification
 
-1. Confirm updated `/api/backend-health` reports release `aurora-2026-10-27-audit-hardening-r7`.
+1. Confirm updated `/api/backend-health` reports release `aurora-2026-10-27-finance-inventory-r8`.
 2. With test COD orders, mark one Delivered by the assigned rider and verify credit; record one cash deposit and ensure Remaining decreases by EXACTLY the amount. Replay the same request and confirm only one deposit row.
 3. Enter one test ingredient cost, retry once, check only one cost entry; archive it, check the revised cost.
 4. Create a product with base price and sale price, verify the storefront badge, size checkout estimate and server-confirmed actual price match.
@@ -98,3 +98,27 @@ Do not give untrusted staff Manager role: it includes cash accounting and catalo
 - Existing `customer_phone_signup/login/password` legacy routes remain for backwards compatibility, even though the current no-password customer interface does not use them. Removing these and migrating any real accounts requires a separate verified data migration.
 
 Do not merge PR #4 into Production before R7 deployment to a backed-up/staging Sheet and controlled live acceptance tests.
+
+
+## R8: Inventory, refunds, historical production cost, independent rider cash approval
+
+**New private sheets** (created without clearing existing rows by `setupSheetDatabase()`):
+- `inventory_items`: Ingredient identifier, unit (g/kg/ml/l/pcs), reorder alert.
+- `inventory_movements`: Immutable signed quantity movement for restocking, wastage and cake production. Same request ID does not double-count.
+- `refund_returns`: Paid/delivered order refund or return request, amount, reason, requester, independent approver and confirmed payout evidence. The journal documents a payout; **it does not send money**.
+- `order_cost_snapshots`: Frozen cake recipe cost and constituent lines at first **Start baking**. Each mapped ingredient is deducted from stock under the order lock. A retry does not deduct again. A missing recipe is flagged; snapshots for historical already-produced orders cannot be reliably manufactured retroactively.
+
+**Existing tables updated:** `cake_cost_items.inventory_item_id` links an ingredient cost line to one stock entry of the same unit; `rider_cash_deposits` adds `status`, `initiated_by_id`, `approved_by_id`, `approved_at`. Pre-R8 entries with blank status remain treated as approved. New deposits are `pending` and DO NOT debit outstanding cash until a different finance-authorized staff account approves. Voids keep the audit row. Bakery owner/Manager can submit but cannot approve their own entry.
+
+**Staff UI:** Staff → **Cash & costs** now contains the rider approval queue, inventory stock and movements, refund/return request, independent refund approval, cash/transfer settlement record, and per-order production cost snapshots. Select an ingredient in **Linked ingredient stock** when creating its cake recipe; non-stock costs (labor, utilities, etc.) can remain unlinked. Refund/return cannot exceed collected payment, and a return **does not** automatically restock a perishable cake.
+
+### Safe rollout
+1. BACK UP the private Google Sheet.
+2. Paste the updated `apps-script/Code.AllInOne.gs` into the existing Apps Script project as the only single-file implementation (no duplicated modular functions).
+3. Run `setupSheetDatabase()` from the Apps Script editor and confirm inventory/refund/cost tables exist and `staff_accounts`, `rider_cash_deposits` and `cake_cost_items` new columns were added without deleting entries.
+4. Deploy → Manage deployments → Edit → New version → Deploy.
+5. Verify `/api/backend-health` reports `aurora-2026-10-27-finance-inventory-r8` and `up_to_date: true`.
+6. Stage-test: 500g of flour restock → mapped recipe costing 100g per cake → Create/Confirm/Start Baking → check stock decreases exactly once and a frozen cost snapshot exists. Test low-stock rejection. Test a delivered paid test order refund request → independent second staff approval → payout evidence. Test rider cash deposit created pending → same staff approval denied → different staff approval → outstanding decreases exactly once; a void restores outstanding.
+7. Only after actual end-to-end testing, merge and deploy corresponding web version. GitHub CI is mocked and cannot certify live Sheets/browser/payment outcomes. No bank gateway or actual payout is performed.
+
+Production stock movements start when R8 is deployed; no historical inventory balances are fabricated. A full purchasing/supplier invoice module, POS reconciliation and genuinely independent two-person settlement evidence require real workflow acceptance before relying on these records for statutory accounting.
