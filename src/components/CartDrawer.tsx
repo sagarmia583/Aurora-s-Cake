@@ -177,7 +177,7 @@ const CartDrawerDialog: React.FC<CartDrawerProps> = ({
                 }}
                 className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-3.5 px-4 rounded-xl shadow-md shadow-rose-200 flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-98"
               >
-                <span>Proceed to Checkout</span>
+                <span>Order Now</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
