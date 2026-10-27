@@ -68,13 +68,13 @@ test('removed add-ons are dropped while keeping and repricing the selected cake'
   assert.equal(result.removedCount,0);
 });
 
-test('an explicit zero sale price is preserved',()=>{
+test('an invalid zero sale price does not create a free item',()=>{
   const {data,item,variant}=fixture();
   item.selected_addons=[];
   variant.sale_price=0;
   const result=reconcilePublicCart([item],data);
-  assert.equal(result.items[0].unit_price,0);
-  assert.equal(result.items[0].total_price,0);
+  assert.equal(result.items[0].unit_price,variantPrice(data.products[0],variant));
+  assert.equal(result.items[0].total_price,variantPrice(data.products[0],variant)*2);
   assert.equal(result.changed,true);
 });
 
@@ -146,7 +146,7 @@ test('reorder uses current Sheet variant and per-cake add-on prices with unique 
   assert.equal(first.removedCount,0);
 });
 
-test('reorder preserves zero Sheet sale price and removes unavailable add-ons',()=>{
+test('reorder ignores invalid zero Sheet sale price and removes unavailable add-ons',()=>{
   const {data,item,variant}=fixture();
   const order=pastOrder(item);
   variant.sale_price=0;
@@ -164,4 +164,12 @@ test('cold start keeps real saved cakes until a verified catalog is loaded',()=>
   assert.equal(isAuthoritativeCartCatalog('bundled_preview'),false);
   assert.equal(isAuthoritativeCartCatalog('saved_snapshot'),true);
   assert.equal(isAuthoritativeCartCatalog('google_sheets'),true);
+});
+
+test('product markdown bigger than selected variant price never makes the cart zero',()=>{
+ const {data,item,variant,product}=fixture();
+ product.base_price=1200; product.sale_price=100; variant.price=500; delete variant.sale_price;
+ const result=reconcilePublicCart([item],data);
+ assert.equal(variantPrice(product,variant),500);
+ assert.ok(result.items[0].unit_price>0);
 });
