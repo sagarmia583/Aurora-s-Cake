@@ -3351,7 +3351,8 @@ function auroraInventoryPost_(input){
       if(prior)return {ok:true,already_saved:true,state:auroraInventoryState_(book)};
       var stock=auroraInventoryState_(book).stock.filter(function(i){return i.id===input.item_id;})[0];
       var delta=Number(input.delta),reason=String(input.reason||'').trim();
-      if(!stock||!isFinite(delta)||delta===0||Math.abs(delta)>1000000||reason.length<5||
+      if(!stock||!isFinite(delta)||delta===0||Math.abs(delta)>1000000||
+        !isFinite(Number(input.unit_cost||0))||Number(input.unit_cost||0)<0||reason.length<5||
         stock.balance+delta < -0.000001)auroraReject_('invalid_stock','Check stock quantity, balance and reason.');
       auroraAppendPrivate_(table,{id:'move_'+Utilities.getUuid(),request_id:key,item_id:stock.id,
         delta:delta,unit_cost:Math.max(0,Number(input.unit_cost)||0),reason:reason,
@@ -3361,14 +3362,22 @@ function auroraInventoryPost_(input){
     if(action==='staff_refund_request'){
       var key=auroraInventoryRequest_(input.request_id),table=auroraPrivateTable_(book,'refund_returns');
       var prior=table.rows.filter(function(r){return r.request_id===key;})[0];
-      if(prior)return {ok:true,already_saved:true,state:auroraInventoryState_(book)};
+      if(prior){
+        if(String(prior.order_id)!==String(input.order_id||'')||
+           Number(prior.amount)!==Number(input.amount)||
+           String(prior.reason)!==String(input.reason||'').trim()||
+           String(prior.kind)!==String(input.kind||'refund'))
+          auroraReject_('idempotency_conflict','Refund request ID already belongs to another refund.');
+        return {ok:true,already_saved:true,state:auroraInventoryState_(book)};
+      }
       var orders=auroraPrivateTable_(book,'orders').rows;
       var receiptRow=orders.filter(function(o){return o.id===input.order_id;})[0];
       if(!receiptRow)auroraReject_('not_found','Order not found.');
       var original=JSON.parse(String(receiptRow.receipt_json||'{}'));
       var amount=Number(input.amount),reason=String(input.reason||'').trim();
       if(original.payment_status!=='paid'||original.status!=='delivered'||!isFinite(amount)||
-         amount<=0||reason.length<8)auroraReject_('invalid_refund','Refund requires a paid order, amount and reason.');
+         amount<=0||Math.abs(amount*100-Math.round(amount*100))>0.000001||
+         reason.length<8||reason.length>500)auroraReject_('invalid_refund','Refund requires a paid order, amount and reason.');
       var outstanding=table.rows.filter(function(r){return r.order_id===input.order_id&&r.status!=='rejected';})
         .reduce(function(n,r){return n+Number(r.amount||0);},0);
       if(amount+outstanding>Number(original.total_amount)+0.001)
