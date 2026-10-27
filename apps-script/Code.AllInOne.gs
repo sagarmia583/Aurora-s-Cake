@@ -1723,35 +1723,25 @@ function auroraOperationsPost_(input) {
       order.rider_id = riderEmail;
       order.rider_name = String(rider.name||riderEmail).slice(0,100);
     }
-    if (action === 'start_delivery' && !order.delivery_otp) {
-      // No code is issued at checkout; generate it just before delivery.
-      // Use Apps Script's platform UUID source rather than Math.random().
-      order.delivery_otp = String(1000 + (parseInt(String(Utilities.getUuid()).replace(/-/g,'').slice(0,8),16) % 9000));
-    }
     if (action === 'deliver') {
-      var nowMillis = Date.now();
-      if (Number(order.otp_locked_until || 0) > nowMillis) auroraReject_('otp_locked','Too many incorrect OTP entries. Try again later.');
-      var code = String(input.delivery_otp || '');
-      if (!/^\d{4}$/.test(code) || code !== String(order.delivery_otp)) {
-        order.otp_failed_attempts = Number(order.otp_failed_attempts || 0)+1;
-        if (order.otp_failed_attempts >= 5) {
-          order.otp_locked_until = nowMillis+15*60*1000;
-          order.otp_failed_attempts = 0;
-        }
-        auroraPrivateSaveReceipt_(table,rowNumber,order);
-        auroraReject_('invalid_otp','Delivery code is incorrect or temporarily locked.');
-      }
-      if (order.payment_method === 'cod' && input.cash_collected !== true) {
-        auroraReject_('cash_unconfirmed','Confirm receiving the full cash payment before marking delivered.');
-      }
+      // Delivery OTP is intentionally disabled. Only the assigned, signed-in
+      // rider can close an out_for_delivery order after explicit confirmation.
+      if (input.package_handed_over !== true)
+        auroraReject_('handover_unconfirmed','Confirm that the cake was handed to the customer.');
+      if (order.payment_method === 'cod' && input.cash_collected !== true)
+        auroraReject_('cash_unconfirmed','Confirm full COD cash collection before marking delivered.');
       order.cod_collected = order.payment_method === 'cod';
       order.payment_status = order.payment_method === 'cod' ? 'paid' : order.payment_status;
-      // Delivery codes are single-use; never persist a valid code after completion.
       order.delivery_otp = '';
-      order.otp_failed_attempts = 0;
-      order.otp_locked_until = 0;
+      delete order.otp_failed_attempts;
+      delete order.otp_locked_until;
     }
-    if (action === 'cancel') order.delivery_otp = '';
+    if (action === 'start_delivery' || action === 'cancel') {
+      // Clear codes from older receipts; never issue another delivery OTP.
+      order.delivery_otp = '';
+      delete order.otp_failed_attempts;
+      delete order.otp_locked_until;
+    }
     order.status = transitions[action][1];
     order.updated_at = new Date().toISOString();
     if (!Array.isArray(order.history)) order.history = [];
@@ -1800,9 +1790,7 @@ function auroraCustomerOrderStatus_(input) {
   var result={ok:true,order_id:order.id,status:order.status,updated_at:order.updated_at,
     history:Array.isArray(order.history) ? order.history.slice(-20) : [],rider_name:order.rider_name||'',
     payment_status:order.payment_status,cod_collected:order.cod_collected};
-  if ((hasCapability || hasPhoneOwner || hasGoogleOwner) && order.status==='out_for_delivery') {
-    result.delivery_otp=order.delivery_otp;
-  }
+  // No delivery OTP is returned to any customer device.
   return result;
 }
 
