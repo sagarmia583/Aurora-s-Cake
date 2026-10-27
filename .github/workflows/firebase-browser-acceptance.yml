@@ -4,6 +4,7 @@ on:
     branches: ['fix/firebase-single-app-registry-20261027']
     paths:
       - '.github/workflows/firebase-browser-acceptance.yml'
+      - 'scripts/smoke-firebase-browser.mjs'
   workflow_dispatch:
 permissions:
   contents: read
