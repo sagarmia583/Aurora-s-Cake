@@ -1,6 +1,6 @@
 import React,{useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import { RefreshCw, WalletCards, Banknote, CakeSlice, Plus } from 'lucide-react';
-import {financeSummary,recordCashDeposit,voidCashDeposit,saveCakeCost,archiveCakeCost} from '../services/financeApi';
+import {financeSummary,recordCashDeposit,approveCashDeposit,voidCashDeposit,saveCakeCost,archiveCakeCost} from '../services/financeApi';
 import type {FinanceSnapshot} from '../services/financeApi';
 
 type Props={endpoint:string;token:string;canEdit:boolean};
@@ -40,8 +40,17 @@ export default function FinancePanel({endpoint,token,canEdit}:Props){
       const result=await recordCashDeposit(endpoint,token,{request_id:requestId.current,rider_id:selectedRider,
         amount:money,date,notes:note.trim()});
       setData(result);setAmount('');setNote('');requestId.current='';
-      setNotice('Cash deposit recorded as a debit. Rider outstanding balance reduced.');
+      setNotice('Cash submission saved as PENDING. A different authorized staff account must approve before the rider balance is debited.');
     }catch(err){setError(err instanceof Error?err.message:'Deposit not confirmed. Retry the same request.');}
+    finally{setBusy(false);}
+  };
+  const approveDeposit=async(id:string)=>{
+    if(!canEdit||busy)return;
+    if(!window.confirm('Approve this cash handover? Your staff account must differ from the submitter.'))return;
+    setBusy(true);setError('');setNotice('');
+    try{setData(await approveCashDeposit(endpoint,token,id));
+      setNotice('Approved by the second staff account. Rider outstanding balance has been reduced.');}
+    catch(err){setError(err instanceof Error?err.message:'Second-person approval failed.');}
     finally{setBusy(false);}
   };
   const voidDeposit=async(id:string)=>{
@@ -111,12 +120,16 @@ export default function FinancePanel({endpoint,token,canEdit}:Props){
           <label className="text-xs font-semibold">Deposit date<input required type="date" value={date} onChange={e=>{setDate(e.target.value);requestId.current='';}} className="mt-1 block w-full rounded-xl border p-3"/></label>
           <label className="text-xs font-semibold">Cash amount (BDT)<input required type="number" step="0.01" min="0.01" max={selectedBalance?.remaining||undefined} value={amount} onChange={e=>{setAmount(e.target.value);requestId.current='';}} className="mt-1 block w-full rounded-xl border p-3"/></label>
           <label className="text-xs font-semibold">Deposit reference / note<input maxLength={300} value={note} onChange={e=>{setNote(e.target.value);requestId.current='';}} className="mt-1 block w-full rounded-xl border p-3" placeholder="Daily settlement"/></label>
-          <button disabled={busy} className="sm:col-span-2 rounded-xl bg-[#174b3b] p-3 font-bold text-white disabled:opacity-50">Confirm cash received & debit rider</button>
+          <button disabled={busy} className="sm:col-span-2 rounded-xl bg-[#174b3b] p-3 font-bold text-white disabled:opacity-50">Submit cash for independent approval</button>
         </form>}
         <details><summary className="text-sm font-bold cursor-pointer">Recent rider deposits ({data.deposits.length})</summary>
           <div className="space-y-2 pt-3">{data.deposits.map(d=><div key={d.id} className="rounded-xl border p-3 text-xs">
             <strong>{d.rider_id}</strong> · {d.date} · <strong>{format(d.amount)}</strong>
             <div className="text-slate-500">{d.actor_name} {d.notes&&'· '+d.notes}</div>
+            <p className={'text-xs mt-1 font-semibold '+(d.status==='pending'?'text-amber-800':'text-emerald-800')}>Status: {d.status||'approved (legacy)'} {d.approved_by_id&&'· approved by '+d.approved_by_id}</p>
+            {canEdit && d.status==='pending' && !d.voided_at && <button type="button"
+               disabled={busy} onClick={()=>void approveDeposit(d.id)}
+               className="rounded-lg mt-2 mr-3 bg-emerald-800 px-3 py-2 text-white text-xs disabled:opacity-50">Approve cash handover (second staff)</button>}
             {d.voided_at ? <p className="mt-2 text-red-700 font-semibold">Voided {d.voided_at} by {d.voided_by} — {d.void_reason}</p> :
               canEdit && <button type="button" disabled={busy} onClick={()=>void voidDeposit(d.id)}
                 className="mt-2 text-red-700 font-semibold underline disabled:opacity-50">Correct / Void deposit</button>}
