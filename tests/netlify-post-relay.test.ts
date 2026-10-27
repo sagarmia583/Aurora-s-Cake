@@ -39,6 +39,9 @@ test('free relay forwards selected action without printing Google tokens or expo
     assert.equal((await response.json()).role,'admin');
     assert.equal(lastUrl,configured);
     assert.match(received,/staff_session/);
+    const phoneTracking=await relay(make('customer_phone_tracking'));
+    assert.equal(phoneTracking.status,200);
+    assert.match(received,/customer_phone_tracking/);
     assert.equal(response.headers.get('Cache-Control'),'no-store');
   }finally{
     globalThis.fetch=previous;
