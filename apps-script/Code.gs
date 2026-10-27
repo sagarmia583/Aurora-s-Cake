@@ -5,7 +5,7 @@
 // Leave blank when this script is bound to the intended Sheet through Extensions > Apps Script.
 var AURORA_SPREADSHEET_ID = '18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4';
 var AURORA_SCHEMA_VERSION = 1;
-var AURORA_BACKEND_RELEASE = 'aurora-2026-10-26-customer-master-r2';
+var AURORA_BACKEND_RELEASE = 'aurora-2026-10-27-phone-tracking-r3';
 var PUBLIC_TABLE_SCHEMAS = {
   settings: ['key','value'],
   content: ['key','value'],
@@ -156,7 +156,15 @@ function doPost(e) {
   } catch (error) {
     if (error && error.auroraValidation) return auroraResponse_({ok:false,success:false,persisted:false,code:error.code,error:error.message});
     console.error(error && error.stack ? error.stack : error);
-    // A write may already have committed. Never tell the client this outcome is definitely unpersisted.
+    // A non-checkout read/write must never report a misleading checkout failure.
+    // Do not disclose internal Sheet names, script properties or exception text.
+    if (typeof input !== 'undefined' && input && input.action === 'customer_contact_submit')
+      return auroraResponse_({ok:false,success:false,code:'contact_save_unavailable',
+        error:'Customer details could not be saved. Confirm setupSheetDatabase() and redeploy the updated Apps Script.'});
+    if (typeof input !== 'undefined' && input && input.action === 'customer_phone_tracking')
+      return auroraResponse_({ok:false,success:false,code:'tracking_unavailable',
+        error:'Phone tracking could not load orders. Check the active Apps Script version and private orders Sheet.'});
+    // A checkout write may already have committed; an uncertain receipt needs the same request ID.
     return auroraResponse_({ok:false,success:false,code:'submission_uncertain',error:'Order confirmation is unavailable. Retry with the same request ID; do not create a new request.'});
   } finally {
     if (locked) lock.releaseLock();
