@@ -39,18 +39,24 @@ const allowedStatuses = new Set<OrderStatus>([
  * Phone lookup is NOT customer authentication. The server must only return
  * redacted order status summaries, never a private order receipt or OTP.
  */
-export async function getPhoneOrderStatuses(
-  endpoint: string, phone: string
-): Promise<PhoneTrackingStatus[]> {
+export interface PhoneTrackingPage { orders: PhoneTrackingStatus[]; nextCursor: number | null }
+
+export async function getPhoneOrderPage(
+  endpoint: string, phone: string, cursor?: number
+): Promise<PhoneTrackingPage> {
   const normalized = normalizeTrackingPhone(phone);
   if (!/^01[3-9]\d{8}$/.test(normalized)) {
     throw new Error('Enter a valid 11-digit Bangladesh mobile number.');
   }
-  const data = await privatePost(endpoint, {action:'customer_phone_tracking',phone:normalized});
+  const data = await privatePost(endpoint, {action:'customer_phone_tracking',phone:normalized,
+    ...(cursor!==undefined ? {cursor} : {})});
   if (!Array.isArray(data.orders) || data.orders.length > 10) {
     throw new Error('The phone tracking response is invalid. Update the bakery Apps Script deployment.');
   }
-  return data.orders.map((item: unknown): PhoneTrackingStatus => {
+  if(data.next_cursor!==null&&data.next_cursor!==undefined&&
+     (!Number.isSafeInteger(data.next_cursor)||(data.next_cursor as number)<0))
+     throw new Error('Invalid tracking pagination cursor.');
+  const orders = data.orders.map((item: unknown): PhoneTrackingStatus => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
       throw new Error('Invalid tracking response.');
     }
@@ -117,4 +123,10 @@ export async function getPhoneOrderStatuses(
       ...(row.timeline!==undefined?{timeline}:{})
     };
   });
+  return {orders,nextCursor:typeof data.next_cursor==='number'?data.next_cursor:null};
+}
+
+/** Retained for callers only needing the newest page. */
+export async function getPhoneOrderStatuses(endpoint:string,phone:string):Promise<PhoneTrackingStatus[]>{
+  return (await getPhoneOrderPage(endpoint,phone)).orders;
 }
