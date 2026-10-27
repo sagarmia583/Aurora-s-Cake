@@ -1453,7 +1453,7 @@ var AURORA_SEED_DATA = {
  *  "rider@example.com":{"role":"delivery_man","name":"Rider"}}
  */
 var AURORA_PUBLIC_GOOGLE_CLIENT_ID = "246617121730-fssfp59nlinltkfq0rccuud74rfpccum.apps.googleusercontent.com";
-var AURORA_STAFF_ROLES_ = ['super_admin','admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'];
+var AURORA_STAFF_ROLES_ = ['super_admin','admin','manager','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'];
 /**
  * OWNER-ONLY ONE-TIME SETUP.
  * Run manually from the Apps Script EDITOR while signed in as the intended
@@ -1538,7 +1538,8 @@ function auroraStaffAuthenticate_(input) {
     if(AURORA_STAFF_ROLES_.indexOf(person.role)<0||person.role==='super_admin')
       auroraReject_('forbidden','This staff role is not authorized.');
     return {email:String(person.username),role:person.role,name:String(person.name||person.username).slice(0,100),
-      people:auroraStaffConfig_().people,username:String(person.username),employee:true};
+      people:auroraStaffConfig_().people,username:String(person.username),employee:true,
+      permissions:auroraStaffParsePermissions_(person.permissions,String(person.role))};
   }
   var config=auroraStaffConfig_();
   var decoded=auroraVerifiedGoogleClaims_(input&&input.id_token,config.clientId);
@@ -1550,18 +1551,12 @@ function auroraStaffAuthenticate_(input) {
     auroraReject_('forbidden','Staff role is not authorized.');
   // Pre-existing Google staff accounts remain supported until the shop owner
   // removes them from the allowlist. New employees use username/password.
-  return {email:email,role:person.role,name:String(person.name||email).slice(0,100),people:config.people};
+  return {email:email,role:person.role,name:String(person.name||email).slice(0,100),people:config.people,
+    permissions:auroraStaffDefaultPermissions_(person.role)};
 }
 function auroraStaffCan_(actor,action) {
-  if (actor.role === 'super_admin' || actor.role === 'admin') return true;
-  var permissions = {
-    order_manager:['confirm','cancel'],
-    kitchen_manager:['start_baking','mark_ready'],
-    delivery_manager:['assign'],
-    delivery_man:['pick_up','start_delivery','deliver'],
-    accountant:[]
-  };
-  return (permissions[actor.role] || []).indexOf(action) !== -1;
+  var capability=AURORA_OPERATION_CAPABILITY_[action];
+  return capability ? auroraStaffHas_(actor,capability) : false;
 }
 function auroraPrivateFindRow_(table, orderId) {
   var index = table.headers.indexOf('id');
@@ -1657,21 +1652,22 @@ function auroraOperationsOrders_(actor, table) {
 function auroraOperationsPost_(input) {
   var actor = auroraStaffAuthenticate_(input);
   if (input.action === 'staff_session') {
-    var registered=auroraAccountProfiles_(),riders=registered.filter(function(p){return p.role==='delivery_man'&&p.active===true;})
+    var registered=auroraAccountProfiles_(),riders=registered.filter(function(p){return p.active===true&&auroraStaffCandidate_(p.role,JSON.stringify(p.permissions));})
       .map(function(p){return {email:p.username,name:p.name};});
     Object.keys(actor.people).filter(function(email){
-      return actor.people[email]&&actor.people[email].role==='delivery_man';
+      return actor.people[email]&&auroraStaffCandidate_(actor.people[email].role);
     }).forEach(function(email){riders.push({email:email,name:String(actor.people[email].name||email).slice(0,100)});});
-    var summary={ok:true,role:actor.role,name:actor.name,email:actor.email,username:actor.username||'',
-      riders:['super_admin','admin','delivery_manager'].indexOf(actor.role)===-1?[]:riders};
+    var summary={ok:true,role:actor.role,name:actor.name,email:actor.email,username:actor.username||'',permissions:actor.permissions||auroraStaffDefaultPermissions_(actor.role),
+      riders:auroraStaffHas_(actor,'delivery_assign')?riders:[]};
     // Directory is private; expose only to the verified super_admin, never via GET.
     if(actor.role==='super_admin'){
       summary.staff_profiles=Object.keys(actor.people).filter(function(email){
         var person=actor.people[email];
         return person && AURORA_STAFF_ROLES_.indexOf(person.role)!==-1 &&
           /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-      }).map(function(email){return {email:email,name:String(actor.people[email].name||email).slice(0,100),role:actor.people[email].role};})
-        .sort(function(a,b){return a.role==='super_admin'?-1:b.role==='super_admin'?1:a.name.localeCompare(b.name);}).concat(registered.map(function(p){return {email:'',username:p.username,name:p.name,role:p.role,active:p.active};})).slice(0,200);
+      }).map(function(email){return {email:email,name:String(actor.people[email].name||email).slice(0,100),role:actor.people[email].role,active:true,
+        permissions:auroraStaffDefaultPermissions_(actor.people[email].role)};})
+        .sort(function(a,b){return a.role==='super_admin'?-1:b.role==='super_admin'?1:a.name.localeCompare(b.name);}).concat(registered.map(function(p){return {email:'',username:p.username,name:p.name,role:p.role,active:p.active,permissions:p.permissions};})).slice(0,200);
     }
     return summary;
   }
@@ -1706,6 +1702,7 @@ function auroraOperationsPost_(input) {
   }
   var book = auroraSpreadsheet_(), table = auroraFastOrderTable_(book);
   if (input.action === 'staff_orders') {
+    auroraStaffRequire_(actor,'orders_view');
     var snapshot=auroraOperationsOrders_(actor,{rows:auroraFastOrderList_(table)});
     return {ok:true,snapshot_complete:snapshot.complete,snapshot_at:new Date().toISOString(),
       orders:snapshot.orders,role:actor.role};
@@ -1740,11 +1737,11 @@ function auroraOperationsPost_(input) {
       var rider = actor.people[riderEmail];
       if(!rider){
         var allowed=auroraAccountProfiles_().filter(function(person){
-          return person.username===riderEmail&&person.role==='delivery_man'&&person.active===true;
+          return person.username===riderEmail&&person.active===true&&auroraStaffCandidate_(person.role,JSON.stringify(person.permissions));
         })[0];
-        if(allowed)rider={role:'delivery_man',name:allowed.name};
+        if(allowed)rider={role:allowed.role,name:allowed.name};
       }
-      if (!rider || rider.role !== 'delivery_man') auroraReject_('invalid_rider','Select a registered delivery rider.');
+      if (!rider || !auroraStaffCandidate_(rider.role)) auroraReject_('invalid_rider','Select a staff member permitted to deliver orders.');
       order.rider_id = riderEmail;
       order.rider_name = String(rider.name||riderEmail).slice(0,100);
     }
