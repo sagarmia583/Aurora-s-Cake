@@ -53,6 +53,9 @@ test('Vercel relay reaches the pinned Google script and avoids browser CORS redi
     assert.equal(outcome.headers['cache-control'],'no-store');
     assert.equal(receivedUrl,deployedScript);
     assert.match(body,/"staff_session"/);
+    const phoneTracking=await invoke('POST','customer_phone_tracking');
+    assert.equal(phoneTracking.status,200);
+    assert.match(body,/"customer_phone_tracking"/);
   }finally{
     globalThis.fetch=originalFetch;
     if(original===undefined)delete process.env.AURORA_SCRIPT_POST_URL;
