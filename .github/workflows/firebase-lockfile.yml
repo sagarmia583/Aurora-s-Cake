@@ -18,7 +18,7 @@ jobs:
           persist-credentials: true
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
       - name: Generate reproducible npm lockfile without install scripts
         run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
       - name: Commit lockfile to Firebase feature branch
@@ -28,5 +28,7 @@ jobs:
           git add package-lock.json
           if ! git diff --cached --quiet; then
             git commit -m 'chore(firebase): refresh package lock for Firebase SDK'
+            git fetch origin feat/firebase-foundation-20261027
+            git rebase origin/feat/firebase-foundation-20261027
             git push origin HEAD:feat/firebase-foundation-20261027
           fi
