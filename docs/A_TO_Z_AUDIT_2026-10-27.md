@@ -17,14 +17,14 @@
 
 **Residual:** A pending checkout can survive refresh only when same-tab sessionStorage is writable. If browser storage is blocked/cleared, no persistent retry data can be guaranteed. Manual testing still required.
 
-## 2 — Open high-priority product, privacy and financial risks
+## 2 — High-priority risks and fixes still requiring acceptance
 
 | Priority | Area | Finding | Proposed acceptance fix |
 | --- | --- | --- | --- |
 | P0 privacy | Phone-only tracking | Phone-number knowledge alone exposes limited status **and itemized cake/price/total**, without phone-ownership verification. Current per-number cache throttle (15 checks/10 minutes) does not enforce a global per-user/IP limit; enumeration may still be possible. | Decide whether to keep itemized information public; for truly private full details, verify number ownership or use a private receipt token. |
 | P1 financial | Daily cash deposits | The debit is idempotent **by request UUID**, not proof of physical handover. Refreshing/creating a new UUID for the same physical deposit can record two debits. No receipt number, sign-off, correction journal or dual approval. | Immutable cash receipt/settlement ID, two-sided reconciliation and reversal-only corrections; daily rider/manager sign-off. |
-| P1 pricing | Product-wide base markdown | Fixed taka markdown (`base_price - sale_price`) is subtracted from each size, floored at zero. A large markdown can make a small variant zero-priced. | Server/CMS cross-validation against all active variants; explicit pricing policy and boundary tests before publishing discounts. |
-| P1 customer history | Phone tracking | API only returns latest **10** matching orders; customers with >10 cannot navigate to older orders from this endpoint, notwithstanding individual tracking cards. | Cursor/pagination with appropriate security/rate controls. |
+| P1 pricing | Product-wide base markdown | A large fixed taka markdown could make a small variant zero-priced. Additional guard and tests were committed after initial audit, but must pass latest CI and live checkout price cases before acceptance. | Confirm backend cannot save a zero-priced paid cake; test every variant with sale, cart and coupon. |
+| P1 customer history | Phone tracking | Initial phone tracking returned only latest **10** orders. Cursor pagination was added in subsequent commits; needs complete multi-page API/browser testing and privacy/rate limit check. | Verify >10 historical orders can be navigated individually, and no history disappears after refresh. |
 | P1 staff history | Staff orders | API limits output to latest **100** orders, no server cursor/date-based archival query. | Paginated staff history, query by order reference/date and status. |
 | P1 resilience | Staff orders | One malformed `receipt_json` marks `snapshot_complete:false`; UI refuses whole snapshot, leaving orders stuck on old cached data. | Quarantine bad rows, provide staff error banner + safe partial rows/recovery queue rather than disabling all operations. |
 | P1 finance | Ledger source | Collected balance is **reconstructed from mutable order receipt JSON** and deposited amounts. Manual Sheet edits, receipt corruption or retroactive COD adjustments can change reported balance without immutable journal. | Append-only COD credit/debit/reversal ledger + daily reconciliation and variance alarm. |
@@ -65,3 +65,8 @@
 - Backup Sheets first; deploy R6 AllInOne to script project, run `setupSheetDatabase()`, publish `New version`, verify environment and acceptance with **staging/test orders and test money only**.
 - Consider actual phone number privacy and immutable cash ledger top priorities ahead of broad marketing launch.
 - Latest audit fixes remain isolated to Draft PR #4 and are not a claim that any existing real order, staff account or balance was changed.
+
+
+### Audit follow-up after first snapshot
+
+Subsequent commits on the same Draft PR added cursor-based history pagination, zero-priced-cake checkout guard/tests, CMS optional sale-price defaults, and restriction of read-only staff editing controls. These are **code changes pending full end-to-end validation**, not grounds for marking the live system safe. The initial findings above preserve the reason each regression test is important.
