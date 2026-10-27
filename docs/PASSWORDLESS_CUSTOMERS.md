@@ -1,32 +1,26 @@
-# Aurora's Cake — Password-free customer details and secure order recovery
+# Aurora's Cake — Password-free, phone-only order tracking
 
-The default customer experience no longer asks for a phone-account password.
+## Customer experience
 
-## Customer flow
+- **My Order Panel** shows **My Orders** and **My Details**, with no customer account password or login.
+- **Track Orders** accepts only an 11-digit Bangladesh mobile number; no order ID or private key required.
+- The backend searches the private Google Sheet's orders by normalized checkout phone. It returns up to 10 recent matching orders with only **masked order reference**, **status**, **created**, and **updated** timestamps.
+- Checkout phone is saved on the device, so reopening Track or My Orders after refreshing starts an updated lookup from Google Sheets. Full receipts are also loaded from browser storage immediately at app startup.
+- Phone-only search never returns full order ID, name, address, item details, amount, private receipt key or delivery verification OTP. The original private receipt on the same device can still show full detail and OTP.
 
-1. Open **Customer details / My orders**.
-2. Enter **Name + Bangladesh mobile number + Delivery address**, then Save.
-3. The details are posted to the private `customer_contact_requests` Google Sheet. They are **unverified submissions**; no anonymous phone search can read them. The browser also keeps a copy for autofilling checkout.
-4. Staff can enter a mobile number in the authenticated **Customer Master · Phone VLOOKUP** panel. Confirmed COD customers are returned from `customer_master`. If there is no confirmed order but an unverified contact submission exists, it is explicitly marked **Unverified**.
-5. Customers check out without a password. A successful COD order persists a full private `orders` receipt, `order_items`, and the normalized customer record in `customer_master`.
-6. The order's receipt and dispatch OTP appear in **My orders / Order Tracking** on the same device.
-7. On a different device the customer may recover an order with **Order ID + phone + original private receipt key**. This retrieves only that specific order. No customer profile, older order history or delivery OTP can be retrieved from a phone number alone.
+## REQUIRED: Deploy updated Google Apps Script manually
 
-Previous phone/password and Google-linked accounts still work through **Previously registered… → Existing account recovery**, so older customers are not stranded. The password is not required for new customer details or COD checkout.
+GitHub pushes and Vercel preview deployments do NOT update the existing Apps Script /exec endpoint.
 
-## Before testing
+1. Back up the live private Google Sheet, including orders and order_items.
+2. Copy the COMPLETE current apps-script/Code.AllInOne.gs into the Apps Script project's Code.gs. Remove duplicate old modules, or alternatively deploy the modular Code.gs and updated StaffOperations.gs together with dependencies.
+3. Select Deploy > Manage deployments > Edit > New version > Deploy. Retain the same /exec URL. No Sheet schema changes are required.
+4. On a Preview, check a permitted COD test order by phone number only, refresh the page, and check again.
+5. Check a missing phone and an invalid phone. Verify that the anonymous network response contains no address, payment amount, receipt token or OTP.
+6. Verify full private receipt status refresh and delivery OTP after dispatch. Production requires an independently verified live acceptance test.
 
-1. Back up the existing production Google Sheet, including `orders`, `order_items`, `customer_master`, account sheets, and `receipt_json`.
-2. Copy the **entire current** [All-in-One Apps Script](../apps-script/Code.AllInOne.gs) into the existing Apps Script `Code.gs` (remove duplicate old module files).
-3. Manually run `setupSheetDatabase()` once: this adds the **private** `customer_contact_requests` sheet, preserving populated old sheets. Do not publish/share the Sheet.
-4. **Deploy → Manage deployments → Edit → New version → Deploy**. Simply pushing GitHub or redeploying Vercel does not update Google Apps Script.
-5. Test from a Preview with a harmless unverified test contact number; verify the private Sheet stores it, and the staff search shows an Unverified warning.
-6. Use a controlled COD test and verify `orders`, `order_items`, customer lookup, customer receipt recovery and OTP at dispatch. Avoid modifying real customer orders.
+## Privacy and limits
 
-## Security limits
+Phone alone is not proof of phone ownership. Anyone who knows a mobile number can discover whether there are recent orders and basic delivery progress. This is the requested no-password trade-off. Results are minimal, capped at 10 latest orders, and rate-limited to 15 lookups per phone per 10 minutes via Google CacheService. Rate limiting cannot fully prevent all enumeration.
 
-Phone number alone does not authenticate possession; a public phone-only order-history/address search would expose private customer information. The API intentionally does not implement it. Customers must keep a private receipt key for recovery on another device; if lost, contact the shop for an independently verified recovery process. A saved form entry is not proof of identity. Google Apps Script + Google Sheets and Vercel Hobby free-tier quotas apply, and no paid SMS service is used.
-
-## Release
-
-The branch's automated CI test and Vercel Preview validate code/build, not real Apps Script owner credentials or the Google Sheet's data. Keep PR #2 Draft and Production unchanged until the manual migration/acceptance tests pass.
+Old customer password data and backend account functions have not been destructively deleted. Staff authentication stays separate and unchanged.
