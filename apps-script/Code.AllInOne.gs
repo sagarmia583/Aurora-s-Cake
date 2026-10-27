@@ -3089,7 +3089,7 @@ function auroraFinanceSnapshot_(book) {
     .map(function(r){
       var quantity=Number(r.quantity),unitCost=Number(r.unit_cost);
       return {id:String(r.id),product_id:String(r.product_id),variant_id:String(r.variant_id),
-        component:String(r.component),unit_label:String(r.unit_label||''),
+        component:String(r.component),unit_label:String(r.unit_label||''),inventory_item_id:String(r.inventory_item_id||''),
         quantity:quantity,unit_cost:unitCost,total:Math.round(quantity*unitCost*100)/100};
     });
   var totals=Object.create(null);
@@ -3207,7 +3207,8 @@ function auroraFinancePost_(input){
          String(priorCost.component)!==String(input.component||'').trim()||
          Number(priorCost.quantity)!==Number(input.quantity)||
          Number(priorCost.unit_cost)!==Number(input.unit_cost)||
-         String(priorCost.unit_label||'')!==String(input.unit_label||'').trim())
+         String(priorCost.unit_label||'')!==String(input.unit_label||'').trim()||
+         String(priorCost.inventory_item_id||'')!==String(input.inventory_item_id||'').trim())
         auroraReject_('idempotency_conflict','This recipe request ID belongs to different cost details.');
       return {ok:true,already_saved:true,snapshot:auroraFinanceSnapshot_(book)};
     }
@@ -3220,8 +3221,13 @@ function auroraFinancePost_(input){
     var variants=auroraRows_(book,'product_variants');
     if(!variants.some(function(v){return String(v.id)===variantId&&String(v.product_id)===productId;}))
       auroraReject_('invalid_reference','Select a variant belonging to this product.');
+    var stockItemId=String(input.inventory_item_id||'').trim();
+    if(stockItemId){
+      var item=auroraPrivateTable_(book,'inventory_items').rows.filter(function(r){return String(r.id)===stockItemId;})[0];
+      if(!item||String(item.unit)!==unitLabel)auroraReject_('invalid_stock_mapping','Select a stock item with the same unit.');
+    }
     var rec={id:'cost_'+Utilities.getUuid(),request_id:costRequestId,product_id:productId,variant_id:variantId,
-      component:component,unit_label:unitLabel,quantity:qty,unit_cost:cost,active:true,
+      component:component,unit_label:unitLabel,quantity:qty,unit_cost:cost,inventory_item_id:stockItemId,active:true,
       updated_at:new Date().toISOString()};
     auroraAppendPrivate_(costsTable,rec);
     return {ok:true,snapshot:auroraFinanceSnapshot_(book)};
