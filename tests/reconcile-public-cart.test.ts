@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DEFAULT_PUBLIC_SITE_DATA } from '../src/content/defaultSiteData';
 import { reconcilePublicCart, reorderFromPublicOrder } from '../src/services/reconcilePublicCart';
+import { variantPrice } from '../src/services/productPricing';
 import type { CartItem, Order } from '../src/types';
 
 function fixture() {
@@ -10,7 +11,7 @@ function fixture() {
   const variant=product.variants[0];
   const flavor=data.flavors.find(value=>product.allowed_flavor_ids.includes(value.id))!;
   const addon=data.addons.find(value=>product.allowed_addon_ids.includes(value.id))!;
-  const unitPrice=(variant.sale_price??variant.price)+addon.price;
+  const unitPrice=variantPrice(product,variant)+addon.price;
   const item:CartItem={
     cart_item_id:'saved-cart-line',product:structuredClone(product),selected_variant:structuredClone(variant),
     selected_flavor:structuredClone(flavor),selected_addons:[structuredClone(addon)],
@@ -25,8 +26,8 @@ test('current Sheet variant and add-on prices reprice every cake in the line',()
   const result=reconcilePublicCart([item],data);
   assert.equal(result.changed,true);
   assert.equal(result.removedCount,0);
-  assert.equal(result.items[0].unit_price,1050);
-  assert.equal(result.items[0].total_price,2100);
+  assert.equal(result.items[0].unit_price,variantPrice(data.products[0],variant)+addon.price);
+  assert.equal(result.items[0].total_price,(variantPrice(data.products[0],variant)+addon.price)*2);
   assert.equal(result.items[0].cart_item_id,'saved-cart-line');
   assert.equal(result.items[0].writing_message,'Keep my dedication');
   assert.equal(item.quantity,2);
@@ -58,7 +59,7 @@ test('removed add-ons are dropped while keeping and repricing the selected cake'
   const {data,item,variant,addon}=fixture();
   data.addons=data.addons.filter(value=>value.id!==addon.id);
   const result=reconcilePublicCart([item],data);
-  const expected=variant.sale_price??variant.price;
+  const expected=variantPrice(data.products[0],variant);
   assert.equal(result.items.length,1);
   assert.deepEqual(result.items[0].selected_addons,[]);
   assert.equal(result.items[0].unit_price,expected);
@@ -108,7 +109,7 @@ test('an intentionally empty Sheet catalogue removes previous saved selections',
 
 
 function pastOrder(item: CartItem): Order {
-  const base=item.selected_variant.sale_price??item.selected_variant.price;
+  const base=variantPrice(item.product,item.selected_variant);
   return {
     items:[{
       id:'past-item',order_id:'past-order',product_id:item.product.id,product_name:item.product.name,
@@ -135,8 +136,8 @@ test('reorder uses current Sheet variant and per-cake add-on prices with unique 
   variant.price=950;delete variant.sale_price;addon.price=175;
   const first=reorderFromPublicOrder(order,data);
   const second=reorderFromPublicOrder(order,data);
-  assert.equal(first.items[0].unit_price,1125);
-  assert.equal(first.items[0].total_price,2250);
+  assert.equal(first.items[0].unit_price,variantPrice(data.products[0],variant)+addon.price);
+  assert.equal(first.items[0].total_price,(variantPrice(data.products[0],variant)+addon.price)*2);
   assert.equal(first.items[0].quantity,2);
   assert.equal(first.items[0].writing_message,item.writing_message);
   assert.equal(first.items[0].product,data.products[0]);
