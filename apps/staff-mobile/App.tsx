@@ -45,7 +45,7 @@ function OrderTile({order,session,working,onNext,onAssign,onDeliveryConfirm,onCa
 }){
   const [expanded,setExpanded]=useState(false);
   const next=nextOperation(order,session);
-  const canCancel=(session.role==='super_admin'||session.role==='admin'||session.role==='order_manager')&&
+  const canCancel=canOperate(session.role,'cancel',session.permissions)&&
     ['pending','confirmed','preparing','ready','assigned'].includes(order.status);
   const done=order.status==='delivered'||order.status==='cancelled';
   const onAction=()=>{
@@ -72,9 +72,9 @@ function OrderTile({order,session,working,onNext,onAssign,onDeliveryConfirm,onCa
       <Text style={s.money}>{money(order.total_amount)}</Text>
     </View>
     {order.delivery_slot?<Text style={s.deliveryMeta}>🕘 {order.delivery_date||''}  {order.delivery_slot}</Text>:null}
-    {(session.role==='delivery_man'||session.role==='delivery_manager'||session.role==='admin'||session.role==='super_admin')&&
+    {(session.role==='manager'||session.role==='super_admin'||session.permissions?.includes('customers_lookup')||session.role==='delivery_man'||session.role==='delivery_manager'||session.role==='admin')&&
        order.delivery_address?<Text numberOfLines={expanded?undefined:2} style={s.address}>📍 {order.delivery_address}</Text>:null}
-    {session.role==='delivery_man'&&order.payment_method==='cod'?<View style={s.codStrip}>
+    {canOperate(session.role,'deliver',session.permissions)&&order.payment_method==='cod'?<View style={s.codStrip}>
       <Text style={s.codText}>Cash on delivery</Text><Text style={s.codAmount}>{money(order.cod_amount??order.total_amount)}</Text>
     </View>:null}
     {next?<ActionButton disabled={working} label={working?'⏳ Saving to Google Sheets…':operationLabels[next]+'  →'} onPress={onAction}/>:null}
@@ -87,9 +87,9 @@ function OrderTile({order,session,working,onNext,onAssign,onDeliveryConfirm,onCa
           <Text style={{color:C.ink,fontWeight:'700'}}>{money(item.subtotal)}</Text></View>)}
       {order.order_note?<Text style={s.note}>Note: {order.order_note}</Text>:null}
       {order.rider_name?<SmallLabel>Assigned rider: {order.rider_name}</SmallLabel>:null}
-      {session.role==='delivery_man'&&order.customer_phone?
+      {canOperate(session.role,'deliver',session.permissions)&&order.customer_phone?
         <ActionButton kind="secondary" label="📞 Call customer" onPress={()=>void Linking.openURL('tel:'+order.customer_phone!.replace(/[^\d+]/g,''))}/>:null}
-      {session.role==='delivery_man'&&order.delivery_address?
+      {canOperate(session.role,'deliver',session.permissions)&&order.delivery_address?
         <ActionButton kind="secondary" label="🗺️ Open delivery map" onPress={()=>void Linking.openURL('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(order.delivery_address!))}/>:null}
       {canCancel?<ActionButton kind="danger" disabled={working} label="Cancel this order" onPress={()=>onCancel(order)}/>:null}
     </View>:null}
