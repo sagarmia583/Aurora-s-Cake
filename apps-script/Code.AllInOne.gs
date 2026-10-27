@@ -2691,6 +2691,7 @@ function auroraCmsPost_(input){
       table.columns.forEach(function(field){
         row[field]=existing?existing[field]:field===table.key?nowId:
           AURORA_CMS_BOOLEAN_FIELDS_.indexOf(field)!==-1?false:
+          ['sale_price','max_discount_amount','rating'].indexOf(field)!==-1?'':
           AURORA_CMS_NUMBER_FIELDS_.indexOf(field)!==-1?0:'';
       });
       if(action==='staff_cms_delete'){
