@@ -6,8 +6,8 @@
  * Firestore rules, order migration and dual-write correctness are verified.
  * Firebase config identifiers are public; never put an Admin SDK credential here.
  */
-import { getApp, getApps, initializeApp, type FirebaseApp, type FirebaseOptions } from 'firebase/app';
-import { getAuth, type Auth } from 'firebase/auth';
+import { getApps, initializeApp, type FirebaseApp, type FirebaseOptions } from 'firebase/app';
+import type { Auth } from 'firebase/auth';
 import { doc, getDocFromServer, getFirestore, type Firestore } from 'firebase/firestore';
 
 export interface FirebaseConnectionResult {
@@ -18,7 +18,6 @@ export interface FirebaseConnectionResult {
 
 export interface FirebaseServices {
   app: FirebaseApp;
-  auth: Auth;
   db: Firestore;
   checkConnection: () => Promise<FirebaseConnectionResult>;
 }
@@ -68,11 +67,9 @@ export function getFirebaseServices(): Promise<FirebaseServices> {
     servicesPromise = Promise.resolve().then(() => {
       const app = getApps().find(item => item.name === appName)
         || initializeApp(firebaseConfig, appName);
-      const auth = getAuth(app);
       const db = getFirestore(app);
       return {
         app,
-        auth,
         db,
         async checkConnection(): Promise<FirebaseConnectionResult> {
           try {
@@ -98,4 +95,19 @@ export function getFirebaseServices(): Promise<FirebaseServices> {
     });
   }
   return servicesPromise;
+}
+
+/**
+ * Authentication is intentionally initialized separately from read-only
+ * Firestore diagnostics. Auth is not yet connected to the production staff
+ * login flow, and calling getAuth during every health check can fail due to
+ * Firebase Auth component registration before Firestore is even checked.
+ *
+ * When Firebase Auth roles are implemented, call this explicitly and test
+ * the Auth registration/login lifecycle independently.
+ */
+export async function getFirebaseAuth(): Promise<Auth> {
+  const { app } = await getFirebaseServices();
+  const { getAuth } = await import('firebase/auth');
+  return getAuth(app);
 }
