@@ -12,7 +12,7 @@ interface CustomerStorefrontProps {
   flavors: Flavor[];
   banners: Banner[];
   reviews: Review[];
-  coupons: Coupon[];
+  coupons?: Coupon[];
   onUseCoupon?: (code: string) => void;
   currency: string;
   onSelectProduct: (product: Product) => void;
@@ -41,7 +41,7 @@ function HighlightIcon({ name, size = 20 }: { name?: string; size?: number }) {
 
 export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
   settings: suppliedSettings, products, categories, currency, onSelectProduct, onOpenCustomCake,
-  onOpenTrackOrder, onOpenProfile, searchQuery, publicData, coupons, onUseCoupon,
+  onOpenTrackOrder, onOpenProfile, searchQuery, publicData, coupons = [], onUseCoupon,
 }) => {
   const data: PublicSiteData = publicData ?? DEFAULT_PUBLIC_SITE_DATA;
   const settings = publicData?.settings ?? suppliedSettings;
