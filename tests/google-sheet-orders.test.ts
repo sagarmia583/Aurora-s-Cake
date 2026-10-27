@@ -1230,8 +1230,11 @@ test('manager performs kitchen, assignment, own delivery and COD without staff a
   const finance=h.post({action:'staff_finance_summary',auth_token:token});
   assert.equal(finance.ok,true);
   assert.equal(finance.riders[0].remaining,1680);
-  assert.equal(h.post({action:'staff_cash_deposit',auth_token:token,request_id:'a2222222-3333-4333-8333-444444444444',
-    date:'2026-10-27',rider_id:'manager01',amount:200,notes:'Manager delivered COD'}).snapshot.riders[0].remaining,1480);
+  const pending=h.post({action:'staff_cash_deposit',auth_token:token,request_id:'a2222222-3333-4333-8333-444444444444',
+    date:'2026-10-27',rider_id:'manager01',amount:200,notes:'Manager delivered COD'});
+  assert.equal(pending.snapshot.riders[0].remaining,1680);
+  assert.equal(h.post({action:'staff_cash_deposit_approve',auth_token:token,deposit_id:pending.deposit_id}).code,'independent_approval_required');
+  assert.equal(h.post({action:'staff_cash_deposit_approve',id_token:ADMIN_TOKEN,deposit_id:pending.deposit_id}).snapshot.riders[0].remaining,1480);
   assert.equal(h.post({action:'staff_customer_lookup',auth_token:token,phone:'01700000000'}).found,true);
 });
 
