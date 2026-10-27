@@ -87,7 +87,7 @@ var PRIVATE_ORDER_SCHEMAS = {
   customer_master: ['id','phone_key','name','delivery_address','created_at','updated_at','order_count','last_order_id','last_order_at'],
   customer_contact_requests: ['id','phone_key','name','delivery_address','created_at','status'],
   rider_cash_deposits: ['id','request_id','rider_id','amount','date','actor_name','created_at','notes'],
-  cake_cost_items: ['id','product_id','variant_id','component','unit_label','quantity','unit_cost','active','updated_at']
+  cake_cost_items: ['id','request_id','product_id','variant_id','component','unit_label','quantity','unit_cost','active','updated_at']
 };
 
 // This handler creates a private COD receipt. GET never calls these functions.
