@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { CartItem, DeliveryZone, DeliverySlot, Order, PaymentMethod, Coupon } from '../types';
 import { mockDb } from '../services/mockDatabase';
-import { calculateSheetOrderEstimate, createSheetOrderAttempt, submitSheetOrder, SheetOrderSubmissionError, loadConfirmedSheetOrders } from '../services/googleSheetOrders';
+import { calculateSheetOrderEstimate, createSheetOrderAttempt, submitSheetOrder, SheetOrderSubmissionError, loadConfirmedSheetOrders, storePendingSheetOrderAttempt, loadPendingSheetOrderAttempt, clearPendingSheetOrderAttempt } from '../services/googleSheetOrders';
 import { getPhoneCustomerProfile } from '../services/phoneCustomerApi';
 import { matchCheckoutCustomer, normalizeCheckoutPhone } from '../services/customerPhoneLookup';
 import type { CheckoutCustomerInfo } from '../services/customerPhoneLookup';
@@ -130,6 +130,14 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     }).catch(()=>{/* An expired account session must not block guest checkout. */});
     return()=>{active=false;};
   },[isOpen,sheetOrderEndpoint]);
+  useEffect(() => {
+    if(!isOpen||!sheetOrderEndpoint||orderAttemptRef.current)return;
+    const pending=loadPendingSheetOrderAttempt(sheetOrderEndpoint);
+    if(!pending)return;
+    orderAttemptRef.current=pending;
+    setUnconfirmed(true);
+    setErrorMessage('An earlier order may already be saved. Retry that original request before placing another order. Your order details and request reference are preserved in this browser tab.');
+  },[isOpen,sheetOrderEndpoint]);
   const closeCheckout = () => { if (!submissionInFlight.current) onClose(); };
   const dialogRef = useCakeDialog(closeCheckout, isOpen);
 
@@ -171,12 +179,15 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     try {
       const confirmedOrder = await submitSheetOrder(originalAttempt);
       orderAttemptRef.current = null;
+      clearPendingSheetOrderAttempt();
       setUnconfirmed(false);
       onOrderSuccess(confirmedOrder);
       onClose();
     } catch (error: unknown) {
+      const ambiguous=error instanceof SheetOrderSubmissionError && error.ambiguous;
+      if(!ambiguous){clearPendingSheetOrderAttempt();orderAttemptRef.current=null;}
       setErrorMessage(error instanceof Error ? error.message : 'The original order could not be confirmed.');
-      setUnconfirmed(error instanceof SheetOrderSubmissionError && error.ambiguous);
+      setUnconfirmed(ambiguous);
     } finally {
       submissionInFlight.current = false;
       setIsSubmitting(false);
@@ -231,8 +242,12 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
           payment_method: 'cod',
           expected_total: estimatedTotal,
         }, orderAttemptRef.current);
+        // Save before any network request: even a refresh during submission
+        // must retry with the same request ID and checkout proof.
+        storePendingSheetOrderAttempt(orderAttemptRef.current);
         const confirmedOrder = await submitSheetOrder(orderAttemptRef.current);
         orderAttemptRef.current = null;
+        clearPendingSheetOrderAttempt();
         onOrderSuccess(confirmedOrder);
         onClose();
       } else {
@@ -247,8 +262,10 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
         onClose();
       }
     } catch (error: unknown) {
+      const ambiguous=error instanceof SheetOrderSubmissionError && error.ambiguous;
+      if(!ambiguous){clearPendingSheetOrderAttempt();orderAttemptRef.current=null;}
       setErrorMessage(error instanceof Error ? error.message : 'The order could not be confirmed. Your bag has been kept.');
-      setUnconfirmed(error instanceof SheetOrderSubmissionError && error.ambiguous);
+      setUnconfirmed(ambiguous);
     } finally {
       submissionInFlight.current = false;
       setIsSubmitting(false);
