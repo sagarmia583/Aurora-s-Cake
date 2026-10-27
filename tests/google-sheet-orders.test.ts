@@ -1228,3 +1228,27 @@ test('staff accounts permissions header can be added without rewriting existing 
   assert.deepEqual(h.tables.staff_accounts.slice(1),oldRows.map(r=>r.slice(0,-1)));
   assert.equal(h.post({action:'staff_password_login',username:'shiftman',password:'ShiftManagerStrong777!'}).ok,true);
 });
+
+test('restricted kitchen employee cannot recover customer contact information from a successful mutation',()=>{
+  const h=harness({singleFile:true});
+  const created=h.post({action:'staff_account_create',id_token:ADMIN_TOKEN,name:'Scoped Chef',
+    username:'scopedchef',password:'KitchenStrongPass2026!',role:'kitchen_manager',
+    permissions:['orders_view','kitchen_start','kitchen_ready']});
+  assert.equal(created.ok,true);
+  const signed=h.post({action:'staff_password_login',username:'scopedchef',password:'KitchenStrongPass2026!'});
+  assert.equal(signed.ok,true);
+  const order=h.post(request());
+  assert.equal(order.persisted,true);
+  assert.equal(h.post({action:'staff_mutate',id_token:ADMIN_TOKEN,
+    order_id:order.order.id,operation:'confirm'}).ok,true);
+  const updates=h.post({action:'staff_mutate',auth_token:signed.auth_token,
+    order_id:order.order.id,operation:'start_baking'});
+  assert.equal(updates.ok,true);
+  assert.equal(updates.order.status,'preparing');
+  for(const secret of ['customer_phone','delivery_address','customer_access_token','delivery_otp'])
+    assert.equal(updates.order[secret],undefined,'restricted mutation leaked '+secret);
+  const listed=h.post({action:'staff_orders',auth_token:signed.auth_token});
+  assert.equal(listed.orders.length,1);
+  assert.equal(listed.orders[0].customer_phone,undefined);
+  assert.equal(listed.orders[0].delivery_address,undefined);
+});
