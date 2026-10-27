@@ -9,7 +9,7 @@ function invoke(method:string,secret:string,body:unknown){
  const res={statusCode:200,setHeader(k:string,v:string){out.headers[k]=v;},
   end(x:string){out.statusCode=this.statusCode;out.text=x;}};
  const req={method,headers:{'x-aurora-mirror-secret':secret},body} as never;
- return handler(req,res).then(()=>({status:out.statusCode,body:JSON.parse(out.text),headers:out.headers}));
+ return handler(req,res as never).then(()=>({status:out.statusCode,body:JSON.parse(out.text),headers:out.headers}));
 }
 const data={records:[{source_table:'orders',source_id:'ord_1',data:{status:'pending',total_amount:300}}]};
 test('mirror rejects unauthenticated and unapproved tables without calling Supabase',async()=>{
