@@ -86,6 +86,7 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean}={}) {
   vm.runInContext(fs.readFileSync(new URL('../apps-script/LiveCatalog.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/CustomCakeRequests.gs',import.meta.url),'utf8'),context);
    vm.runInContext(fs.readFileSync(new URL('../apps-script/FinanceOperations.gs',import.meta.url),'utf8'),context);
+  vm.runInContext(fs.readFileSync(new URL('../apps-script/InventoryOperations.gs',import.meta.url),'utf8'),context);
   }
   const post=(payload:unknown)=>JSON.parse(context.doPost({postData:{type:'text/plain',contents:JSON.stringify(payload)}}).content);
   const get=(action:string)=>JSON.parse(context.doGet({parameter:{action}}).content);
