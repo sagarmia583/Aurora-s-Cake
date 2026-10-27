@@ -1225,6 +1225,6 @@ test('staff accounts permissions header can be added without rewriting existing 
   const msg=h.context.setupSheetDatabase();
   assert.match(msg,/permissions header added/);
   assert.equal(h.tables.staff_accounts[0].at(-1),'permissions');
-  assert.deepEqual(h.tables.staff_accounts.slice(1).map(r=>r.slice(0,-1)),oldRows.map(r=>r.slice(0,-1)));
+  assert.deepEqual(h.tables.staff_accounts.slice(1),oldRows.map(r=>r.slice(0,-1)));
   assert.equal(h.post({action:'staff_password_login',username:'shiftman',password:'ShiftManagerStrong777!'}).ok,true);
 });
