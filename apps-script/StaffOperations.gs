@@ -308,6 +308,7 @@ function auroraOperationsPost_(input) {
       order.rider_id = riderEmail;
       order.rider_name = String(rider.name||riderEmail).slice(0,100);
     }
+    if (action === 'start_baking') auroraSnapshotProduction_(book,order,actor);
     if (action === 'deliver') {
       // Delivery OTP is intentionally disabled. Only the assigned, signed-in
       // rider can close an out_for_delivery order after explicit confirmation.
