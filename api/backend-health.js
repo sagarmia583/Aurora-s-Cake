@@ -2,7 +2,7 @@
  * Read-only check for whether the owner actually redeployed Apps Script.
  * Never accepts arbitrary target URLs, tokens or credentials.
  */
-const EXPECTED_RELEASE='aurora-2026-10-27-staff-access-manager-r6';
+const EXPECTED_RELEASE='aurora-2026-10-27-audit-hardening-r7';
 const JSON_HEADERS={'Content-Type':'application/json; charset=utf-8',
   'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
 export default async function handler(req,res){
