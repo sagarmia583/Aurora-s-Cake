@@ -115,3 +115,17 @@ function auroraSyncSupabaseMirror(){
     return {ok:true,submitted:total,tables:visited};
   }finally{lock.releaseLock();}
 }
+
+
+/** Authenticated read-only mirror health; never returns endpoint, keys or PII. */
+function auroraMirrorStatus_(input){
+  var actor=auroraStaffAuthenticate_(input);
+  auroraStaffRequire_(actor,'finance_view');
+  var props=PropertiesService.getScriptProperties();
+  var configured=String(props.getProperty('AURORA_MIRROR_ENDPOINT')||'').length>0&&
+    String(props.getProperty('AURORA_MIRROR_SHARED_SECRET')||'').length>=32;
+  return {ok:true,configured:configured,source_of_truth:'google_sheets',
+    destination:'supabase_private_mirror',
+    last_success:String(props.getProperty('AURORA_MIRROR_LAST_SUCCESS')||''),
+    frequency_minutes:5,mode:'eventual_consistency'};
+}
