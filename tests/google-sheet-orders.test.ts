@@ -1126,3 +1126,16 @@ test('per-cake recipe costs stay private and repeated writes cannot double count
  assert.equal(h.post({action:'staff_finance_summary',id_token:ADMIN_TOKEN}).costs.length,0);
  assert.equal(h.get('staff_cake_cost_save').ok,false);
 });
+
+test('product base-price markdown is honored by authoritative sheet checkout when variant sale is blank',()=>{
+  const h=harness({singleFile:true});
+  h.tables.products[0].push('base_price','sale_price');
+  h.tables.products[1].push(800,650);
+  h.change('product_variants','sale_price','');
+  const reply=h.post(request());
+  assert.equal(reply.persisted,true,JSON.stringify(reply));
+  assert.equal(reply.order.items[0].unit_price,750);
+  assert.equal(reply.order.subtotal,1600);
+  assert.equal(reply.order.discount_amount,120);
+  assert.equal(reply.order.total_amount,1580);
+});
