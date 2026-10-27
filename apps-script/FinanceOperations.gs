@@ -25,7 +25,7 @@ function auroraFinanceSnapshot_(book) {
   });
   deposits.forEach(function(row){
     var id=String(row.rider_id||'').trim().toLowerCase(),amount=Number(row.amount);
-    if(!id||!isFinite(amount)||amount<=0||row.voided_at)return;
+    if(!id||!isFinite(amount)||amount<=0||row.voided_at||row.status==='pending')return;
     if(!riders[id])riders[id]={rider_id:id,rider_name:id,collected:0,deposited:0,remaining:0,delivered_count:0};
     riders[id].deposited=Math.round((riders[id].deposited+amount)*100)/100;
   });
@@ -55,7 +55,7 @@ function auroraFinanceSnapshot_(book) {
     deposits:deposits.slice(-100).reverse().map(function(d){
       return {id:String(d.id),rider_id:String(d.rider_id),amount:Number(d.amount),
       date:String(d.date),actor_name:String(d.actor_name),created_at:String(d.created_at),notes:String(d.notes||''),
-      voided_at:String(d.voided_at||''),voided_by:String(d.voided_by||''),void_reason:String(d.void_reason||'')};
+      voided_at:String(d.voided_at||''),voided_by:String(d.voided_by||''),void_reason:String(d.void_reason||''),status:String(d.status||'approved'),initiated_by_id:String(d.initiated_by_id||''),approved_by_id:String(d.approved_by_id||'')};
     }),costs:costs,cost_totals:totals,products:catalog,variants:variants};
 }
 function auroraFinancePost_(input){
@@ -63,13 +63,32 @@ function auroraFinancePost_(input){
   var action=String(input.action||'');
   auroraStaffRequire_(actor,'finance_view');
   if(action==='staff_finance_summary')return auroraFinanceSnapshot_(auroraSpreadsheet_());
-  if(['staff_cash_deposit','staff_cash_deposit_void','staff_cake_cost_save','staff_cake_cost_archive'].indexOf(action)<0)
+  if(['staff_cash_deposit','staff_cash_deposit_approve','staff_cash_deposit_void','staff_cake_cost_save','staff_cake_cost_archive'].indexOf(action)<0)
     auroraReject_('invalid_action','Unknown finance operation.');
   auroraStaffRequire_(actor,'finance_edit');
   var lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))auroraReject_('busy','Another financial update is being saved.');
   try{
     var book=auroraSpreadsheet_();
+    if(action==='staff_cash_deposit_approve'){
+      var pending=auroraPrivateTable_(book,'rider_cash_deposits');
+      var idx=pending.rows.findIndex(function(d){return d.id===String(input.deposit_id);});
+      if(idx<0)auroraReject_('not_found','Deposit not found.');
+      var deposit=pending.rows[idx];
+      var reviewer=String(actor.username||actor.email||'').toLowerCase();
+      if(reviewer===String(deposit.initiated_by_id||'').toLowerCase())
+        auroraReject_('independent_approval_required','A different staff member must approve cash settlement.');
+      if(deposit.voided_at)auroraReject_('voided','Deposit was voided.');
+      if(deposit.status==='approved')return {ok:true,already_approved:true,snapshot:auroraFinanceSnapshot_(book)};
+      var balance=auroraFinanceSnapshot_(book).riders.filter(function(r){return r.rider_id===deposit.rider_id;})[0];
+      if(!balance||Number(deposit.amount)>balance.remaining)
+        auroraReject_('balance_exceeded','Rider has insufficient outstanding balance.');
+      [['status','approved'],['approved_by_id',reviewer],['approved_at',new Date().toISOString()]].forEach(function(kv){
+        var col=pending.headers.indexOf(kv[0]);if(col<0)auroraReject_('upgrade_required','Run database setup.');
+        pending.sheet.getRange(idx+2,col+1,1,1).setValues([[kv[1]]]);
+      });
+      return {ok:true,snapshot:auroraFinanceSnapshot_(book)};
+    }
     if(action==='staff_cash_deposit_void'){
       var table=auroraPrivateTable_(book,'rider_cash_deposits');
       var depositId=String(input.deposit_id||'').trim(),reason=String(input.reason||'').trim();
@@ -114,7 +133,7 @@ function auroraFinancePost_(input){
       if(!cash||amount>cash.remaining+0.001)
         auroraReject_('balance_exceeded','Deposit cannot exceed the cash currently held by this rider.');
       var entry={id:'deposit_'+Utilities.getUuid(),request_id:requestId,rider_id:rider,
-        amount:amount,date:date,actor_name:actor.name,created_at:new Date().toISOString(),notes:notes};
+        amount:amount,date:date,actor_name:actor.name,created_at:new Date().toISOString(),notes:notes,status:'pending',initiated_by_id:String(actor.username||actor.email||'').toLowerCase()};
       auroraAppendPrivate_(table,entry);
       return {ok:true,already_saved:false,deposit_id:entry.id,snapshot:auroraFinanceSnapshot_(book)};
     }
