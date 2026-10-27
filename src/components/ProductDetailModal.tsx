@@ -1,3 +1,4 @@
+import { variantPrice, variantDiscount } from '../services/productPricing';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useCakeDialog } from './useCakeDialog';
 import { X, Check, Plus, Minus, ShoppingBag, Sparkles } from 'lucide-react';
@@ -62,7 +63,7 @@ const ProductDetailDialog: React.FC<Omit<ProductDetailModalProps, 'product'> & {
   }, [isAddedFeedback, onClose]);
 
   // Calculate live price
-  const currentVariantPrice = selectedVariant ? selectedVariant.sale_price ?? selectedVariant.price : 0;
+  const currentVariantPrice = selectedVariant ? variantPrice(product,selectedVariant) : 0;
   const addonsTotal = selectedAddons.reduce((sum, a) => sum + a.price, 0);
   const unitPrice = currentVariantPrice + addonsTotal;
   const totalPrice = unitPrice * quantity;
@@ -138,7 +139,7 @@ const ProductDetailDialog: React.FC<Omit<ProductDetailModalProps, 'product'> & {
                   <span className="text-2xl font-black text-rose-600">
                     {selectedVariant ? currency + currentVariantPrice : 'Unavailable'}
                   </span>
-                  {selectedVariant && selectedVariant.sale_price !== undefined && selectedVariant.sale_price < selectedVariant.price && (
+                  {selectedVariant && variantDiscount(product,selectedVariant) > 0 && (
                     <span className="text-base text-slate-400 line-through">
                       {currency}{selectedVariant.price}
                     </span>
@@ -178,7 +179,7 @@ const ProductDetailDialog: React.FC<Omit<ProductDetailModalProps, 'product'> & {
                   >
                     <div className="font-bold text-sm">{v.name}</div>
                     <div className="text-xs text-rose-600 font-semibold mt-1">
-                      {currency}{v.sale_price ?? v.price}
+                      {currency}{variantPrice(product,v)}
                     </div>
                   </button>
                 );
