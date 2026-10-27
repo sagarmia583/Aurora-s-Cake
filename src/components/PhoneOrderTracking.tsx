@@ -218,6 +218,38 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
                         })}
                       </ol>
                     )}
+                    {order.items && <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+                      <h5 className="text-sm font-bold text-slate-900">Order details</h5>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-700">
+                        <p><span className="text-slate-500">Delivery date:</span> {order.delivery_date || 'Not set'}</p>
+                        <p><span className="text-slate-500">Delivery slot:</span> {order.delivery_slot || 'Not set'}</p>
+                        <p><span className="text-slate-500">Payment:</span> {(order.payment_method || 'cod').toUpperCase()} · {order.payment_status || 'pending'}</p>
+                      </div>
+                      <div className="space-y-2 border-t border-slate-100 pt-3">
+                        {order.items.map((item,itemIndex)=><div key={itemIndex} className="flex items-start justify-between gap-3 text-xs">
+                          <span className="text-slate-700"><strong>{item.quantity} × {item.product_name}</strong>
+                            {item.variant_name && <span className="block text-slate-500">{item.variant_name}</span>}
+                            {item.flavor_name && <span className="block text-slate-500">Flavor: {item.flavor_name}</span>}
+                            <span className="block text-slate-500">Unit price: ৳{item.unit_price.toLocaleString('en-BD')}</span>
+                          </span>
+                          <span className="font-bold text-slate-900 whitespace-nowrap">৳{item.subtotal.toLocaleString('en-BD')}</span>
+                        </div>)}
+                      </div>
+                      <dl className="border-t border-slate-100 pt-3 space-y-1 text-xs">
+                        <div className="flex justify-between"><dt>Subtotal</dt><dd>৳{(order.subtotal ?? 0).toLocaleString('en-BD')}</dd></div>
+                        <div className="flex justify-between"><dt>Delivery fee</dt><dd>৳{(order.delivery_fee ?? 0).toLocaleString('en-BD')}</dd></div>
+                        <div className="flex justify-between"><dt>Discount</dt><dd>-৳{(order.discount_amount ?? 0).toLocaleString('en-BD')}</dd></div>
+                        <div className="flex justify-between font-black text-emerald-900 text-sm border-t pt-2"><dt>Total</dt><dd>৳{(order.total_amount ?? 0).toLocaleString('en-BD')}</dd></div>
+                      </dl>
+                      {!!order.timeline?.length && <details className="border-t border-slate-100 pt-3">
+                        <summary className="cursor-pointer text-xs font-bold text-emerald-900">View status history ({order.timeline.length})</summary>
+                        <ol className="mt-3 space-y-2">
+                          {order.timeline.map((step,stepIndex)=><li key={stepIndex} className="flex justify-between gap-2 text-xs text-slate-700">
+                            <span>{labels[step.status]}</span><time>{dateText(step.at)}</time>
+                          </li>)}
+                        </ol>
+                      </details>}
+                    </div>}
                     <div className="flex flex-wrap items-center gap-3">
                       <button type="button" disabled={loading} onClick={() => void search(phone)}
                         className="inline-flex items-center gap-2 rounded-lg bg-[#174b3b] px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50">
@@ -229,7 +261,7 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
                       </p>
                     </div>
                     <p className="text-xs text-slate-500">
-                      Progress shows the current order stage, not real-time rider GPS. Detailed receipts and delivery OTP cannot be opened with a phone number alone.
+                      Progress is based on the bakery status, not live GPS. Personal delivery address, custom cake writing and private customer details remain visible only on the original saved receipt.
                     </p>
                   </div>}
                 </article>
@@ -240,7 +272,7 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
       </div>}
       <p className="flex items-start gap-2 text-xs text-slate-500">
         <ShieldCheck size={16} className="shrink-0"/>
-        Phone lookup shows delivery progress only. Customer address, payment information and delivery OTP remain private.
+        Phone lookup displays cake items, charges and progress. Your exact address and private customer information remain protected.
       </p>
     </section>
   );
