@@ -1,3 +1,4 @@
+import {inventoryAction,type StockItem} from '../services/inventoryApi';
 import React,{useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import { RefreshCw, WalletCards, Banknote, CakeSlice, Plus } from 'lucide-react';
 import {financeSummary,recordCashDeposit,approveCashDeposit,voidCashDeposit,saveCakeCost,archiveCakeCost} from '../services/financeApi';
@@ -20,11 +21,15 @@ export default function FinancePanel({endpoint,token,canEdit}:Props){
   const [variant,setVariant]=useState('');
   const [component,setComponent]=useState('');
   const [unitLabel,setUnitLabel]=useState('g');
+  const [inventoryItemId,setInventoryItemId]=useState('');
+  const [stockOptions,setStockOptions]=useState<StockItem[]>([]);
   const [quantity,setQuantity]=useState('1');
   const [unitCost,setUnitCost]=useState('');
   const refresh=useCallback(async()=>{
     setBusy(true);setError('');
-    try{setData(await financeSummary(endpoint,token));}
+    try{setData(await financeSummary(endpoint,token));
+      const inventory=await inventoryAction(endpoint,token,'staff_inventory_summary');
+      setStockOptions(inventory.stock);}
     catch(err){setError(err instanceof Error?err.message:'Unable to load finance data');}
     finally{setBusy(false);}
   },[endpoint,token]);
@@ -70,8 +75,8 @@ export default function FinancePanel({endpoint,token,canEdit}:Props){
     setBusy(true);setError('');setNotice('');
     try{
       const next=await saveCakeCost(endpoint,token,{request_id:recipeRequestId.current,product_id:product,variant_id:variant,
-        component:component.trim(),unit_label:unitLabel.trim(),quantity:Number(quantity),unit_cost:Number(unitCost)});
-      setData(next);setComponent('');setQuantity('1');setUnitCost('');recipeRequestId.current='';
+        component:component.trim(),unit_label:unitLabel.trim(),inventory_item_id:inventoryItemId,quantity:Number(quantity),unit_cost:Number(unitCost)});
+      setData(next);setComponent('');setQuantity('1');setUnitCost('');setInventoryItemId('');recipeRequestId.current='';
       setNotice('Ingredient cost added to the private cake costing sheet.');
     }catch(err){setError(err instanceof Error?err.message:'Cost could not be saved.');}
     finally{setBusy(false);}
@@ -153,7 +158,16 @@ export default function FinancePanel({endpoint,token,canEdit}:Props){
           <label className="text-xs font-semibold">Unit<input value={unitLabel} onChange={e=>setUnitLabel(e.target.value)} maxLength={30} placeholder="g / pcs / hour" className="block w-full rounded-xl border p-3 mt-1"/></label>
           <label className="text-xs font-semibold">Quantity<input required min="0.001" step="any" type="number" value={quantity} onChange={e=>setQuantity(e.target.value)} className="block w-full rounded-xl border p-3 mt-1"/></label>
           <label className="text-xs font-semibold">Cost per unit<input required min="0" step="0.01" type="number" value={unitCost} onChange={e=>setUnitCost(e.target.value)} className="block w-full rounded-xl border p-3 mt-1"/></label>
-          <button disabled={busy} className="sm:col-span-2 rounded-xl bg-[#174b3b] text-white font-bold p-3 flex items-center justify-center gap-2"><Plus size={16}/> Add recipe expense</button>
+          <label className="sm:col-span-2 text-xs font-semibold">Linked ingredient stock (optional)
+             <select value={inventoryItemId} onChange={e=>{const id=e.target.value;setInventoryItemId(id);
+               const selected=stockOptions.find(i=>i.id===id);if(selected)setUnitLabel(selected.unit);
+               recipeRequestId.current='';}}
+               className="block w-full rounded-xl border p-3 mt-1">
+               <option value="">Untracked expense (labour / packaging)</option>
+               {stockOptions.map(i=><option key={i.id} value={i.id}>{i.name} — {i.unit} · balance {i.balance}</option>)}
+             </select>
+           </label>
+           <button disabled={busy} className="sm:col-span-2 rounded-xl bg-[#174b3b] text-white font-bold p-3 flex items-center justify-center gap-2"><Plus size={16}/> Add recipe expense</button>
         </form>}
         {variant&&<div className="space-y-2">{showCosts.map(cost=><div key={cost.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50 p-3 text-sm">
           <span><strong>{cost.component}</strong><small className="block text-slate-500">{cost.quantity} {cost.unit_label} × {format(cost.unit_cost)}</small></span>
