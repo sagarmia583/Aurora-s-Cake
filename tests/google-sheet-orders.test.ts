@@ -1105,6 +1105,7 @@ test('rider COD cash ledger applies daily deposit debit once and never overdraws
  assert.equal(h.post({...deposit,amount:2000}).code,'balance_exceeded');
  assert.equal(h.post(deposit).snapshot.riders[0].remaining,1180);
  assert.equal(h.post(deposit).already_saved,true);
+ assert.equal(h.post({...deposit,amount:600}).code,'idempotency_conflict');
  assert.equal(h.records('rider_cash_deposits').length,1);
  assert.equal(read().riders[0].deposited,500);
  assert.equal(h.post({...deposit,request_id:'b3333333-2222-4333-8444-555555555555',amount:1181}).code,'balance_exceeded');
@@ -1120,6 +1121,7 @@ test('per-cake recipe costs stay private and repeated writes cannot double count
  assert.equal(saved.ok,true,JSON.stringify(saved));
  assert.equal(saved.snapshot.cost_totals['p1::v1'],60);
  assert.equal(h.post(input).already_saved,true);
+ assert.equal(h.post({...input,quantity:320}).code,'idempotency_conflict');
  assert.equal(h.records('cake_cost_items').length,1);
  const id=h.records('cake_cost_items')[0].id;
  assert.equal(h.post({action:'staff_cake_cost_archive',id_token:ADMIN_TOKEN,entry_id:id}).ok,true);
