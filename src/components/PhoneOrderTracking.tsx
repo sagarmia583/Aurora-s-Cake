@@ -41,6 +41,7 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
   const [searched, setSearched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [backendWarning, setBackendWarning] = useState('');
 
   const search = async (candidate: string, signal?: { cancelled: boolean }) => {
     if (!endpoint || !candidate || signal?.cancelled) return;
@@ -71,6 +72,21 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
     // Automatically load only when opened, not on every keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [endpoint]);
+
+  useEffect(() => {
+    let active = true;
+    // Read-only health metadata; no phone number or receipt is sent.
+    void fetch('/api/backend-health', {cache:'no-store'})
+      .then(async response => response.ok ? response.json() : null)
+      .then((health: unknown) => {
+        if (!active || !health || typeof health !== 'object') return;
+        const result = health as Record<string,unknown>;
+        if (result.ok === true && result.up_to_date === false) {
+          setBackendWarning('The bakery is using an older Google Apps Script version. Update Code.AllInOne.gs and deploy a new Apps Script version to enable phone-only tracking.');
+        }
+      }).catch(() => { /* The preview can still display locally held receipts. */ });
+    return () => {active = false;};
+  }, []);
 
   const handleSearch = (event: React.FormEvent) => {
     event.preventDefault();
@@ -103,6 +119,7 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
           {loading ? 'Checking…' : 'Track Orders'}
         </button>
       </form>
+      {backendWarning && <p role="status" className="text-sm text-amber-900 bg-amber-50 rounded-lg p-3">{backendWarning}</p>}
       {error && <p role="alert" className="text-sm text-red-700 bg-red-50 rounded-lg p-3">{error}</p>}
       {searched && <div role="status" className="space-y-2">
         {orders.length===0 ? (
