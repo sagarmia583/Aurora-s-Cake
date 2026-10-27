@@ -6,7 +6,7 @@ export type FinanceSnapshot = {
   deposits:{id:string;rider_id:string;amount:number;date:string;actor_name:string;created_at:string;notes:string}[];
   costs:CakeCost[];
   cost_totals:Record<string,number>;
-  products:{id:string;name:string}[];
+  products:{id:string;name:string;base_price:number;sale_price:number|''}[];
   variants:{id:string;product_id:string;name:string;price:number;sale_price:number|''}[];
 };
 const cred=(token:string):Record<string,string>=>/^[a-f0-9-]{72}$/i.test(token)?{auth_token:token}:{id_token:token};
@@ -34,7 +34,7 @@ export async function recordCashDeposit(endpoint:string,token:string,input:{requ
   const data=await privatePost(endpoint,{action:'staff_cash_deposit',...cred(token),...input});
   return checkSnapshot(data.snapshot);
 }
-export async function saveCakeCost(endpoint:string,token:string,input:{product_id:string;variant_id:string;component:string;unit_label:string;quantity:number;unit_cost:number}):Promise<FinanceSnapshot>{
+export async function saveCakeCost(endpoint:string,token:string,input:{request_id:string;product_id:string;variant_id:string;component:string;unit_label:string;quantity:number;unit_cost:number}):Promise<FinanceSnapshot>{
   const data=await privatePost(endpoint,{action:'staff_cake_cost_save',...cred(token),...input});
   return checkSnapshot(data.snapshot);
 }
