@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useCakeDialog } from './useCakeDialog';
+import { PhoneOrderTracking } from './PhoneOrderTracking';
 import { 
   X, 
   CheckCircle2, 
@@ -17,6 +18,7 @@ import { Order, OrderStatus } from '../types';
 interface OrderTrackingModalProps {
   isOpen: boolean;
   onClose: () => void;
+  trackingEndpoint: string;
   orders: Order[];
   currentOrderId?: string;
   currency: string;
@@ -47,6 +49,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
   isOpen,
   onClose,
   orders,
+  trackingEndpoint,
   currentOrderId,
   currency,
   onReorder,
@@ -78,12 +81,9 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
   if (!selectedOrder) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="tracking-empty-title" data-cake-dialog tabIndex={-1} className="bg-white rounded-3xl p-8 max-w-md w-full text-center space-y-4">
-          <div className="text-4xl">🎂</div>
-          <h3 id="tracking-empty-title" className="text-lg font-bold text-slate-800">Your cake journey starts here</h3>
-          <p className="text-xs text-slate-500">
-            Choose a cake and open checkout. Order receipts from this device appear here.
-          </p>
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="tracking-empty-title" data-cake-dialog tabIndex={-1} className="bg-white rounded-3xl p-5 sm:p-8 max-w-lg w-full space-y-4">
+          <h3 id="tracking-empty-title" className="text-lg font-bold text-slate-800">Track your order by phone number</h3>
+          <PhoneOrderTracking endpoint={trackingEndpoint}/>
           <button
             onClick={onClose}
             aria-label="Close order tracking"
@@ -140,6 +140,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
 
         {/* Content */}
         <div className="overflow-y-auto p-6 space-y-6 flex-1">
+          <details className="rounded-2xl border border-emerald-200 p-2"><summary className="cursor-pointer text-sm font-bold text-emerald-900 px-2 py-2">Track other orders using only a phone number</summary><PhoneOrderTracking endpoint={trackingEndpoint}/></details>
           {selectedOrder.persistence==='google_sheets'?
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-emerald-50 p-3 border border-emerald-100">
               <div>
