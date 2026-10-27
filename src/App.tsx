@@ -31,7 +31,7 @@ import { isConfirmedDeletedSheetOrder, verifyStoredOrderHistory } from './servic
 import { linkPhoneCustomerReceipt } from './services/phoneCustomerApi';
 import { normalizeTrackingPhone } from './services/phoneOrderTracking';
 import { getBrowserWorkspaceStorage, isStaffWorkspaceOpen, setStaffWorkspaceOpen } from './services/staffWorkspaceSession';
-import { reconcilePublicCart, reorderFromPublicOrder } from './services/reconcilePublicCart';
+import { reconcilePublicCart, reorderFromPublicOrder, isAuthoritativeCartCatalog } from './services/reconcilePublicCart';
 import { 
   ShopSettings, 
   Product, 
@@ -136,10 +136,16 @@ export default function App() {
 
   useEffect(() => {
     mockDb.applyPublicSnapshot(publicData);
-    const reconciled = reconcilePublicCart(cartRef.current, publicData);
-    cartRef.current = reconciled.items;
-    setCartItems(reconciled.items);
-    if (reconciled.changed) setCartNotice('Your cake bag was updated to match the latest prices and available options. Please review it before checkout.');
+    // Bundled preview is not the owner's real catalog. Preserve stored cakes
+    // until a validated live/cached Sheet snapshot is available.
+    if(isAuthoritativeCartCatalog(sheetContent.status.source)){
+      const reconciled = reconcilePublicCart(cartRef.current, publicData);
+      cartRef.current = reconciled.items;
+      if(reconciled.changed){
+        setCartItems(reconciled.items);
+        setCartNotice('Your cake bag was updated to match the latest prices and available options. Please review it before checkout.');
+      }
+    }
     setSelectedProductForDetail(previous => previous ? publicData.products.find(product => product.id === previous.id && product.is_active) ?? null : null);
     setSettings(publicData.settings);
     setProducts(publicData.products);
@@ -159,7 +165,7 @@ export default function App() {
       ['meta[property="og:title"]', publicData.settings.website_title || publicData.settings.shop_name],
       ['meta[property="og:description"]', publicData.settings.website_description],
     ]) document.querySelector(selector)?.setAttribute('content', value);
-  }, [publicData]);
+  }, [publicData, sheetContent.status.source]);
 
   useEffect(() => {
     refreshData();
