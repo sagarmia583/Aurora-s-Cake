@@ -32,9 +32,10 @@ const dateText = (value:string):string => {
 interface Props {
   endpoint: string;
   initialPhone?: string;
+  onResults?: (orders: PhoneTrackingStatus[]) => void;
 }
 
-export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '' }) => {
+export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '', onResults }) => {
   const [phone, setPhone] = useState(() => initialPhone || lastSavedPhone());
   const [orders, setOrders] = useState<PhoneTrackingStatus[]>([]);
   const [searched, setSearched] = useState(false);
@@ -48,6 +49,7 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
       const result = await getPhoneOrderStatuses(endpoint, candidate);
       if (signal?.cancelled) return;
       setOrders(result);
+      onResults?.(result);
       setSearched(true);
       try { localStorage.setItem(PHONE_STORAGE_KEY, normalizeTrackingPhone(candidate)); } catch { /* Private storage is optional. */ }
     } catch (cause) {
@@ -90,7 +92,7 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
           <input type="tel" inputMode="tel" autoComplete="tel" required
             value={phone}
             onChange={event => {
-              setPhone(event.target.value);setSearched(false);setOrders([]);setError('');
+              setPhone(event.target.value);setSearched(false);setOrders([]);onResults?.([]);setError('');
             }}
             placeholder="01XXXXXXXXX" aria-label="Your 11-digit mobile number"
             className="w-full min-w-0 rounded-xl border border-emerald-200 bg-white py-3 pl-10 pr-3 outline-emerald-700"/>
