@@ -150,16 +150,21 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
               <p className="text-xs font-semibold text-emerald-900">{orders.length} recent order(s) found</p>
               {checkedAt && <p className="text-xs text-slate-500">Last checked {checkedAt}</p>}
             </div>
+            {expandedOrderKey && <button type="button" onClick={()=>setExpandedOrderKey(null)}
+              className="text-xs font-bold text-emerald-900 underline underline-offset-4 py-2">
+              ← Back to all orders
+            </button>}
             {orders.map((order,i)=>{
               const cardKey = orderCardKey(order,i);
               const expanded = expandedOrderKey === cardKey;
+              if (expandedOrderKey && !expanded) return null;
               const currentStage = PROGRESS_STAGES.findIndex(stage => stage.status === order.status);
               const currentLabel = labels[order.status];
               return (
                 <article key={cardKey} className="overflow-hidden bg-white rounded-xl border border-emerald-100">
                   <button type="button" aria-expanded={expanded}
                     aria-controls={'phone-order-progress-'+i}
-                    onClick={() => setExpandedOrderKey(current => current === cardKey ? null : cardKey)}
+                    onClick={() => setExpandedOrderKey(cardKey)}
                     className="w-full flex flex-wrap justify-between items-center gap-3 p-3 text-left hover:bg-emerald-50/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700">
                     <div>
                       <p className="font-bold text-slate-900">Order {order.reference}</p>
@@ -180,7 +185,7 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
                       {expanded ? <ChevronUp size={18} className="text-emerald-800 shrink-0"/> :
                         <ChevronDown size={18} className="text-emerald-800 shrink-0"/>}
                     </div>
-                    <span className="basis-full text-xs font-semibold text-[#174b3b]">{expanded?'Hide progress':'View progress & actions'}</span>
+                    <span className="basis-full text-xs font-semibold text-[#174b3b]">{expanded?'Individual order tracker':'Open individual tracking'}</span>
                   </button>
                   {expanded && <div id={'phone-order-progress-'+i} className="border-t border-emerald-100 bg-[#fbfdfb] p-4 space-y-4">
                     <div>
