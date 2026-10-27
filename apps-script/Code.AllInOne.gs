@@ -2317,8 +2317,8 @@ function auroraCustomerSafeReceipt_(order) {
   delete copy.customer_google_sub;
   delete copy.otp_failed_attempts;
   delete copy.otp_locked_until;
-  // The rider OTP is only useful when the customer has received the cake.
-  if (copy.status !== 'out_for_delivery') copy.delivery_otp='';
+  // Delivery OTP is retired, including for previously linked accounts.
+  copy.delivery_otp='';
   return copy;
 }
 function auroraCustomerAccountsPost_(input) {
