@@ -13,8 +13,10 @@ function invoke(method:string,secret:string,body:unknown){
 }
 const data={records:[{source_table:'orders',source_id:'ord_1',data:{status:'pending',total_amount:300}}]};
 test('mirror rejects unauthenticated and unapproved tables without calling Supabase',async()=>{
- const before=process.env.AURORA_MIRROR_SHARED_SECRET;
+ const before=[process.env.AURORA_MIRROR_SHARED_SECRET,process.env.AURORA_SUPABASE_URL,process.env.AURORA_SUPABASE_SERVICE_ROLE_KEY];
  process.env.AURORA_MIRROR_SHARED_SECRET=SECRET;
+ process.env.AURORA_SUPABASE_URL=origin;
+ process.env.AURORA_SUPABASE_SERVICE_ROLE_KEY='a'.repeat(90);
  const original=globalThis.fetch;let called=false;globalThis.fetch=(async()=>{called=true;throw new Error('not allowed')}) as typeof fetch;
  try{
   assert.equal((await invoke('GET',SECRET,data)).status,405);
