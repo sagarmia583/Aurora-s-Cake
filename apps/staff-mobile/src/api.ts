@@ -68,7 +68,8 @@ export async function getSession(token:string):Promise<StaffSession>{
       riders.push({email:x.email,name:x.name});
   }
   return {name:p.name,email:p.email,username:typeof p.username==='string'?p.username:undefined,
-    role:p.role as Role,riders};
+    role:p.role as Role,riders,
+    permissions:Array.isArray(p.permissions)?p.permissions.filter((x):x is string=>typeof x==='string'):undefined};
 }
 export async function restore():Promise<{token:string;session:StaffSession}|null>{
   const token=await SecureStore.getItemAsync(KEY);
