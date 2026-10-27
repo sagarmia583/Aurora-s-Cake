@@ -83,6 +83,7 @@ export default function App() {
   const [slots, setSlots] = useState<DeliverySlot[]>(publicData.slots);
   const [orders, setOrders] = useState<Order[]>(() => loadConfirmedSheetOrders());
   const [coupons, setCoupons] = useState<Coupon[]>(publicData.coupons);
+  const [checkoutCoupon,setCheckoutCoupon]=useState('');
   const [reviews, setReviews] = useState<Review[]>(publicData.reviews);
   const [customCakes, setCustomCakes] = useState<CustomCakeRequest[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
@@ -586,6 +587,8 @@ export default function App() {
         zones={zones}
         slots={slots}
         sheetOrderEndpoint={publicData.order_submission_enabled ? sheetContent.endpoint : undefined}
+        coupons={coupons}
+        initialCoupon={checkoutCoupon}
         onOrderSuccess={handleOrderSuccess}
       />}
 
