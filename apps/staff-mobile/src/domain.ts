@@ -1,11 +1,12 @@
 /** Pure role and order helpers shared by both Android and iOS. */
-export type Role = 'super_admin' | 'admin' | 'order_manager' | 'kitchen_manager' | 'delivery_manager' | 'delivery_man' | 'accountant';
+export type Role = 'super_admin' | 'admin' | 'manager' | 'order_manager' | 'kitchen_manager' | 'delivery_manager' | 'delivery_man' | 'accountant';
 export type Status = 'pending' | 'confirmed' | 'preparing' | 'ready' | 'assigned' | 'picked_up' | 'out_for_delivery' | 'delivered' | 'cancelled';
 export type Operation = 'confirm' | 'cancel' | 'start_baking' | 'mark_ready' | 'assign' | 'pick_up' | 'start_delivery' | 'deliver';
 export type Tab = 'tasks' | 'orders' | 'account';
 export interface StaffSession {
   name: string; email: string; username?: string; role: Role;
   riders: {email:string;name:string}[];
+  permissions?: string[];
 }
 export interface OrderItem {product_name:string;variant_name?:string;quantity:number;subtotal:number}
 export interface StaffOrder {
@@ -15,7 +16,7 @@ export interface StaffOrder {
   payment_method?:string;payment_status?:string;total_amount:number;cod_amount?:number;
   cod_collected?:boolean;items?:OrderItem[];
 }
-export const roles:Role[] = ['super_admin','admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'];
+export const roles:Role[] = ['super_admin','admin','manager','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'];
 export const statuses:Status[]=['pending','confirmed','preparing','ready','assigned','picked_up','out_for_delivery','delivered','cancelled'];
 const labelMap:Record<Status,string>={
   pending:'নতুন অর্ডার',confirmed:'Confirmed',preparing:'Baking চলছে',ready:'Ready',
@@ -23,17 +24,23 @@ const labelMap:Record<Status,string>={
 };
 export function statusLabel(status:Status):string{return labelMap[status]||status;}
 export const roleLabel:Record<Role,string>={
-  super_admin:'Super Admin',admin:'Admin',order_manager:'Order Manager',
+  super_admin:'Super Admin',admin:'Admin',manager:'Manager',order_manager:'Order Manager',
   kitchen_manager:'Kitchen',delivery_manager:'Dispatch Manager',
   delivery_man:'Delivery Rider',accountant:'Accounts'
 };
-export function canOperate(role:Role,op:Operation):boolean{
-  // Preserve existing website rule: riders alone perform handover and OTP.
-  if(op==='pick_up'||op==='start_delivery'||op==='deliver')return role==='delivery_man';
-  if(role==='super_admin'||role==='admin')return true;
-  if(role==='order_manager')return op==='confirm'||op==='cancel';
-  if(role==='kitchen_manager')return op==='start_baking'||op==='mark_ready';
+const opPermission:Record<Operation,string>={
+  confirm:'order_confirm',cancel:'order_cancel',start_baking:'kitchen_start',
+  mark_ready:'kitchen_ready',assign:'delivery_assign',pick_up:'delivery_pickup',
+  start_delivery:'delivery_start',deliver:'delivery_complete'
+};
+export function canOperate(role:Role,op:Operation,permissions?:string[]):boolean{
+  if(role==='super_admin'||role==='manager')return true;
+  if(permissions)return permissions.includes(opPermission[op]);
+  if(role==='admin')return !['pick_up','start_delivery','deliver'].includes(op);
+  if(role==='order_manager')return ['confirm','cancel'].includes(op);
+  if(role==='kitchen_manager')return ['start_baking','mark_ready'].includes(op);
   if(role==='delivery_manager')return op==='assign';
+  if(role==='delivery_man')return ['pick_up','start_delivery','deliver'].includes(op);
   return false;
 }
 export const nextByStatus:Partial<Record<Status,Operation>>={
@@ -43,18 +50,22 @@ export const nextByStatus:Partial<Record<Status,Operation>>={
 export const operationLabels:Record<Operation,string>={
   confirm:'Confirm order',cancel:'Cancel order',start_baking:'Start baking',
   mark_ready:'Mark ready',assign:'Assign rider',pick_up:'Pick up cake',
-  start_delivery:'Start delivery',deliver:'Verify OTP & deliver'
+  start_delivery:'Start delivery',deliver:'Confirm delivery'
 };
 export function nextOperation(order:StaffOrder,session:StaffSession):Operation|null{
   const next=nextByStatus[order.status];
-  if(!next||!canOperate(session.role,next))return null;
+  if(!next||!canOperate(session.role,next,session.permissions))return null;
   if((next==='pick_up'||next==='start_delivery'||next==='deliver') &&
     String(order.rider_id||'').toLowerCase()!==session.email.toLowerCase())return null;
   return next;
 }
 export function visibleOrders(orders:StaffOrder[],session:StaffSession,tab:'tasks'|'orders'):StaffOrder[]{
   const source=orders.filter(o=>{
-    if(session.role==='delivery_man')return String(o.rider_id||'').toLowerCase()===session.email.toLowerCase();
+    if(session.role==='delivery_man' || (session.role!=='manager'&&
+       canOperate(session.role,'delivery_pickup',session.permissions)&&
+       !canOperate(session.role,'delivery_assign',session.permissions)&&
+       !canOperate(session.role,'confirm',session.permissions)))
+      return String(o.rider_id||'').toLowerCase()===session.email.toLowerCase();
     return true;
   });
   const filtered=tab==='tasks'?
