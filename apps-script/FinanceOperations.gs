@@ -76,7 +76,14 @@ function auroraFinancePost_(input){
       if(!/^[a-f0-9-]{36}$/.test(requestId))auroraReject_('invalid_request','A stable deposit request ID is required.');
       var table=auroraPrivateTable_(book,'rider_cash_deposits');
       var duplicate=table.rows.filter(function(row){return String(row.request_id)===requestId;})[0];
-      if(duplicate)return {ok:true,already_saved:true,deposit_id:String(duplicate.id),snapshot:auroraFinanceSnapshot_(book)};
+      if(duplicate) {
+        if(String(duplicate.rider_id)!==String(input.rider_id||'').trim().toLowerCase()||
+           Number(duplicate.amount)!==Number(input.amount)||
+           String(duplicate.date)!==String(input.date||'')||
+           String(duplicate.notes||'')!==String(input.notes||'').trim())
+          auroraReject_('idempotency_conflict','This deposit request ID was already used for different cash details.');
+        return {ok:true,already_saved:true,deposit_id:String(duplicate.id),snapshot:auroraFinanceSnapshot_(book)};
+      }
       var rider=String(input.rider_id||'').trim().toLowerCase();
       var amount=Number(input.amount);
       var date=String(input.date||'');
@@ -105,7 +112,16 @@ function auroraFinancePost_(input){
     if(!/^[a-f0-9-]{36}$/.test(costRequestId))
       auroraReject_('invalid_request','A stable recipe cost request ID is required.');
     var priorCost=costsTable.rows.filter(function(row){return String(row.request_id)===costRequestId;})[0];
-    if(priorCost)return {ok:true,already_saved:true,snapshot:auroraFinanceSnapshot_(book)};
+    if(priorCost) {
+      if(String(priorCost.product_id)!==String(input.product_id||'').trim()||
+         String(priorCost.variant_id)!==String(input.variant_id||'').trim()||
+         String(priorCost.component)!==String(input.component||'').trim()||
+         Number(priorCost.quantity)!==Number(input.quantity)||
+         Number(priorCost.unit_cost)!==Number(input.unit_cost)||
+         String(priorCost.unit_label||'')!==String(input.unit_label||'').trim())
+        auroraReject_('idempotency_conflict','This recipe request ID belongs to different cost details.');
+      return {ok:true,already_saved:true,snapshot:auroraFinanceSnapshot_(book)};
+    }
     var productId=String(input.product_id||'').trim(),variantId=String(input.variant_id||'').trim();
     var component=String(input.component||'').trim(),unitLabel=String(input.unit_label||'').trim();
     var qty=Number(input.quantity),cost=Number(input.unit_cost);
