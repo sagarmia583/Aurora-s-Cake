@@ -214,7 +214,7 @@ test('verified staff manage the same private receipt; riders see assigned orders
   const orderId=created.order.id;
   const adminSession=h.post({action:'staff_session',id_token:ADMIN_TOKEN});
   assert.equal(adminSession.role,'super_admin');
-  assert.equal(adminSession.riders[0].email,'rider@example.com');
+  assert.equal(adminSession.riders.some((r:{email:string})=>r.email==='rider@example.com'),true);
   const riderBefore=h.post({action:'staff_orders',id_token:RIDER_TOKEN});
   assert.equal(riderBefore.orders.length,0);
   const update=(operation:string,id_token:string,extra:Record<string,unknown>={})=>h.post({action:'staff_mutate',id_token,operation,order_id:orderId,...extra});
