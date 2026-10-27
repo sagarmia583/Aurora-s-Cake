@@ -323,7 +323,7 @@ const INITIAL_ORDERS: Order[] = [
     order_note: 'Please pack in golden gift box.',
     payment_method: 'cod',
     payment_status: 'pending',
-    delivery_otp: '4829',
+    delivery_otp: '',
     cod_amount: 1110,
     cod_collected: false,
     created_at: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
@@ -366,7 +366,7 @@ const INITIAL_ORDERS: Order[] = [
     order_note: 'Call before arriving',
     payment_method: 'bkash',
     payment_status: 'paid',
-    delivery_otp: '7391',
+    delivery_otp: '',
     rider_id: 'rider-1',
     rider_name: 'Rahim Mia (Rider #1)',
     cod_amount: 0,
@@ -801,8 +801,8 @@ class MockDatabase {
 
     const finalTotal = Math.max(0, computedSubtotal - discount + delivery_fee);
 
-    // Generate random 4-digit verification OTP
-    const delivery_otp = String(Math.floor(1000 + Math.random() * 9000));
+    // Delivery OTP is disabled; demonstration orders do not issue a code.
+    const delivery_otp = '';
     const order_number = `CAKE-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${Math.floor(10000 + Math.random() * 90000)}`;
 
     const newOrder: Order = {
@@ -894,32 +894,28 @@ class MockDatabase {
     this.notify();
   }
 
-  verifyDeliveryOTP(orderId: string, enteredOtp: string, actor = 'Delivery Rider'): { success: boolean; message: string } {
+  completeDelivery(orderId: string, packageHandedOver: boolean, cashCollected: boolean, actor = 'Delivery Rider'): { success: boolean; message: string } {
     const order = this.orders.find((o) => o.id === orderId);
     if (!order) return { success: false, message: 'Order not found' };
-
-    if (order.rider_id !== 'rider-1' || order.status !== 'out_for_delivery') return { success: false, message: 'Order must be assigned and out for delivery.' };
-    if (order.delivery_otp !== enteredOtp.trim()) {
-      return { success: false, message: 'Invalid 4-digit OTP. Please ask the customer for the correct code.' };
-    }
-
+    if (order.rider_id !== 'rider-1' || order.status !== 'out_for_delivery')
+      return { success: false, message: 'Order must be assigned and out for delivery.' };
+    if (!packageHandedOver) return { success: false, message: 'Confirm cake handover to customer.' };
+    if (order.payment_method === 'cod' && !cashCollected)
+      return { success: false, message: 'Confirm full COD cash collection.' };
     order.status = 'delivered';
-    order.cod_collected = true;
-    order.payment_status = 'paid';
+    order.delivery_otp = '';
+    order.cod_collected = order.payment_method === 'cod';
+    order.payment_status = order.payment_method === 'cod' ? 'paid' : order.payment_status;
     order.updated_at = new Date().toISOString();
     order.history.push({
-      id: `h-${Date.now()}`,
-      status: 'delivered',
-      notes: `Successfully delivered by ${actor}. Customer OTP verified. COD Cash Collected: ${order.cod_amount > 0 ? 'Yes' : 'N/A'}.`,
-      created_at: new Date().toISOString(),
-      actor_name: actor,
+      id: `h-${Date.now()}`, status:'delivered',
+      notes:`Delivered by ${actor}; package handed over and COD collection confirmed.`,
+      created_at:order.updated_at, actor_name:actor,
     });
-
     this.save('cake_db_orders', this.orders);
-    this.logAudit(actor, 'Verified Delivery with OTP', 'delivery', `Order ${order.order_number} marked as Delivered`);
+    this.logAudit(actor, 'Confirmed Delivery', 'delivery', `Order ${order.order_number} marked Delivered without OTP`);
     this.notify();
-
-    return { success: true, message: 'OTP verified! Order successfully marked as Delivered.' };
+    return { success: true, message: 'Order marked Delivered. Cake handover and COD confirmed.' };
   }
 }
 
