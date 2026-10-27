@@ -81,6 +81,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
   const [accountBusy,setAccountBusy]=useState(false);
   const [accountError,setAccountError]=useState('');
   const [hasAccountSession,setHasAccountSession]=useState(false);
+  const [activePhoneToken,setActivePhoneToken]=useState('');
   const historySignature=useRef('');
   const onRecoverRef=useRef(onRecover);
   onRecoverRef.current=onRecover;
@@ -112,7 +113,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
 
   useEffect(()=>{
     if(!isOpen)return;
-    let token='';try{token=sessionStorage.getItem('aurora_customer_phone_session_v1')||'';}catch{}
+    let token=activePhoneToken;try{token=token||sessionStorage.getItem('aurora_customer_phone_session_v1')||'';}catch{}
     setHasAccountSession(!!token);
     setAccountPhone(readProfile().phone||'');
     setServerProfile(false);
@@ -142,7 +143,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
     void sync();
     const timer=window.setInterval(()=>{void sync();},20000);
     return()=>{active=false;window.clearInterval(timer);};
-  },[isOpen,accountEndpoint]);
+  },[isOpen,accountEndpoint,activePhoneToken]);
 
   const handleAccountSignIn=async(event:React.FormEvent)=>{
     event.preventDefault();if(accountBusy)return;
@@ -161,6 +162,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
       }
       if(added)history=await phoneCustomerOrders(accountEndpoint,info.token);
       try{sessionStorage.setItem('aurora_customer_phone_session_v1',info.token);}catch{}
+      setActivePhoneToken(info.token);
       setHasAccountSession(true);setServerProfile(true);
       setCustomerName(info.profile.name);setCustomerPhone(info.profile.phone);
       setCustomerEmail(info.profile.email);setSavedAddress(info.profile.address);
