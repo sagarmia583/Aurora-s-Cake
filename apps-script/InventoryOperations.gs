@@ -78,8 +78,7 @@ function auroraInventoryPost_(input){
       if(row.status==='settled')return {ok:true,already_settled:true,state:auroraInventoryState_(book)};
       if(row.status!=='approved'||note.length<8||note.length>300)
         auroraReject_('approval_required','Approve the refund and enter cash/transfer settlement evidence.');
-      [['status','settled'],['settled_at',new Date().toISOString()],
-        ['settlement_note',note],['settled_by',who]].forEach(function(kv){
+      [['settled_at',new Date().toISOString()],['settlement_note',note],['settled_by',who],['status','settled']].forEach(function(kv){
         var col=table.headers.indexOf(kv[0]);
         if(col<0)auroraReject_('upgrade_required','Missing refund settlement columns. Run database setup.');
         table.sheet.getRange(idx+2,col+1,1,1).setValues([[kv[1]]]);
@@ -94,7 +93,7 @@ function auroraInventoryPost_(input){
       if(r.status==='approved')return {ok:true,already_approved:true,state:auroraInventoryState_(book)};
       if(r.status!=='requested'||r.created_by===who)
         auroraReject_('independent_approval_required','A different staff member must approve an open refund.');
-      [['status','approved'],['approved_by',who],['approved_at',new Date().toISOString()]].forEach(function(v){
+      [['approved_by',who],['approved_at',new Date().toISOString()],['status','approved']].forEach(function(v){
         table.sheet.getRange(idx+2,table.headers.indexOf(v[0])+1,1,1).setValues([[v[1]]]);
       });
       return auroraInventoryState_(book);
