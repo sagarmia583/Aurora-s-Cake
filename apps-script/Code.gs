@@ -86,7 +86,7 @@ var PRIVATE_ORDER_SCHEMAS = {
   auth_sessions: ['token_hash','account_type','account_id','created_at','expires_at','revoked'],
   customer_master: ['id','phone_key','name','delivery_address','created_at','updated_at','order_count','last_order_id','last_order_at'],
   customer_contact_requests: ['id','phone_key','name','delivery_address','created_at','status'],
-  rider_cash_deposits: ['id','request_id','rider_id','amount','date','actor_name','created_at','notes'],
+  rider_cash_deposits: ['id','request_id','rider_id','amount','date','actor_name','created_at','notes','voided_at','voided_by','void_reason'],
   cake_cost_items: ['id','request_id','product_id','variant_id','component','unit_label','quantity','unit_cost','active','updated_at']
 };
 
@@ -113,7 +113,7 @@ function doPost(e) {
     if (input && input.action === 'staff_customer_lookup') return auroraResponse_(auroraStaffCustomerLookup_(input));
     if (input && input.action === 'customer_contact_submit') return auroraResponse_(auroraGuestContactSubmit_(input));
     if (input && input.action === 'customer_receipt_recover') return auroraResponse_(auroraCustomerReceiptRecover_(input));
-    if(input && /^(staff_finance_summary|staff_cash_deposit|staff_cake_cost_save|staff_cake_cost_archive)$/.test(String(input.action||''))) return auroraResponse_(auroraFinancePost_(input));
+    if(input && /^(staff_finance_summary|staff_cash_deposit|staff_cash_deposit_void|staff_cake_cost_save|staff_cake_cost_archive)$/.test(String(input.action||''))) return auroraResponse_(auroraFinancePost_(input));
     if (input && input.action === 'customer_phone_tracking') return auroraResponse_(auroraPhoneOnlyTracking_(input));
     if (input && input.action === 'get_order_status') return auroraResponse_(auroraCustomerOrderStatus_(input));
     if (input && /^staff_cms_(list|create|update|delete)$/.test(String(input.action||''))) return auroraResponse_(auroraCmsPost_(input));
@@ -603,6 +603,17 @@ function setupSheetDatabase() {
           sheet.getRange(1,existingHeaders.length+1,1,1).setValues([['permissions']]);
           report.push(name + ': permissions header added; existing employee roles preserved');
         }else report.push(name + ': existing private data preserved');
+      }else if(name==='rider_cash_deposits'){
+        var requiredFinance=['voided_at','voided_by','void_reason'];
+        var existing=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0]
+          .map(function(x){return String(x).trim().toLowerCase();});
+        requiredFinance.forEach(function(field){
+          if(existing.indexOf(field)===-1){
+            sheet.getRange(1,existing.length+1,1,1).setValues([[field]]);
+            existing.push(field);
+          }
+        });
+        report.push(name + ': deposit reversal audit columns available');
       }else report.push(name + ': existing private data preserved');
       return;
     }
