@@ -33,7 +33,7 @@ export const CustomerAccountPortal:React.FC<Props>=(props)=>{
   const [error,setError]=useState('');
   const [message,setMessage]=useState('');
   const [recovery,setRecovery]=useState({orderId:'',phone:'',key:''});
-  const [legacyOpen,setLegacyOpen]=useState(false);
+  const [showGuest,setShowGuest]=useState(false);
   const ownReceipts=useMemo(()=>localReceipts
     .filter(order=>!!order.customer_access_token&&digits(order.customer_phone)===digits(contact.phone))
     .sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))),
@@ -79,6 +79,9 @@ export const CustomerAccountPortal:React.FC<Props>=(props)=>{
     }catch{setError('Clipboard access unavailable. Save your original receipt safely.');}
   };
   if(!open)return null;
+  if(!showGuest)return <Suspense fallback={<div role="status" className="fixed inset-0 z-[85] bg-slate-950/70 flex items-center justify-center text-white">Loading your secure mobile account…</div>}>
+    <LegacyAccounts {...props} open={true} onTrackOrder={onTrackOrder} onSwitchToGuest={()=>setShowGuest(true)}/>
+  </Suspense>;
   return <div role="dialog" aria-modal="true" aria-labelledby="customer-orders-title"
     className="fixed inset-0 z-[85] bg-slate-950/75 p-3 sm:p-7 overflow-y-auto">
     <div className="mx-auto max-w-3xl rounded-3xl overflow-hidden bg-white shadow-2xl">
@@ -162,15 +165,11 @@ export const CustomerAccountPortal:React.FC<Props>=(props)=>{
         <p className="text-xs text-slate-500 flex gap-2 items-start"><ShieldCheck size={16} className="shrink-0"/>
           We never disclose customer names, addresses, complete order history or rider OTP through an anonymous phone-only search.
         </p>
-        <details className="rounded-xl border p-3 text-sm">
-          <summary className="cursor-pointer font-semibold">Previously registered with Phone + Password or Google?</summary>
-          <p className="text-slate-600 my-2">Older accounts are still supported for recovering their previously linked orders. New customers do not need to create one.</p>
-          <button type="button" onClick={()=>setLegacyOpen(true)} className="underline text-emerald-800">Open existing account recovery</button>
-        </details>
+        <button type="button" onClick={()=>setShowGuest(false)} className="w-full bg-emerald-800 text-white font-semibold p-3 rounded-xl">
+          Open mobile account & saved order history
+        </button>
       </div>
     </div>
-    {legacyOpen&&<Suspense fallback={<p className="text-white">Opening existing accounts…</p>}>
-      <LegacyAccounts {...props} onClose={()=>setLegacyOpen(false)} open={true}/>
-    </Suspense>}
+
   </div>;
 };
