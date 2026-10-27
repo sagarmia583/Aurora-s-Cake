@@ -38,10 +38,10 @@ function Input({label,value,onChange,secure=false,keyboard,placeholder}:{
       placeholderTextColor="#93A39A"/>
   </View>;
 }
-function OrderTile({order,session,working,onNext,onAssign,onOtp,onCancel}:{
+function OrderTile({order,session,working,onNext,onAssign,onDeliveryConfirm,onCancel}:{
   order:StaffOrder;session:StaffSession;working:boolean;
   onNext:(o:StaffOrder,op:Operation)=>void;onAssign:(o:StaffOrder)=>void;
-  onOtp:(o:StaffOrder)=>void;onCancel:(o:StaffOrder)=>void;
+  onDeliveryConfirm:(o:StaffOrder)=>void;onCancel:(o:StaffOrder)=>void;
 }){
   const [expanded,setExpanded]=useState(false);
   const next=nextOperation(order,session);
@@ -51,7 +51,7 @@ function OrderTile({order,session,working,onNext,onAssign,onOtp,onCancel}:{
   const onAction=()=>{
     if(!next)return;
     if(next==='assign')onAssign(order);
-    else if(next==='deliver')onOtp(order);
+    else if(next==='deliver')onDeliveryConfirm(order);
     else onNext(order,next);
   };
   return <View style={[s.orderCard,cardShadow]}>
@@ -111,7 +111,7 @@ export default function App(){
   const [refreshing,setRefreshing]=useState(false);
   const [workingId,setWorkingId]=useState('');
   const [lastRefresh,setLastRefresh]=useState('');
-  const [otpOrder,setOtpOrder]=useState<StaffOrder|null>(null);
+  const [deliveryOrder,setDeliveryOrder]=useState<StaffOrder|null>(null);
   const [handedOver,setHandedOver]=useState(false);
   const [cash,setCash]=useState(false);
   const [assignOrder,setAssignOrder]=useState<StaffOrder|null>(null);
@@ -182,7 +182,7 @@ export default function App(){
     {text:'Cancel',style:'cancel'},
     {text:'Sign out',style:'destructive',onPress:()=>{
       const old=tokenRef.current;mutationEpoch.current++;
-      setToken('');setSession(null);setOrders([]);setOtpOrder(null);
+      setToken('');setSession(null);setOrders([]);setDeliveryOrder(null);
       void clearSession(old);
     }}
   ]);
@@ -195,7 +195,7 @@ export default function App(){
       if(!alive.current)return;
       setOrders(prev=>prev.map(o=>o.id===updated.id?{...o,...updated}:o));
       setNotice('#'+order.order_number+' — '+statusLabel(updated.status)+' ✓');
-      setOtpOrder(null);setHandedOver(false);setCash(false);setAssignOrder(null);
+      setDeliveryOrder(null);setHandedOver(false);setCash(false);setAssignOrder(null);
       // Do not block UI waiting for a slow second Sheets read.
     }catch(e){if(alive.current)setError(e instanceof Error?e.message:'Order was not updated.');}
     finally{if(alive.current)setWorkingId('');}
@@ -211,9 +211,9 @@ export default function App(){
     void applyMutation(order,op);
   };
   const finishDelivery=()=>{
-    if(!otpOrder||!handedOver){setError('Customer-এর হাতে কেক তুলে দেওয়া নিশ্চিত করো।');return;}
-    if(otpOrder.payment_method==='cod'&&!cash){setError('পুরো COD Cash সংগ্রহ নিশ্চিত করো।');return;}
-    void applyMutation(otpOrder,'deliver',{package_handed_over:true,cash_collected:cash});
+    if(!deliveryOrder||!handedOver){setError('Customer-এর হাতে কেক তুলে দেওয়া নিশ্চিত করো।');return;}
+    if(deliveryOrder.payment_method==='cod'&&!cash){setError('পুরো COD Cash সংগ্রহ নিশ্চিত করো।');return;}
+    void applyMutation(deliveryOrder,'deliver',{package_handed_over:true,cash_collected:cash});
   };
   const visible=useMemo(()=>{
     if(!session)return [];
@@ -304,7 +304,7 @@ export default function App(){
         keyboardShouldPersistTaps="handled" initialNumToRender={8} maxToRenderPerBatch={8} windowSize={5}
         renderItem={({item})=><OrderTile order={item} session={session} working={workingId===item.id}
           onNext={action} onAssign={o=>{setAssignOrder(o);setRider(readyToAssign[0]?.email||'');}}
-          onOtp={o=>{setOtpOrder(o);setHandedOver(false);setCash(false);}}
+          onDeliveryConfirm={o=>{setDeliveryOrder(o);setHandedOver(false);setCash(false);}}
           onCancel={o=>action(o,'cancel')}/>}
         ListEmptyComponent={<View style={s.empty}><Text style={{fontSize:40}}>✨</Text>
           <Text style={s.emptyTitle}>{refreshing?'Loading orders…':'Nothing waiting here'}</Text>
@@ -331,18 +331,18 @@ export default function App(){
         onPress={()=>void applyMutation(assignOrder,'assign',{rider_email:rider})}/>
       <ActionButton kind="secondary" label="Back" onPress={()=>setAssignOrder(null)}/>
     </View></View>:null}
-    {otpOrder?<View style={s.overlay}><View style={s.sheet}>
+    {deliveryOrder?<View style={s.overlay}><View style={s.sheet}>
       <Text style={s.sheetTitle}>✅ Complete delivery</Text>
-      <SmallLabel>#{otpOrder.order_number} · {money(otpOrder.cod_amount??otpOrder.total_amount)}</SmallLabel>
+      <SmallLabel>#{deliveryOrder.order_number} · {money(deliveryOrder.cod_amount??deliveryOrder.total_amount)}</SmallLabel>
       <Pressable style={[s.cashConfirm,handedOver&&s.cashConfirmed]} onPress={()=>setHandedOver(x=>!x)}>
         <Text style={{color:C.ink,fontSize:15,fontWeight:'700'}}>{handedOver?'☑':'☐'}  Cake handed over to the customer</Text>
       </Pressable>
-      {otpOrder.payment_method==='cod'?<Pressable style={[s.cashConfirm,cash&&s.cashConfirmed]} onPress={()=>setCash(x=>!x)}>
-        <Text style={{color:C.ink,fontSize:15,fontWeight:'700'}}>{cash?'☑':'☐'}  Full COD cash collected: {money(otpOrder.cod_amount??otpOrder.total_amount)}</Text>
+      {deliveryOrder.payment_method==='cod'?<Pressable style={[s.cashConfirm,cash&&s.cashConfirmed]} onPress={()=>setCash(x=>!x)}>
+        <Text style={{color:C.ink,fontSize:15,fontWeight:'700'}}>{cash?'☑':'☐'}  Full COD cash collected: {money(deliveryOrder.cod_amount??deliveryOrder.total_amount)}</Text>
       </Pressable>:null}
-      <ActionButton disabled={!handedOver||(otpOrder.payment_method==='cod'&&!cash)||!!workingId}
+      <ActionButton disabled={!handedOver||(deliveryOrder.payment_method==='cod'&&!cash)||!!workingId}
         label={workingId?'Saving…':'Mark delivered'} onPress={finishDelivery}/>
-      <ActionButton kind="secondary" label="Back" onPress={()=>{setOtpOrder(null);setHandedOver(false);setCash(false);}}/>
+      <ActionButton kind="secondary" label="Back" onPress={()=>{setDeliveryOrder(null);setHandedOver(false);setCash(false);}}/>
     </View></View>:null}
   </View>;
 }
