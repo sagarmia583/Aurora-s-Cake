@@ -1,7 +1,7 @@
 import { variantPrice, variantDiscount } from '../services/productPricing';
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, ArrowUpRight, CakeSlice, Check, ChevronDown, Flower2, Heart, Leaf, Truck, Facebook, Phone, Mail, Plus } from 'lucide-react';
-import { Product, Category, ShopSettings, Flavor, Banner, Review } from '../types';
+import { Product, Category, ShopSettings, Flavor, Banner, Review, Coupon } from '../types';
 import type { PublicSiteData, SiteHighlight } from '../types/siteContent';
 import { DEFAULT_PUBLIC_SITE_DATA } from '../content/defaultSiteData';
 
@@ -12,6 +12,8 @@ interface CustomerStorefrontProps {
   flavors: Flavor[];
   banners: Banner[];
   reviews: Review[];
+  coupons: Coupon[];
+  onUseCoupon?: (code: string) => void;
   currency: string;
   onSelectProduct: (product: Product) => void;
   onOpenTrackOrder: () => void;
@@ -39,7 +41,7 @@ function HighlightIcon({ name, size = 20 }: { name?: string; size?: number }) {
 
 export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
   settings: suppliedSettings, products, categories, currency, onSelectProduct, onOpenCustomCake,
-  onOpenTrackOrder, onOpenProfile, searchQuery, publicData,
+  onOpenTrackOrder, onOpenProfile, searchQuery, publicData, coupons, onUseCoupon,
 }) => {
   const data: PublicSiteData = publicData ?? DEFAULT_PUBLIC_SITE_DATA;
   const settings = publicData?.settings ?? suppliedSettings;
@@ -105,6 +107,21 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
         </div>
       </div>}
     </section>
+
+    {coupons.some(c=>c.is_active) && <section className="ac-container" aria-label="Available cake coupons" style={{paddingTop:20,paddingBottom:12}}>
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:p-5">
+        <div className="font-bold text-amber-950 text-sm mb-3">🎁 Available offers — use a coupon at checkout</div>
+        <div className="flex flex-wrap gap-3">
+          {coupons.filter(c=>c.is_active).slice(0,6).map(c=><div key={c.id} className="rounded-xl bg-white border border-amber-200 p-3 flex-1 min-w-[180px]">
+            <strong className="block text-lg text-emerald-900">{c.discount_type==='percentage'?c.discount_value+'% OFF':money(c.discount_value)+' OFF'}</strong>
+            <span className="text-xs text-slate-500 block mt-1">Min. cake subtotal {money(c.min_order_amount)}</span>
+            <button type="button" onClick={()=>onUseCoupon?.(c.code)} className="mt-3 rounded-lg bg-[#174b3b] text-white text-xs font-bold px-3 py-2" aria-label={'Use coupon '+c.code}>
+              Use code: {c.code}
+            </button>
+          </div>)}
+        </div>
+      </div>
+    </section>}
 
     {promises.length > 0 && <div className="ac-promise-strip"><div className="ac-container ac-promises">{promises.map((item, index) => <React.Fragment key={item.id}>{index > 0 && <i />}<span><HighlightIcon name={item.icon} /><span>{item.title}{item.description && <small style={{ display: 'block' }}>{item.description}</small>}</span></span></React.Fragment>)}</div></div>}
 
