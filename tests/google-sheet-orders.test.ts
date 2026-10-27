@@ -225,8 +225,8 @@ test('verified staff manage the same private receipt; riders see assigned orders
   assert.equal(Object.prototype.hasOwnProperty.call(riderQueue.orders[0],'delivery_otp'),false);
   assert.equal(update('pick_up',RIDER_TOKEN).ok,true);
   assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
-  assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp,cash_collected:false}).code,'cash_unconfirmed');
-  assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp,cash_collected:true}).ok,true);
+  assert.equal(update('deliver',RIDER_TOKEN,{package_handed_over:true,cash_collected:false}).code,'cash_unconfirmed');
+  assert.equal(update('deliver',RIDER_TOKEN,{package_handed_over:true,cash_collected:true}).ok,true);
   const customer=h.post({action:'get_order_status',order_id:orderId,customer_phone:request().customer_phone,customer_access_token:created.order.customer_access_token});
   assert.equal(customer.status,'delivered');
   assert.equal(customer.payment_status,'paid');
@@ -237,7 +237,7 @@ test('verified staff manage the same private receipt; riders see assigned orders
   assert.equal(h.records('orders').length,1);
   assert.equal(h.records('order_items').length,1);
 });
-test('delivery OTP rate limit and order transition checks are persisted server-side',()=>{
+test('delivery handover confirmation and order transition checks are persisted server-side',()=>{
   const h=harness(),created=h.post(request());
   const orderId=created.order.id;
   const update=(operation:string,id_token:string,extra:Record<string,unknown>={})=>h.post({action:'staff_mutate',id_token,operation,order_id:orderId,...extra});
@@ -247,9 +247,10 @@ test('delivery OTP rate limit and order transition checks are persisted server-s
   assert.equal(update('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
   assert.equal(update('pick_up',RIDER_TOKEN).ok,true);
   assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
-  for(let i=0;i<5;i++) assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:'0000',cash_collected:true}).code,'invalid_otp');
-  assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:created.order.delivery_otp,cash_collected:true}).code,'otp_locked');
-  assert.equal(h.post({action:'get_order_status',order_id:orderId,customer_phone:request().customer_phone,customer_access_token:created.order.customer_access_token}).status,'out_for_delivery');
+  assert.equal(update('deliver',RIDER_TOKEN,{cash_collected:true}).code,'handover_unconfirmed');
+  assert.equal(update('deliver',RIDER_TOKEN,{package_handed_over:true,cash_collected:false}).code,'cash_unconfirmed');
+  assert.equal(update('deliver',RIDER_TOKEN,{package_handed_over:true,cash_collected:true}).ok,true);
+  assert.equal(h.post({action:'get_order_status',order_id:orderId,customer_phone:request().customer_phone,customer_access_token:created.order.customer_access_token}).status,'delivered');
 });
 test('customer status requires both unpredictable order reference and matching phone',()=>{
   const h=harness(),created=h.post(request());
@@ -305,11 +306,11 @@ test('free Google recovery shows delivery OTP only after the linked order is out
   assert.equal(update('pick_up',RIDER_TOKEN).ok,true);
   assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
   const orders=h.post({action:'customer_orders',id_token:ADMIN_TOKEN}).orders;
-  assert.equal(orders[0].delivery_otp,JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp);
+  assert.equal(orders[0].delivery_otp,'');
   assert.equal(orders[0].status,'out_for_delivery');
 });
 
-test('linked customer gets delivery OTP only after dispatch with their own valid Google token',()=>{
+test('linked customer sees live delivery stage without an OTP',()=>{
   const h=harness();const order=h.post(request()).order;
   const status=(token?:string)=>h.post({action:'get_order_status',order_id:order.id,customer_phone:order.customer_phone,...(token?{id_token:token}:{} )});
   assert.equal(h.post({action:'customer_claim_order',id_token:ADMIN_TOKEN,order_id:order.id,customer_phone:order.customer_phone,customer_access_token:order.customer_access_token}).ok,true);
@@ -321,8 +322,9 @@ test('linked customer gets delivery OTP only after dispatch with their own valid
   assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
   assert.equal(status().delivery_otp,undefined);
   assert.equal(status(INTRUDER_TOKEN).code,'forbidden');
-  assert.equal(status(ADMIN_TOKEN).delivery_otp,JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp);
-  assert.equal(h.post({action:'get_order_status',order_id:order.id,customer_phone:order.customer_phone,customer_access_token:order.customer_access_token}).delivery_otp,JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp);
+  assert.equal(status(ADMIN_TOKEN).delivery_otp,undefined);
+  assert.equal(status(ADMIN_TOKEN).status,'out_for_delivery');
+  assert.equal(h.post({action:'get_order_status',order_id:order.id,customer_phone:order.customer_phone,customer_access_token:order.customer_access_token}).delivery_otp,undefined);
 });
 
 test('only verified admins can edit live catalogue; arbitrary fields and other roles are rejected',()=>{
@@ -448,7 +450,7 @@ test('valid Google identity is briefly cached but changed staff allowlist is enf
   assert.equal(h.post({action:'staff_session',id_token:ADMIN_TOKEN}).code,'forbidden');
   assert.equal(fetchCalls,1);
 });
-test('a delivery OTP is issued only at dispatch and destroyed after confirmed COD delivery',()=>{
+test('no delivery OTP is issued; assigned rider completes COD with handover and cash confirmation',()=>{
   const h=harness(),created=h.post(request());
   const change=(operation:string,id_token:string,extra:Record<string,unknown>={})=>h.post({
     action:'staff_mutate',id_token,operation,order_id:created.order.id,...extra});
@@ -459,9 +461,8 @@ test('a delivery OTP is issued only at dispatch and destroyed after confirmed CO
   assert.equal(change('pick_up',RIDER_TOKEN).ok,true);
   assert.equal(server().delivery_otp,'');
   assert.equal(change('start_delivery',RIDER_TOKEN).ok,true);
-  const code=server().delivery_otp;
-  assert.match(code,/^\d{4}$/);
-  assert.equal(change('deliver',RIDER_TOKEN,{delivery_otp:code,cash_collected:true}).ok,true);
+  assert.equal(server().delivery_otp,'');
+  assert.equal(change('deliver',RIDER_TOKEN,{package_handed_over:true,cash_collected:true}).ok,true);
   assert.equal(server().delivery_otp,'');
   assert.equal(h.post({action:'get_order_status',order_id:created.order.id,customer_phone:created.order.customer_phone,
     customer_access_token:created.order.customer_access_token}).delivery_otp,undefined);
@@ -575,10 +576,8 @@ test('verified super admin creates username/password rider; only the assigned ri
   assert.equal(adminChange('assign',{rider_email:'rider02'}).ok,true);
   assert.equal(change('pick_up',signed.auth_token).ok,true);
   assert.equal(change('start_delivery',signed.auth_token).ok,true);
-  assert.equal(change('deliver',signed.auth_token,{delivery_otp:'0000',cash_collected:true}).code,'invalid_otp');
-  const code=JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp;
-  assert.match(code,/^\d{4}$/);
-  assert.equal(change('deliver',signed.auth_token,{delivery_otp:code,cash_collected:true}).ok,true);
+  assert.equal(change('deliver',signed.auth_token,{cash_collected:true}).code,'handover_unconfirmed');
+  assert.equal(change('deliver',signed.auth_token,{package_handed_over:true,cash_collected:true}).ok,true);
   assert.equal(h.post({action:'staff_password_logout',auth_token:signed.auth_token}).ok,true);
   assert.equal(h.post({action:'staff_orders',auth_token:signed.auth_token}).code,'unauthorized');
 });
@@ -793,7 +792,7 @@ test('fast customer status reads only id/header/receipt columns, not the whole p
   assert.equal(touched.filter(item=>item.height>1).every(item=>item.width===1),true,
     'Status polling should not read entire multi-column order sheets');
 });
-test('phone account linked to receipt receives dispatch OTP; an unlinked customer is denied',()=>{
+test('phone account linked to receipt sees dispatch status but not an OTP; an unlinked customer is denied',()=>{
   const h=harness({singleFile:true});
   const first=h.post(request()).order;
   const owner=h.post({action:'customer_phone_signup',name:'Recipient',phone:'01700112283',password:'TestSecretPassOne2026!'});
@@ -810,11 +809,10 @@ test('phone account linked to receipt receives dispatch OTP; an unlinked custome
   assert.equal(transition('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
   assert.equal(transition('pick_up',RIDER_TOKEN).ok,true);
   assert.equal(transition('start_delivery',RIDER_TOKEN).ok,true);
-  const code=String(JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp);
-  assert.match(code,/^\d{4}$/);
-  assert.equal(status(owner.auth_token).delivery_otp,code);
+  assert.equal(JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp,'');
+  assert.equal(status(owner.auth_token).delivery_otp,undefined);
   assert.equal(status(other.auth_token).code,'forbidden');
-  assert.equal(transition('deliver',RIDER_TOKEN,{delivery_otp:code,cash_collected:true}).ok,true);
+  assert.equal(transition('deliver',RIDER_TOKEN,{package_handed_over:true,cash_collected:true}).ok,true);
   assert.equal(status(owner.auth_token).delivery_otp,undefined);
   assert.equal(status(owner.auth_token).status,'delivered');
 });
@@ -835,7 +833,7 @@ test('customer phone account history only scans receipt JSON rather than the wid
   assert.ok(orderDataReads.every(r=>r.width===1),'Account refresh must read receipt JSON only');
 });
 
-test('legacy dispatch OTP requires owner-verified one-time receipt recovery; phone number alone never reveals OTP',()=>{
+test('legacy private receipt recovery remains owner-verified while delivery needs no OTP',()=>{
   const h=harness({singleFile:true}),order=h.post(request()).order;
   const staff=(action:string,id_token:string,other:Record<string,unknown>={})=>
     h.post({action:'staff_mutate',id_token,operation:action,order_id:order.id,...other});
@@ -844,8 +842,7 @@ test('legacy dispatch OTP requires owner-verified one-time receipt recovery; pho
   assert.equal(staff('pick_up',RIDER_TOKEN).ok,true);
   assert.equal(staff('start_delivery',RIDER_TOKEN).ok,true);
   const original=JSON.parse(String(h.records('orders')[0].receipt_json));
-  const otp=String(original.delivery_otp);
-  assert.match(otp,/^\d{4}$/);
+  assert.equal(original.delivery_otp,'');
   // Simulate an authentic order from the original, pre-capability checkout.
   delete original.customer_access_token;
   h.tables.orders[1][ORDER_HEADERS.indexOf('receipt_json')]=JSON.stringify(original);
@@ -865,7 +862,7 @@ test('legacy dispatch OTP requires owner-verified one-time receipt recovery; pho
   assert.equal(issued.delivery_otp,undefined);
   assert.equal(h.post({...cmd,id_token:ADMIN_TOKEN}).code,'already_secured');
   assert.equal(h.post({...customer,customer_access_token:'wrong'}).code,'forbidden');
-  assert.equal(h.post({...customer,customer_access_token:issued.customer_access_token}).delivery_otp,otp);
+  assert.equal(h.post({...customer,customer_access_token:issued.customer_access_token}).delivery_otp,undefined);
   assert.equal(h.records('orders').length,1);
   assert.equal(h.records('order_items').length,1);
 });
@@ -888,7 +885,7 @@ test('private order lookup uses native exact-cell TextFinder when supported',()=
 });
 
 
-test('full COD acceptance: guest checkout, verified owner, password kitchen, assigned rider, phone customer OTP and paid delivery',()=>{
+test('full COD acceptance: guest checkout, verified owner, password kitchen, assigned rider, handover and paid delivery',()=>{
   const h=harness({singleFile:true});
   const signedUp=h.post({action:'customer_phone_signup',name:'Test Customer',phone:'01700000000',password:'StrongPrivateCustomerPass!'});
   assert.equal(signedUp.ok,true,JSON.stringify(signedUp));
@@ -937,18 +934,18 @@ test('full COD acceptance: guest checkout, verified owner, password kitchen, ass
   assert.equal(Object.hasOwn(dispatched.order,'customer_access_token'),false);
   const customerAtDispatch=getCustomer();
   assert.equal(customerAtDispatch.status,'out_for_delivery');
-  assert.match(customerAtDispatch.delivery_otp,/^\d{4}$/);
+  assert.equal(customerAtDispatch.delivery_otp,undefined);
   assert.equal(h.post({action:'staff_orders',id_token:RIDER_TOKEN}).orders[0].delivery_otp,undefined);
-  assert.equal(owner('deliver',{delivery_otp:customerAtDispatch.delivery_otp,cash_collected:true}).code,'forbidden');
-  assert.equal(rider('deliver',{delivery_otp:'0000',cash_collected:true}).code,'invalid_otp');
-  assert.equal(rider('deliver',{delivery_otp:customerAtDispatch.delivery_otp,cash_collected:false}).code,'cash_unconfirmed');
-  assert.equal(rider('deliver',{delivery_otp:customerAtDispatch.delivery_otp,cash_collected:true}).order.status,'delivered');
+  assert.equal(owner('deliver',{package_handed_over:true,cash_collected:true}).code,'forbidden');
+  assert.equal(rider('deliver',{cash_collected:true}).code,'handover_unconfirmed');
+  assert.equal(rider('deliver',{package_handed_over:true,cash_collected:false}).code,'cash_unconfirmed');
+  assert.equal(rider('deliver',{package_handed_over:true,cash_collected:true}).order.status,'delivered');
   const finished=getCustomer();
   assert.equal(finished.status,'delivered');
   assert.equal(finished.payment_status,'paid');
   assert.equal(finished.cod_collected,true);
   assert.equal(Object.hasOwn(finished,'delivery_otp'),false);
-  assert.equal(rider('deliver',{delivery_otp:customerAtDispatch.delivery_otp,cash_collected:true}).code,'invalid_transition');
+  assert.equal(rider('deliver',{package_handed_over:true,cash_collected:true}).code,'invalid_transition');
   assert.equal(h.records('orders').length,1);
   assert.equal(h.records('order_items').length,1);
   const data=JSON.parse(String(h.records('orders')[0].receipt_json));
