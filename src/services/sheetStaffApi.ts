@@ -54,8 +54,13 @@ export async function privatePost(endpoint: string, body: Record<string, unknown
       body: JSON.stringify(body), redirect: 'follow', credentials: sheetsPostCredentials(url),
       signal: controller.signal,
     });
-    if (!response.ok) throw new Error('The bakery operations endpoint is unavailable.');
     const data: unknown = await response.json().catch(() => null);
+    if (!response.ok) {
+      const message = objectValue(data) && typeof data.error === 'string'
+        ? data.error : 'The bakery operations endpoint is unavailable (HTTP ' + response.status + ').';
+      const code = objectValue(data) && typeof data.code === 'string' ? data.code : 'network';
+      throw new BakeryOperationsError(message, code);
+    }
     if (!objectValue(data)) throw new Error('Invalid bakery operations response. Check the Apps Script deployment.');
     if (data.ok !== true) throw new BakeryOperationsError(typeof data.error === 'string' ? data.error : 'Bakery operation was not accepted.', typeof data.code === 'string' ? data.code : 'unknown_error');
     return data;
