@@ -1,3 +1,4 @@
+import { variantPrice } from './productPricing';
 import type { CartItem, Order } from '../types';
 import type { PublicSiteData } from '../types/siteContent';
 
@@ -37,7 +38,7 @@ export function reconcilePublicCart(items: CartItem[], data: PublicSiteData): Re
     cartIds.add(cartId);
     const product = data.products.find(value => value.id === productId && value.is_active);
     const variant = product?.variants.find(value => value.id === variantId && value.is_active);
-    const variantPrice = price(variant?.sale_price ?? variant?.price);
+    const variantPrice = product && variant ? price(variantPrice(product,variant)) : undefined;
     if (!product || !variant || variantPrice === undefined) { removeLine(); continue; }
 
     const oldFlavor = item.selected_flavor;
@@ -62,7 +63,7 @@ export function reconcilePublicCart(items: CartItem[], data: PublicSiteData): Re
     const totalPrice = unitPrice * quantity;
     if (!Number.isFinite(unitPrice) || !Number.isFinite(totalPrice)) { removeLine(); continue; }
     const writingMessage = typeof item.writing_message === 'string' ? item.writing_message : '';
-    if (item.unit_price !== unitPrice || item.total_price !== totalPrice || price(oldVariant?.sale_price ?? oldVariant?.price) !== variantPrice || oldVariant?.weight_grams !== variant.weight_grams || item.writing_message !== writingMessage) changed = true;
+    if (item.unit_price !== unitPrice || item.total_price !== totalPrice || (price(oldVariant?.sale_price ?? oldVariant?.price) !== variantPrice && item.unit_price !== unitPrice) || oldVariant?.weight_grams !== variant.weight_grams || item.writing_message !== writingMessage) changed = true;
     reconciled.push({
       cart_item_id: cartId,
       product,
@@ -102,7 +103,7 @@ export function reorderFromPublicOrder(order: Order, data: PublicSiteData): Reco
     if (!line || !productId || !variantName || typeof quantity !== 'number' || !Number.isSafeInteger(quantity) || quantity <= 0) { removeLine(); continue; }
     const product = data.products.find(value => value.id === productId && value.is_active);
     const variant = product?.variants.find(value => value.name === variantName && value.is_active);
-    const variantPrice = price(variant?.sale_price ?? variant?.price);
+    const variantPrice = product && variant ? price(variantPrice(product,variant)) : undefined;
     if (!product || !variant || variantPrice === undefined) { removeLine(); continue; }
     const historicalFlavor = line.flavor_name;
     const flavorName = id(historicalFlavor);
