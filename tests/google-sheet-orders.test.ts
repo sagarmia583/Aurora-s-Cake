@@ -8,7 +8,7 @@ type Row = unknown[];
 const ORDER_HEADERS=['id','order_number','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','delivery_address','delivery_zone_id','delivery_zone_name','delivery_fee','delivery_slot','delivery_date','status','subtotal','discount_amount','total_amount','coupon_code','order_note','payment_method','payment_status','receipt_json'];
 const ITEM_HEADERS=['id','order_id','product_id','product_name','variant_id','variant_name','flavor_id','flavor_name','writing_message','unit_price','quantity','addons_json','subtotal'];
 const CUSTOM_HEADERS=['id','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','cake_type','approx_size','flavor','color_theme','writing_text','instructions','reference_image_url','status','estimated_price','quoted_price','receipt_json'];
-const STAFF_HEADERS=['id','username','name','role','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'];
+const STAFF_HEADERS=['id','username','name','role','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at','permissions'];
 const CUSTOMER_HEADERS=['id','phone','name','address','email','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'];
 const SESSION_HEADERS=['token_hash','account_type','account_id','created_at','expires_at','revoked'];
 const MASTER_HEADERS=['id','phone_key','name','delivery_address','created_at','updated_at','order_count','last_order_id','last_order_at'];
@@ -79,6 +79,7 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean}={}) {
   } else {
   vm.runInContext(fs.readFileSync(new URL('../apps-script/Code.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/StaffOperations.gs',import.meta.url),'utf8'),context);
+  vm.runInContext(fs.readFileSync(new URL('../apps-script/StaffPermissions.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/AccountAuth.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/CustomerMaster.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/CustomerAccounts.gs',import.meta.url),'utf8'),context);
