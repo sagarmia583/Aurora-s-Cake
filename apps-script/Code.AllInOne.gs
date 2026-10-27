@@ -3413,7 +3413,16 @@ function auroraInventoryPost_(input){
 }
 
 /** Freeze recipe unit costs at the moment baking starts. */
+function auroraEnsureInventoryTables_(book){
+  ['inventory_items','inventory_movements','refund_returns','order_cost_snapshots'].forEach(function(name){
+    var sheet=book.getSheetByName(name);
+    if(!sheet)sheet=book.insertSheet(name);
+    if(sheet.getLastRow()===0)
+      sheet.getRange(1,1,1,PRIVATE_ORDER_SCHEMAS[name].length).setValues([PRIVATE_ORDER_SCHEMAS[name]]);
+  });
+}
 function auroraSnapshotProduction_(book,order,actor){
+  auroraEnsureInventoryTables_(book);
   var table=auroraPrivateTable_(book,'order_cost_snapshots');
   var recipes=auroraPrivateTable_(book,'cake_cost_items').rows;
   var existed=table.rows.filter(function(r){return String(r.order_id)===String(order.id);})[0];
