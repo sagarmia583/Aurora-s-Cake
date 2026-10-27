@@ -10,7 +10,7 @@ test('phone-only tracking normalizes Bangladeshi local and international formatt
   assert.equal(normalizeTrackingPhone('01811111111'), '01811111111');
 });
 
-function trackingEnvironment() {
+function trackingEnvironment(extraOrders=0) {
   const source = readFileSync(new URL('../apps-script/StaffOperations.gs', import.meta.url), 'utf8');
   const marker = '/**\n * Passwordless, phone-only tracking.';
   const start = source.indexOf(marker);
@@ -22,6 +22,10 @@ function trackingEnvironment() {
     ['01811111111','AURORA-1002','delivered','2026-10-26T10:00:00.000Z','2026-10-26T11:00:00.000Z'],
     ['+8801700000000','AURORA-1003','out_for_delivery','2026-10-27T10:00:00.000Z','2026-10-27T10:06:00.000Z'],
   ];
+  for(let i=0;i<extraOrders;i++) rows.push([
+    '01700000000','AURORA-EXTRA-'+String(i).padStart(4,'0'),
+    'confirmed','2026-10-27T10:00:00.000Z','2026-10-27T10:01:00.000Z'
+  ]);
   const context = vm.createContext({
     Utilities: {DigestAlgorithm:{SHA_256:1},Charset:{UTF_8:1},
       computeDigest:() => [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]},
@@ -57,8 +61,8 @@ function trackingEnvironment() {
     })
   });
   vm.runInContext(source.slice(start),context);
-  return (phone:string):unknown => vm.runInContext(
-    'auroraPhoneOnlyTracking_('+JSON.stringify({phone})+')', context
+  return (phone:string,cursor?:number):unknown => vm.runInContext(
+    'auroraPhoneOnlyTracking_('+JSON.stringify({phone,...(cursor!==undefined?{cursor}:{})})+')', context
   );
 }
 
@@ -95,4 +99,17 @@ test('single-file Apps Script deployment includes the phone tracking route and i
   const combined=readFileSync(new URL('../apps-script/Code.AllInOne.gs',import.meta.url),'utf8');
   assert.match(combined,/customer_phone_tracking'\) return auroraResponse_\(auroraPhoneOnlyTracking_\(input\)\)/);
   assert.match(combined,/function auroraPhoneOnlyTracking_\(input\)/);
+});
+
+test('older phone orders paginate with non-overlapping pages and no private receipt data',()=>{
+ const track=trackingEnvironment(12);
+ const first=track('01700000000') as {orders:{reference:string}[];next_cursor:number};
+ assert.equal(first.orders.length,10);
+ assert.equal(typeof first.next_cursor,'number');
+ const later=track('01700000000',first.next_cursor) as {orders:{reference:string}[];next_cursor:null};
+ assert.equal(later.orders.length,4);
+ const keys=[...first.orders,...later.orders].map(o=>o.reference);
+ assert.equal(new Set(keys).size,keys.length);
+ assert.equal(later.next_cursor,null);
+ assert.throws(()=>track('01700000000',-1),/invalid_cursor/);
 });
