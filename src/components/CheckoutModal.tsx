@@ -54,7 +54,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   initialCoupon = '',
 }) => {
   const isLiveOrder = !!sheetOrderEndpoint;
-  const checkoutAvailable = isLiveOrder || import.meta.env.DEV;
+  const checkoutAvailable = isLiveOrder || import.meta.env?.PROD !== true;
 
   // Form State
   const [customerName, setCustomerName] = useState('');
