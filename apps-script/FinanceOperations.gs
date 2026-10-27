@@ -83,7 +83,7 @@ function auroraFinancePost_(input){
       var balance=auroraFinanceSnapshot_(book).riders.filter(function(r){return r.rider_id===deposit.rider_id;})[0];
       if(!balance||Number(deposit.amount)>balance.remaining)
         auroraReject_('balance_exceeded','Rider has insufficient outstanding balance.');
-      [['status','approved'],['approved_by_id',reviewer],['approved_at',new Date().toISOString()]].forEach(function(kv){
+      [['approved_by_id',reviewer],['approved_at',new Date().toISOString()],['status','approved']].forEach(function(kv){
         var col=pending.headers.indexOf(kv[0]);if(col<0)auroraReject_('upgrade_required','Run database setup.');
         pending.sheet.getRange(idx+2,col+1,1,1).setValues([[kv[1]]]);
       });
