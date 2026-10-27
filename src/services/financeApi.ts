@@ -3,7 +3,7 @@ export type FinanceRider = {rider_id:string;rider_name:string;collected:number;d
 export type CakeCost = {id:string;product_id:string;variant_id:string;component:string;unit_label:string;quantity:number;unit_cost:number;total:number};
 export type FinanceSnapshot = {
   riders:FinanceRider[];
-  deposits:{id:string;rider_id:string;amount:number;date:string;actor_name:string;created_at:string;notes:string}[];
+  deposits:{id:string;rider_id:string;amount:number;date:string;actor_name:string;created_at:string;notes:string;voided_at:string;voided_by:string;void_reason:string}[];
   costs:CakeCost[];
   cost_totals:Record<string,number>;
   products:{id:string;name:string;base_price:number;sale_price:number|''}[];
@@ -32,6 +32,12 @@ export async function financeSummary(endpoint:string,token:string):Promise<Finan
 }
 export async function recordCashDeposit(endpoint:string,token:string,input:{request_id:string;rider_id:string;amount:number;date:string;notes:string}):Promise<FinanceSnapshot>{
   const data=await privatePost(endpoint,{action:'staff_cash_deposit',...cred(token),...input});
+  return checkSnapshot(data.snapshot);
+}
+/** Never delete financial rows; void a mistaken deposit with an audit reason. */
+export async function voidCashDeposit(endpoint:string,token:string,depositId:string,reason:string):Promise<FinanceSnapshot>{
+  const data=await privatePost(endpoint,{action:'staff_cash_deposit_void',...cred(token),
+    deposit_id:depositId,reason});
   return checkSnapshot(data.snapshot);
 }
 export async function saveCakeCost(endpoint:string,token:string,input:{request_id:string;product_id:string;variant_id:string;component:string;unit_label:string;quantity:number;unit_cost:number}):Promise<FinanceSnapshot>{
