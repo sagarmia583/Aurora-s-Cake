@@ -35,8 +35,28 @@ export const secureRequestId=()=>typeof globalThis.crypto?.randomUUID==='functio
   globalThis.crypto.randomUUID():uuid();
 
 const auth=(token:string)=>/^[a-f0-9-]{72}$/i.test(token)?{auth_token:token}:{id_token:token};
-export const staffPost=(token:string,action:string,payload:Record<string,unknown>={})=>
-  post(action,{...auth(token),...payload},35000);
+// Uncertain writes reuse their original UUID when the cashier retries the same details.
+const retryIds=new Map<string,string>();
+const retryable=new Set(['staff_stock_adjust','staff_refund_request','staff_cash_deposit','staff_cake_cost_save']);
+export async function staffPost(token:string,action:string,payload:Record<string,unknown>={}):Promise<Record<string,unknown>>{
+  let request=payload,key='';
+  if(retryable.has(action)&&typeof payload.request_id==='string'){
+    key=action+':'+JSON.stringify({...payload,request_id:''});
+    if(retryIds.has(key))request={...payload,request_id:retryIds.get(key)};
+    else{retryIds.set(key,payload.request_id);if(retryIds.size>60)retryIds.delete(retryIds.keys().next().value!);}
+  }
+  try{const result=await post(action,{...auth(token),...request},35000);
+    if(key)retryIds.delete(key);
+    return result;
+  }catch(error){
+    // Retain the same request ID on transport/time-out errors. Definitive validation
+    // errors never commit an order and may be corrected with a new request ID.
+    if(key&&error instanceof Error&&
+      /invalid_|forbidden|reference_|not_found|approval_required/.test(String((error as Error&{code?:string}).code||'')))
+      retryIds.delete(key);
+    throw error;
+  }
+}
 export interface Item{variant_id:string;product_id:string;product_name:string;variant_name:string;price:number}
 export interface PosSale{ id:string;sale_number:string;sold_at:string;staff_name:string;
   total_amount:number;subtotal:number;discount_amount:number;payment_method:string;payment_reference:string;
