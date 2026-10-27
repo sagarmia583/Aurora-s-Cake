@@ -40,7 +40,7 @@ if (status.enabled && status.configured) {
 }
 ```
 
-The integration uses Firebase's official modular `firebase` npm package (13.1.0), lazily loaded only in the diagnostics view. Run `npm ci` after `package-lock.json` is updated, and `npm run build` to verify. You may visit `/?firebase-check=1` on the deployed site for a read-only Firestore server check. The configuration alone does **not** activate order writes.
+The integration uses Firebase's official modular `firebase` npm package (12.19.0), lazily loaded only in the diagnostics view. Run `npm ci` after `package-lock.json` is updated, and `npm run build` to verify. You may visit `/?firebase-check=1` on the deployed site for a read-only Firestore server check. The configuration alone does **not** activate order writes.
 
 ## 3. Deploy **security rules** before any data
 
