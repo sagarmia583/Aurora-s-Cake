@@ -87,7 +87,11 @@ var PRIVATE_ORDER_SCHEMAS = {
   customer_master: ['id','phone_key','name','delivery_address','created_at','updated_at','order_count','last_order_id','last_order_at'],
   customer_contact_requests: ['id','phone_key','name','delivery_address','created_at','status'],
   rider_cash_deposits: ['id','request_id','rider_id','amount','date','actor_name','created_at','notes','voided_at','voided_by','void_reason','status','initiated_by_id','approved_by_id','approved_at'],
-  cake_cost_items: ['id','request_id','product_id','variant_id','component','unit_label','quantity','unit_cost','active','updated_at']
+  cake_cost_items: ['id','request_id','product_id','variant_id','component','unit_label','quantity','unit_cost','active','updated_at','inventory_item_id'],
+  inventory_items: ['id','name','unit','reorder_level','created_at'],
+  inventory_movements: ['id','request_id','item_id','delta','unit_cost','reason','order_id','actor','created_at'],
+  refund_returns: ['id','request_id','order_id','kind','amount','reason','status','created_by','created_at','approved_by','approved_at','settled_at'],
+  order_cost_snapshots: ['id','order_id','order_number','recorded_at','total_cost','missing_recipe','lines_json']
 };
 
 // This handler creates a private COD receipt. GET never calls these functions.
@@ -113,6 +117,7 @@ function doPost(e) {
     if (input && input.action === 'staff_customer_lookup') return auroraResponse_(auroraStaffCustomerLookup_(input));
     if (input && input.action === 'customer_contact_submit') return auroraResponse_(auroraGuestContactSubmit_(input));
     if (input && input.action === 'customer_receipt_recover') return auroraResponse_(auroraCustomerReceiptRecover_(input));
+    if(input && /^(staff_inventory_summary|staff_stock_item_create|staff_stock_adjust|staff_refund_request|staff_refund_approve)$/.test(String(input.action||''))) return auroraResponse_(auroraInventoryPost_(input));
     if(input && /^(staff_finance_summary|staff_cash_deposit|staff_cash_deposit_approve|staff_cash_deposit_void|staff_cake_cost_save|staff_cake_cost_archive)$/.test(String(input.action||''))) return auroraResponse_(auroraFinancePost_(input));
     if (input && input.action === 'customer_phone_tracking') return auroraResponse_(auroraPhoneOnlyTracking_(input));
     if (input && input.action === 'get_order_status') return auroraResponse_(auroraCustomerOrderStatus_(input));
@@ -603,6 +608,12 @@ function setupSheetDatabase() {
           sheet.getRange(1,existingHeaders.length+1,1,1).setValues([['permissions']]);
           report.push(name + ': permissions header added; existing employee roles preserved');
         }else report.push(name + ': existing private data preserved');
+      }else if(name==='cake_cost_items'){
+        var cols=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0]
+          .map(function(v){return String(v).trim().toLowerCase();});
+        if(cols.indexOf('inventory_item_id')<0)
+          sheet.getRange(1,cols.length+1,1,1).setValues([['inventory_item_id']]);
+        report.push(name+': inventory mapping column available');
       }else if(name==='rider_cash_deposits'){
         var requiredFinance=['voided_at','voided_by','void_reason','status','initiated_by_id','approved_by_id','approved_at'];
         var existing=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0]
