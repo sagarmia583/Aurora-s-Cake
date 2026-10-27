@@ -136,10 +136,17 @@ test('lost acknowledgement after the header commit remains uncertain and retries
   const retry=h.post(request());assert.equal(retry.persisted,true);assert.equal(h.records('orders').length,1);assert.equal(h.records('order_items').length,1);
 });
 
-test('zero Sheet prices and zero coupon maximum stay zero',()=>{
-  const h=harness();h.change('product_variants','sale_price',0);h.change('product_addons','price',0);h.change('delivery_zones','delivery_fee',0);
+test('zero cake sale price is rejected; free add-ons and zero coupon cap remain supported',()=>{
+  const invalid=harness();invalid.change('product_variants','sale_price',0);
+  const rejected=invalid.post(request());
+  assert.equal(rejected.code,'invalid_price');
+  assert.equal(invalid.records('orders').length,0);
+  const h=harness();h.change('product_addons','price',0);h.change('delivery_zones','delivery_fee',0);
   h.change('coupons','min_order_amount',0);h.change('coupons','max_discount_amount',0);
-  const response=h.post(request());assert.equal(response.success,true);assert.equal(response.order.items[0].unit_price,0);assert.equal(response.order.subtotal,0);assert.equal(response.order.total_amount,0);
+  const response=h.post(request());assert.equal(response.success,true);
+  assert.equal(response.order.items[0].unit_price,800);
+  assert.equal(response.order.discount_amount,0);
+  assert.equal(response.order.total_amount,1600);
 });
 
 test('unavailable choices, invalid date/phone/quantity and online payment reject before writing',()=>{
@@ -1251,4 +1258,14 @@ test('restricted kitchen employee cannot recover customer contact information fr
   assert.equal(listed.orders.length,1);
   assert.equal(listed.orders[0].customer_phone,undefined);
   assert.equal(listed.orders[0].delivery_address,undefined);
+});
+
+test('product markdown exceeding a smaller size price never produces a free cake',()=>{
+  const h=harness({singleFile:true});
+  h.tables.products[0].push('base_price','sale_price');
+  h.tables.products[1].push(1200,100);
+  h.change('product_variants','sale_price','');
+  const result=h.post(request());
+  assert.equal(result.code,'invalid_price');
+  assert.equal(h.records('orders').length,0);
 });
