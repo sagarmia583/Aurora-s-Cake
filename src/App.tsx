@@ -21,7 +21,6 @@ const CachePerformanceHub = lazy(() => import('./components/CachePerformanceHub'
 const DatabaseSchemaViewer = lazy(() => import('./components/DatabaseSchemaViewer').then(m=>({default:m.DatabaseSchemaViewer})));
 const SupabaseSyncModal = lazy(() => import('./components/SupabaseSyncModal').then(m=>({default:m.SupabaseSyncModal})));
 const CustomCakeModal = lazy(() => import('./components/CustomCakeModal').then(m=>({default:m.CustomCakeModal})));
-const CustomerProfileModal = lazy(() => import('./components/CustomerProfileModal').then(m=>({default:m.CustomerProfileModal})));
 import { mockDb } from './services/mockDatabase';
 import { supabaseDataService } from './services/supabaseDataService';
 import { useGoogleSheetContent } from './hooks/useGoogleSheetContent';
@@ -107,7 +106,6 @@ export default function App() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isTrackOrderOpen, setIsTrackOrderOpen] = useState(false);
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isCustomCakeOpen, setIsCustomCakeOpen] = useState(false);
   const [isCacheHubOpen, setIsCacheHubOpen] = useState(false);
   const [isDbViewerOpen, setIsDbViewerOpen] = useState(false);
@@ -242,7 +240,7 @@ export default function App() {
   // Check device history when the customer opens orders/profile, not at every
   // storefront render. Verify max three at a time to keep the site responsive.
   useEffect(() => {
-    if (!isProfileOpen && !isCustomerAccountOpen) return;
+    if (!isCustomerAccountOpen) return;
     const stored = loadConfirmedSheetOrders();
     if (!stored.length) { setHistorySyncing(false); return; }
     setHistorySyncing(true);
@@ -267,7 +265,7 @@ export default function App() {
       })
       .finally(() => { if (!stopped) setHistorySyncing(false); });
     return () => { stopped = true; };
-  }, [isProfileOpen, isCustomerAccountOpen, sheetContent.endpoint, customerGoogleToken, historySyncVersion]);
+  }, [isCustomerAccountOpen, sheetContent.endpoint, customerGoogleToken, historySyncVersion]);
 
   // Only poll the selected private receipt: the public endpoint never lists orders.
   useEffect(() => {
@@ -379,7 +377,7 @@ export default function App() {
           setIsCartOpen(false);
           setIsCheckoutOpen(true);
         }}
-        onOpenProfile={() => setIsProfileOpen(true)}
+        onOpenProfile={() => setIsCustomerAccountOpen(true)}
         onOpenCacheHub={() => setIsCacheHubOpen(true)}
         onOpenDbViewer={() => setIsDbViewerOpen(true)}
         onOpenSupabaseSync={() => setIsSupabaseSyncOpen(true)}
@@ -435,7 +433,7 @@ export default function App() {
                 onSelectProduct={(p) => setSelectedProductForDetail(p)}
                 onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
                 onOpenCustomCake={() => setIsCustomCakeOpen(true)}
-                onOpenProfile={() => setIsProfileOpen(true)}
+                onOpenProfile={() => setIsCustomerAccountOpen(true)}
                 searchQuery={searchQuery}
               />
             )}
@@ -497,11 +495,11 @@ export default function App() {
             <span className="text-[10px] font-semibold">Custom</span>
           </button>
           <button
-            onClick={() => setIsProfileOpen(true)}
+            onClick={() => setIsCustomerAccountOpen(true)}
             className="flex flex-col items-center gap-1 text-slate-600 hover:text-rose-600 cursor-pointer"
           >
             <User className="w-5 h-5 text-rose-600" />
-            <span className="text-[10px] font-semibold">Profile</span>
+            <span className="text-[10px] font-semibold">My Orders</span>
           </button>
           <button
             onClick={() => setIsTrackOrderOpen(true)}
@@ -540,7 +538,17 @@ export default function App() {
       {activeRole !== 'customer' && <div className="mx-auto my-3 w-full max-w-6xl px-5 text-xs text-slate-500">Website content is managed in Google Sheets. These Studio tools are local demonstrations. Manage real orders in the private orders and order_items Sheet tabs. Content edits here are replaced on the next Sheet refresh.</div>}
 
       {isStaffPortalOpen && <Suspense fallback={null}><StaffPortal isOpen={isStaffPortalOpen} onClose={closeStaffPortal} endpoint={sheetContent.endpoint} onCatalogUpdated={() => { void sheetContent.refresh(); }} /></Suspense>}
-      {isCustomerAccountOpen && <Suspense fallback={null}><CustomerAccountPortal open={isCustomerAccountOpen} onTrackOrder={id => { setLatestOrderId(id); setIsCustomerAccountOpen(false); setIsTrackOrderOpen(true); }} onClose={() => setIsCustomerAccountOpen(false)} endpoint={sheetContent.endpoint} localReceipts={orders.filter(o => o.persistence === 'google_sheets')} onIdentityToken={setCustomerGoogleToken} onSignOut={() => { removeConfirmedSheetOrdersById(restoredSessionOrderIds); setOrders(previous => previous.filter(order => !restoredSessionOrderIds.includes(order.id))); setRestoredSessionOrderIds([]); }} onRecover={recovered => { const existing = new Set(loadConfirmedSheetOrders().map(order => order.id)); setRestoredSessionOrderIds(previous => [...new Set([...previous, ...recovered.filter(order => !existing.has(order.id)).map(order => order.id)])]); recovered.forEach(rememberConfirmedSheetOrder); setOrders(previous => { const byId = new Map(previous.map(o => [o.id,o])); recovered.forEach(o => byId.set(o.id,o)); return Array.from(byId.values()); }); }} /></Suspense>}
+      {isCustomerAccountOpen && <Suspense fallback={null}><CustomerAccountPortal
+        open={isCustomerAccountOpen}
+        onClose={() => setIsCustomerAccountOpen(false)}
+        endpoint={sheetContent.endpoint}
+        localReceipts={orders.filter(order => order.persistence === 'google_sheets')}
+        historySyncing={historySyncing}
+        onReorder={order => { setIsCustomerAccountOpen(false); handleReorder(order); }}
+        onBrowseCakes={() => { setIsCustomerAccountOpen(false); document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth' }); }}
+        onTrackOrder={id => { setLatestOrderId(id); setIsCustomerAccountOpen(false); setIsTrackOrderOpen(true); }}
+        onRecover={recovered => { const existing = new Set(loadConfirmedSheetOrders().map(order => order.id)); setRestoredSessionOrderIds(previous => [...new Set([...previous, ...recovered.filter(order => !existing.has(order.id)).map(order => order.id)])]); recovered.forEach(rememberConfirmedSheetOrder); setOrders(previous => { const byId = new Map(previous.map(o => [o.id,o])); recovered.forEach(o => byId.set(o.id,o)); return Array.from(byId.values()); }); }}
+      /></Suspense>}
       {isSheetContentOpen && <Suspense fallback={null}><SheetContentPanel isOpen={isSheetContentOpen} onClose={() => setIsSheetContentOpen(false)} endpoint={sheetContent.endpoint} status={sheetContent.status} orderSubmissionEnabled={publicData.order_submission_enabled} onRefresh={sheetContent.refresh} onSaveEndpoint={sheetContent.updateEndpoint}/></Suspense>}
       {/* Modals & Slide-outs */}
       <Suspense fallback={null}>
@@ -554,21 +562,6 @@ export default function App() {
         onAddToCart={handleAddToCart}
       />}
 
-      {isProfileOpen && <CustomerProfileModal
-        isOpen={isProfileOpen}
-        accountEndpoint={sheetContent.endpoint}
-        historySyncing={historySyncing}
-        onSyncHistory={() => setHistorySyncVersion(previous => previous + 1)}
-        onClose={() => setIsProfileOpen(false)}
-        orders={orders}
-        products={products}
-        currency={settings.currency}
-        onReorder={handleReorder}
-        onTrackOrder={(orderId) => {
-          setLatestOrderId(orderId);
-          setIsTrackOrderOpen(true);
-        }}
-      />}
 
       {isCartOpen && <CartDrawer
         isOpen={isCartOpen}
