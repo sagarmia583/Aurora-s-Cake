@@ -1356,3 +1356,29 @@ test('inventory restock and immutable baking cost consume mapped ingredients onc
  assert.equal(h.post({action:'staff_mutate',id_token:ADMIN_TOKEN,order_id:id,operation:'start_baking'}).code,'invalid_transition');
  assert.equal(h.post({action:'staff_inventory_summary',id_token:ADMIN_TOKEN}).stock[0].balance,600);
 });
+
+
+test('refund return request requires independent approval and settlement evidence',()=>{
+ const h=harness({singleFile:true});h.context.setupSheetDatabase();
+ const order=h.post(request()),id=order.order.id;
+ const update=(operation:string,id_token:string,extra:Record<string,unknown>={})=>
+  h.post({action:'staff_mutate',id_token,order_id:id,operation,...extra});
+ for(const op of ['confirm','start_baking','mark_ready'])assert.equal(update(op,ADMIN_TOKEN).ok,true);
+ assert.equal(update('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
+ for(const op of ['pick_up','start_delivery'])assert.equal(update(op,RIDER_TOKEN).ok,true);
+ assert.equal(update('deliver',RIDER_TOKEN,{package_handed_over:true,cash_collected:true}).ok,true);
+ const reviewer=secondCashApprover(h);
+ const req={action:'staff_refund_request',id_token:ADMIN_TOKEN,request_id:'20000000-2000-4000-8000-000000000001',
+   order_id:id,amount:500,kind:'return',reason:'Customer returned damaged cake'};
+ const created=h.post(req);
+ assert.equal(created.ok,true,JSON.stringify(created));
+ assert.equal(h.post(req).already_saved,true);
+ assert.equal(h.post({...req,request_id:'20000000-2000-4000-8000-000000000002',amount:1500}).code,'refund_exceeded');
+ const recId=created.refunds[0].id;
+ assert.equal(h.post({action:'staff_refund_approve',id_token:ADMIN_TOKEN,refund_id:recId}).code,'independent_approval_required');
+ assert.equal(h.post({action:'staff_refund_approve',auth_token:reviewer,refund_id:recId}).refunds[0].status,'approved');
+ assert.equal(h.post({action:'staff_refund_settle',id_token:ADMIN_TOKEN,refund_id:recId,settlement_note:'short'}).code,'approval_required');
+ assert.equal(h.post({action:'staff_refund_settle',id_token:ADMIN_TOKEN,refund_id:recId,
+   settlement_note:'Bank transfer receipt 12345'}).refunds[0].status,'settled');
+ assert.equal(h.post({action:'staff_refund_settle',id_token:ADMIN_TOKEN,refund_id:recId}).already_settled,true);
+});
