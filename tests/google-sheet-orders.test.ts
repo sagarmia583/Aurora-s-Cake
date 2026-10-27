@@ -84,6 +84,7 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean}={}) {
   vm.runInContext(fs.readFileSync(new URL('../apps-script/CustomerAccounts.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/LiveCatalog.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/CustomCakeRequests.gs',import.meta.url),'utf8'),context);
+   vm.runInContext(fs.readFileSync(new URL('../apps-script/FinanceOperations.gs',import.meta.url),'utf8'),context);
   }
   const post=(payload:unknown)=>JSON.parse(context.doPost({postData:{type:'text/plain',contents:JSON.stringify(payload)}}).content);
   const get=(action:string)=>JSON.parse(context.doGet({parameter:{action}}).content);
@@ -1081,4 +1082,47 @@ test('password-free receipt recovery needs both original long key and phone; OTP
   assert.equal(recovered.order.delivery_otp,'');
   assert.equal(recovered.order.customer_access_token,created.customer_access_token);
   assert.equal('password_hash' in recovered.order,false);
+});
+
+
+test('rider COD cash ledger applies daily deposit debit once and never overdraws',()=>{
+ const h=harness({singleFile:true});h.context.setupSheetDatabase();
+ const placed=h.post(request());assert.equal(placed.persisted,true);
+ const id=placed.order.id;
+ const update=(operation:string,id_token:string,extra:Record<string,unknown>={})=>
+   h.post({action:'staff_mutate',id_token,operation,order_id:id,...extra});
+ for(const op of ['confirm','start_baking','mark_ready'])assert.equal(update(op,ADMIN_TOKEN).ok,true);
+ assert.equal(update('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
+ assert.equal(update('pick_up',RIDER_TOKEN).ok,true);
+ assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
+ assert.equal(update('deliver',RIDER_TOKEN,{package_handed_over:true,cash_collected:true}).ok,true);
+ const read=()=>h.post({action:'staff_finance_summary',id_token:ADMIN_TOKEN});
+ assert.equal(read().riders[0].collected,1680);
+ const requestId='a3333333-2222-4333-8444-555555555555';
+ const deposit={action:'staff_cash_deposit',id_token:ADMIN_TOKEN,request_id:requestId,
+   rider_id:'rider@example.com',amount:500,date:'2026-10-27',notes:'Daily cash'};
+ assert.equal(h.post({...deposit,id_token:RIDER_TOKEN}).code,'forbidden');
+ assert.equal(h.post({...deposit,amount:2000}).code,'balance_exceeded');
+ assert.equal(h.post(deposit).snapshot.riders[0].remaining,1180);
+ assert.equal(h.post(deposit).already_saved,true);
+ assert.equal(h.records('rider_cash_deposits').length,1);
+ assert.equal(read().riders[0].deposited,500);
+ assert.equal(h.post({...deposit,request_id:'b3333333-2222-4333-8444-555555555555',amount:1181}).code,'balance_exceeded');
+ assert.equal(h.get('staff_finance_summary').ok,false);
+});
+
+test('per-cake recipe costs stay private and repeated writes cannot double count',()=>{
+ const h=harness({singleFile:true});h.context.setupSheetDatabase();
+ const input={action:'staff_cake_cost_save',id_token:ADMIN_TOKEN,request_id:'a4444444-2222-4333-8444-555555555555',
+   product_id:'p1',variant_id:'v1',component:'Flour',unit_label:'g',quantity:300,unit_cost:0.2};
+ assert.equal(h.post({...input,id_token:RIDER_TOKEN}).code,'forbidden');
+ const saved=h.post(input);
+ assert.equal(saved.ok,true,JSON.stringify(saved));
+ assert.equal(saved.snapshot.cost_totals['p1::v1'],60);
+ assert.equal(h.post(input).already_saved,true);
+ assert.equal(h.records('cake_cost_items').length,1);
+ const id=h.records('cake_cost_items')[0].id;
+ assert.equal(h.post({action:'staff_cake_cost_archive',id_token:ADMIN_TOKEN,entry_id:id}).ok,true);
+ assert.equal(h.post({action:'staff_finance_summary',id_token:ADMIN_TOKEN}).costs.length,0);
+ assert.equal(h.get('staff_cake_cost_save').ok,false);
 });
