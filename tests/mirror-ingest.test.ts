@@ -23,8 +23,9 @@ test('mirror rejects unauthenticated and unapproved tables without calling Supab
   assert.equal((await invoke('POST','bad',data)).status,403);
   assert.equal((await invoke('POST',SECRET,{records:[{source_table:'staff_accounts',source_id:'x',data:{}}]})).status,400);
   assert.equal(called,false);
- }finally{globalThis.fetch=original;if(before===undefined)delete process.env.AURORA_MIRROR_SHARED_SECRET;
- else process.env.AURORA_MIRROR_SHARED_SECRET=before;}
+ }finally{globalThis.fetch=original;
+ ['AURORA_MIRROR_SHARED_SECRET','AURORA_SUPABASE_URL','AURORA_SUPABASE_SERVICE_ROLE_KEY'].forEach((k,i)=>{
+  if(before[i]===undefined)delete process.env[k];else process.env[k]=before[i];});}
 });
 test('valid private batch is idempotently upserted using server-only credentials',async()=>{
  const old=[process.env.AURORA_MIRROR_SHARED_SECRET,process.env.AURORA_SUPABASE_URL,process.env.AURORA_SUPABASE_SERVICE_ROLE_KEY];
