@@ -29,6 +29,7 @@ import { loadConfirmedSheetOrders, rememberConfirmedSheetOrder, removeConfirmedS
 import { fetchCustomerOrderStatus, redeemLegacyReceiptAccess } from './services/sheetStaffApi';
 import { isConfirmedDeletedSheetOrder, verifyStoredOrderHistory } from './services/sheetOrderHistorySync';
 import { linkPhoneCustomerReceipt } from './services/phoneCustomerApi';
+import { normalizeTrackingPhone } from './services/phoneOrderTracking';
 import { getBrowserWorkspaceStorage, isStaffWorkspaceOpen, setStaffWorkspaceOpen } from './services/staffWorkspaceSession';
 import { reconcilePublicCart, reorderFromPublicOrder } from './services/reconcilePublicCart';
 import { 
@@ -59,7 +60,6 @@ export default function App() {
   const closeStaffPortal = () => { setStaffWorkspaceOpen(getBrowserWorkspaceStorage(),false); setIsStaffPortalOpen(false); };
   const [isCustomerAccountOpen, setIsCustomerAccountOpen] = useState(false);
   const [customerGoogleToken, setCustomerGoogleToken] = useState('');
-  const [restoredSessionOrderIds, setRestoredSessionOrderIds] = useState<string[]>([]);
   const [historySyncVersion, setHistorySyncVersion] = useState(0);
   const [historySyncing, setHistorySyncing] = useState(false);
   // Dual Experience: Responsive Website vs Mobile App
@@ -81,7 +81,7 @@ export default function App() {
   const [banners, setBanners] = useState<Banner[]>(publicData.banners);
   const [zones, setZones] = useState<DeliveryZone[]>(publicData.zones);
   const [slots, setSlots] = useState<DeliverySlot[]>(publicData.slots);
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<Order[]>(() => loadConfirmedSheetOrders());
   const [coupons, setCoupons] = useState<Coupon[]>(publicData.coupons);
   const [reviews, setReviews] = useState<Review[]>(publicData.reviews);
   const [customCakes, setCustomCakes] = useState<CustomCakeRequest[]>([]);
@@ -208,6 +208,12 @@ export default function App() {
   const handleOrderSuccess = (newOrder: Order) => {
     if (newOrder.persistence === 'google_sheets') {
       rememberConfirmedSheetOrder(newOrder);
+      // Remember the checkout number so status can be recovered from Sheets
+      // after a refresh even if browser receipts become unavailable.
+      const trackingPhone = normalizeTrackingPhone(newOrder.customer_phone);
+      if (/^01[3-9]\d{8}$/.test(trackingPhone)) {
+        try { localStorage.setItem('aurora_tracking_phone_v1', trackingPhone); } catch { /* optional */ }
+      }
       // The original receipt capability authorizes linking. Phone alone never
       // exposes historical orders; account association is stored in the Sheet.
       let token='';try{token=sessionStorage.getItem('aurora_customer_phone_session_v1')||'';}catch{}
@@ -547,7 +553,6 @@ export default function App() {
         onReorder={order => { setIsCustomerAccountOpen(false); handleReorder(order); }}
         onBrowseCakes={() => { setIsCustomerAccountOpen(false); document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth' }); }}
         onTrackOrder={id => { setLatestOrderId(id); setIsCustomerAccountOpen(false); setIsTrackOrderOpen(true); }}
-        onRecover={recovered => { const existing = new Set(loadConfirmedSheetOrders().map(order => order.id)); setRestoredSessionOrderIds(previous => [...new Set([...previous, ...recovered.filter(order => !existing.has(order.id)).map(order => order.id)])]); recovered.forEach(rememberConfirmedSheetOrder); setOrders(previous => { const byId = new Map(previous.map(o => [o.id,o])); recovered.forEach(o => byId.set(o.id,o)); return Array.from(byId.values()); }); }}
       /></Suspense>}
       {isSheetContentOpen && <Suspense fallback={null}><SheetContentPanel isOpen={isSheetContentOpen} onClose={() => setIsSheetContentOpen(false)} endpoint={sheetContent.endpoint} status={sheetContent.status} orderSubmissionEnabled={publicData.order_submission_enabled} onRefresh={sheetContent.refresh} onSaveEndpoint={sheetContent.updateEndpoint}/></Suspense>}
       {/* Modals & Slide-outs */}
@@ -586,6 +591,7 @@ export default function App() {
 
       {isTrackOrderOpen && <OrderTrackingModal
         isOpen={isTrackOrderOpen}
+        trackingEndpoint={sheetContent.endpoint}
         syncing={trackingSyncing}
         syncError={trackingSyncError}
         checkedAt={trackingCheckedAt}
