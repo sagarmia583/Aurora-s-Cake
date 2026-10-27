@@ -407,3 +407,55 @@ function auroraCustomerReceiptRecover_(input){
     auroraReject_('forbidden','Receipt not found or access key incorrect.');
   return {ok:true,order:auroraCustomerSafeReceipt_(order)};
 }
+
+
+/**
+ * Passwordless, phone-only tracking. Public response is intentionally restricted
+ * to a masked reference and coarse delivery status. No receipt, customer name,
+ * address, amount, notes, order UUID, bearer key or delivery OTP is returned.
+ * A phone number is NOT a proof of ownership.
+ */
+function auroraPhoneOnlyTracking_(input){
+  var raw=String(input&&input.phone||'').replace(/\D/g,'');
+  var phone=/^8801[3-9]\d{8}$/.test(raw)?'0'+raw.slice(3):raw;
+  if(!/^01[3-9]\d{8}$/.test(phone))auroraReject_('invalid_phone','Enter a valid 11-digit Bangladesh mobile number.');
+  var digest=Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,phone,Utilities.Charset.UTF_8)
+    .map(function(byte){return ('0'+((byte+256)%256).toString(16)).slice(-2);}).join('').slice(0,32);
+  var cache=CacheService.getScriptCache(),rateKey='aurora_public_tracking_'+digest;
+  var attempts=Number(cache.get(rateKey)||0);
+  if(attempts>=15)auroraReject_('rate_limited','Too many lookups for this number. Try again later.');
+  cache.put(rateKey,String(attempts+1),600);
+  var table=auroraFastOrderTable_(auroraSpreadsheet_());
+  var last=table.sheet.getLastRow();
+  if(last<2)return {ok:true,orders:[]};
+  var columns=['customer_phone','order_number','status','created_at','updated_at'];
+  var indexes=columns.map(function(name){
+    var idx=table.headers.indexOf(name);
+    if(idx<0||idx!==table.headers.lastIndexOf(name))auroraReject_('invalid_sheet','Tracking column is missing or duplicated.');
+    return idx+1;
+  });
+  var count=last-1;
+  // Reading only these five columns protects receipt JSON and personal details.
+  var cells=indexes.map(function(col){
+    return table.sheet.getRange(2,col,count,1).getValues();
+  });
+  var allowed=['pending','confirmed','preparing','ready','assigned','picked_up','out_for_delivery','delivered','cancelled'];
+  var result=[];
+  for(var i=count-1;i>=0&&result.length<10;i--){
+    var saved=String(cells[0][i][0]||'').replace(/\D/g,'');
+    if(saved.length===13&&saved.slice(0,3)==='880')saved='0'+saved.slice(3);
+    if(saved!==phone)continue;
+    var status=String(cells[2][i][0]||'').trim();
+    if(allowed.indexOf(status)<0)continue;
+    var ref=String(cells[1][i][0]||'').trim();
+    var when=String(cells[4][i][0]||'').trim();
+    var created=String(cells[3][i][0]||'').trim();
+    result.push({
+      reference:ref?('••••'+ref.slice(-4)):'••••',
+      status:status,
+      updated_at:when,
+      created_at:created
+    });
+  }
+  return {ok:true,orders:result};
+}
