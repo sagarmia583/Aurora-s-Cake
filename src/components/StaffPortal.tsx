@@ -233,7 +233,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       setViewingSavedOrders(true);
       setIdentity({ ...profile, token: idToken });
       setStaffProfiles(profile.staff_profiles ?? []);
-      setRiderEmail(profile.riders[0]?.email || '');
+      setRiderEmail('');
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Staff login failed.'); }
     finally { setLoading(false); }
   }, [endpoint]);
@@ -283,7 +283,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       setIdentity({...profile,token});
       setStaffProfiles(profile.staff_profiles??[]);
       setPassword('');
-      setRiderEmail(profile.riders[0]?.email||'');
+      setRiderEmail('');
     }catch(caught){setError(caught instanceof Error?caught.message:'Staff sign-in failed.');}
     finally{setLoading(false);}
   };
@@ -307,7 +307,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       setViewingSavedOrders(true);
       setIdentity({...profile,token});
       setStaffProfiles(profile.staff_profiles??[]);
-      setRiderEmail(profile.riders[0]?.email||'');
+      setRiderEmail('');
       setError('');
     }catch(caught){
       if(!isActive())return;
@@ -494,6 +494,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       setOrders(previous=>reconcileStaffOrders(previous,previous.map(item=>item.id===confirmed.id?{...item,...confirmed}:item)));
       setUpdatedAt(new Date().toLocaleTimeString());
       setOrderUpdateMessage('Order '+order.order_number+' updated to '+confirmed.status.replaceAll('_',' ')+'.');
+      if(operation==='assign')setRiderEmail('');
       setDeliveryConfirmOrderId(''); setPackageHandedOver(false); setCashCollected(false);
       // Refresh independently to reconcile staff roles/other active orders.
       void refresh();
