@@ -67,7 +67,23 @@ function auroraInventoryPost_(input){
       auroraAppendPrivate_(table,{id:'refund_'+Utilities.getUuid(),request_id:key,
         order_id:String(input.order_id),kind:input.kind==='return'?'return':'refund',
         amount:amount,reason:reason,status:'requested',created_by:who,
-        created_at:new Date().toISOString(),approved_by:'',approved_at:'',settled_at:''});
+        created_at:new Date().toISOString(),approved_by:'',approved_at:'',settled_at:'',settlement_note:'',settled_by:''});
+      return auroraInventoryState_(book);
+    }
+    if(action==='staff_refund_settle'){
+      var table=auroraPrivateTable_(book,'refund_returns');
+      var idx=table.rows.findIndex(function(r){return r.id===input.refund_id;});
+      if(idx<0)auroraReject_('not_found','Refund not found.');
+      var row=table.rows[idx],note=String(input.settlement_note||'').trim();
+      if(row.status==='settled')return {ok:true,already_settled:true,state:auroraInventoryState_(book)};
+      if(row.status!=='approved'||note.length<8||note.length>300)
+        auroraReject_('approval_required','Approve the refund and enter cash/transfer settlement evidence.');
+      [['status','settled'],['settled_at',new Date().toISOString()],
+        ['settlement_note',note],['settled_by',who]].forEach(function(kv){
+        var col=table.headers.indexOf(kv[0]);
+        if(col<0)auroraReject_('upgrade_required','Missing refund settlement columns. Run database setup.');
+        table.sheet.getRange(idx+2,col+1,1,1).setValues([[kv[1]]]);
+      });
       return auroraInventoryState_(book);
     }
     if(action==='staff_refund_approve'){
