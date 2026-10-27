@@ -197,7 +197,7 @@ export default function App() {
       setIsCartOpen(true);
       return;
     }
-    if (import.meta.env.PROD && (!publicData.order_submission_enabled || !settings.accepting_orders || !sheetContent.endpoint || sheetContent.status.state!=='connected')) {
+    if (import.meta.env?.PROD && (!publicData.order_submission_enabled || !settings.accepting_orders || !sheetContent.endpoint || sheetContent.status.state!=='connected')) {
       setCartNotice('Live bakery checkout is temporarily unavailable. No demonstration order was created. Please try again after the shop reconnects.');
       setIsCartOpen(true);
       return;
