@@ -3,7 +3,7 @@ import {ActivityIndicator,Alert,Pressable,ScrollView,StyleSheet,Text,TextInput,V
 import type {StaffSession,Role} from '../src/domain';
 import {hasPermission,money,secureRequestId,staffPost,inventory,finance,catalogue,editCatalog,createStaff,updateStaff,
  type InventorySnapshot,type FinanceSnapshot,type Catalogue,type StaffProfile} from '../src/work';
-export type Module='finance'|'inventory'|'production'|'team'|'catalog'|'custom';
+export type Module='finance'|'inventory'|'production'|'team'|'catalog'|'custom'|'sync';
 const c={dark:'#173b32',brand:'#205A45',white:'#fff',line:'#dce7e0',muted:'#65786d',bg:'#f4f7f4',red:'#ab453a'};
 const s=StyleSheet.create({
  card:{backgroundColor:c.white,borderRadius:18,borderWidth:1,borderColor:c.line,padding:16,gap:9,marginBottom:10},
@@ -31,6 +31,7 @@ export const modules:{key:Module;title:string;hint:string;icon:string;permission
  {key:'production',title:'Baking cost',hint:'Recipes & historical cost',icon:'🎂',permission:'finance_view'},
  {key:'inventory',title:'Inventory & returns',hint:'Ingredients, restock, refunds',icon:'📦',permission:'finance_view'},
  {key:'finance',title:'Cash & finance',hint:'Rider cash and approvals',icon:'💳',permission:'finance_view'},
+ {key:'sync',title:'Database Sync',hint:'Sheets → Supabase status',icon:'🔄',permission:'finance_view'},
  {key:'custom',title:'Custom cake quotes',hint:'Customer requests',icon:'📝',permission:'custom_cakes_view'},
  {key:'team',title:'Staff & permissions',hint:'Super Admin controls',icon:'👥',permission:'owner_only'},
  {key:'catalog',title:'Shop & product settings',hint:'Price, availability, open orders',icon:'⚙️',permission:'catalog_view'},
@@ -270,6 +271,19 @@ function CustomModule({token,canQuote}:{token:string;canQuote:boolean}){
  {error?<Text style={s.error}>{error}</Text>:null}
  <Button text="↻ Refresh quotes" disabled={busy} onPress={()=>void refresh()}/></>;
 }
+function SyncModule({token}:{token:string}){
+ const [status,setStatus]=useState<Record<string,unknown>|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+ const reload=async()=>{setBusy(true);setError('');try{setStatus(await staffPost(token,'staff_mirror_status'));}
+ catch(e){setError((e as Error).message);}finally{setBusy(false);}};
+ useEffect(()=>{void reload();},[token]);
+ return <View style={s.card}><Text style={s.heading}>Google Sheets + Supabase</Text>
+ <Caption>Primary: Google Sheets · Secondary: Private Supabase mirror</Caption>
+ <Text style={s.sub}>Configuration: {status?.configured?'Configured':'Not configured'}</Text>
+ <Text style={s.sub}>Last successful sync: {status?.last_success?String(status.last_success):'Never'}</Text>
+ <Caption>Runs every 5 minutes once the Apps Script trigger is installed. Replication is not instant or atomic.</Caption>
+ {error?<Text style={s.error}>{error}</Text>:null}
+ <Button text={busy?'Checking…':'↻ Check sync status'} disabled={busy} onPress={()=>void reload()}/></View>;
+}
 export default function OperationsScreen({module,token,session,onBack}:{module:Module;token:string;session:StaffSession;onBack:()=>void}){
  const list=availableModules(session);
  if(!list.includes(module))return null;
@@ -281,5 +295,6 @@ export default function OperationsScreen({module,token,session,onBack}:{module:M
  {module==='team'?<TeamModule token={token} session={session}/>:null}
  {module==='catalog'?<CatalogModule token={token} canEdit={hasPermission(session,'catalog_edit')}/>:null}
  {module==='custom'?<CustomModule token={token} canQuote={hasPermission(session,'custom_cakes_quote')}/>:null}
+ {module==='sync'?<SyncModule token={token}/>:null}
  </ScrollView>;
 }
