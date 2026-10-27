@@ -35,7 +35,7 @@ const byRole:Partial<Record<StaffRoleName,StaffCapability[]>>={
   kitchen_manager:['orders_view','kitchen_start','kitchen_ready'],
   delivery_manager:['orders_view','delivery_assign','customers_lookup'],
   delivery_man:['orders_view','delivery_pickup','delivery_start','delivery_complete'],
-  accountant:['finance_view']
+  accountant:['orders_view','finance_view']
 };
 export const defaultStaffPermissions=(role:StaffRoleName):StaffCapability[]=>{
  if(role==='super_admin'||role==='manager')return [...STAFF_CAPABILITIES];
