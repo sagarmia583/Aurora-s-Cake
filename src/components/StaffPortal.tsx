@@ -1,4 +1,4 @@
-import {STAFF_CAPABILITIES, STAFF_CAPABILITY_GROUPS, defaultStaffPermissions, hasStaffPermission, canStaffOperation} from '../services/staffPermissions';
+import {STAFF_CAPABILITY_GROUPS, defaultStaffPermissions, hasStaffPermission, canStaffOperation} from '../services/staffPermissions';
 import type {StaffCapability} from '../services/staffPermissions';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, RefreshCw, ShieldCheck, Truck, PackageCheck, LayoutDashboard, ShoppingBag, UsersRound, CakeSlice, Store, Search, ChevronDown, ChevronUp, LogOut, Clock3, BadgeCheck, ArrowRight, AlertCircle, CreditCard, MapPin } from 'lucide-react';
@@ -712,12 +712,34 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                                 {person.active===false?'Enable account':'Disable account'}
                               </button>
                               <button type="button" onClick={()=>{setResetFor(person.username!);setResetPassword('');}} className="text-xs underline text-slate-700">Reset password</button>
+                              {person.role!=='manager'&&<button type="button" onClick={()=>editPermissions(person)} className="text-xs font-bold underline text-emerald-900">Edit access</button>}
                             </div>
                           )}
                         </article>
                       ))}
                     </div>
                   ) : <p className="text-sm text-amber-800">This Apps Script deployment has not returned the staff directory yet. Install the newest all-in-one Code.gs and deploy a new version.</p>}
+                  {permissionEditFor&&<div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50/50 p-4 space-y-4" aria-label="Edit staff permissions">
+                    <div className="flex justify-between flex-wrap gap-2">
+                      <div><strong className="text-emerald-950">Access permissions — @{permissionEditFor}</strong>
+                        <p className="text-xs text-slate-600 mt-1">Turn individual capabilities on or off. Changes apply to the backend, not only this screen.</p></div>
+                      <button type="button" className="text-sm underline" onClick={()=>setPermissionEditFor('')}>Close</button>
+                    </div>
+                    <div className="grid sm:grid-cols-2 gap-3">
+                      {STAFF_CAPABILITY_GROUPS.map(group=><fieldset key={group.title} className="bg-white rounded-xl border p-3 space-y-2">
+                        <legend className="font-bold text-sm px-1">{group.title}</legend>
+                        {group.items.map(item=><label key={item.key} className="flex gap-2 items-center text-xs cursor-pointer">
+                          <input type="checkbox" checked={permissionDraft.includes(item.key)}
+                            onChange={e=>setPermissionDraft(p=>e.target.checked?[...new Set([...p,item.key])]:p.filter(x=>x!==item.key))}/>
+                          {item.label}
+                        </label>)}
+                      </fieldset>)}
+                    </div>
+                    <button type="button" disabled={savingPermissions} onClick={()=>void savePermissions()}
+                      className="bg-emerald-800 text-white rounded-xl px-5 py-3 text-sm font-bold disabled:opacity-60">
+                      {savingPermissions?'Saving access…':'Save staff permissions'}
+                    </button>
+                  </div>}
                   <p className="text-xs text-slate-500">
                     New employees sign in with the username and initial password you create below.
                     Keep the owner Google account private. Passwords cannot be viewed again after creation.
@@ -741,11 +763,25 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                       onChange={e=>setNewStaff(v=>({...v,username:e.target.value}))} className="border rounded-lg p-2"/>
                     <input required type="password" minLength={10} aria-label="New staff password" placeholder="Password (10+ characters)"
                       value={newStaff.password} onChange={e=>setNewStaff(v=>({...v,password:e.target.value}))} className="border rounded-lg p-2"/>
-                    <select aria-label="New staff role" value={newStaff.role} onChange={e=>setNewStaff(v=>({...v,role:e.target.value as StaffRoleName}))} className="border rounded-lg p-2">
-                      {(['admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'] as StaffRoleName[]).map(role=>(
+                    <select aria-label="New staff role" value={newStaff.role} onChange={e=>{const role=e.target.value as StaffRoleName;setNewStaff(v=>({...v,role}));setNewStaffPermissions(defaultStaffPermissions(role));}} className="border rounded-lg p-2">
+                      {(['manager','admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'] as StaffRoleName[]).map(role=>(
                         <option key={role} value={role}>{role.replaceAll('_',' ')}</option>
                       ))}
                     </select>
+                    <div className="sm:col-span-2 rounded-xl border bg-slate-50 p-4 space-y-3">
+                      <div><strong className="block text-sm">New employee permissions</strong>
+                        <p className="text-xs text-slate-500">Choose exactly which actions are allowed. Manager gets every operational permission, including delivery.</p></div>
+                      <div className="grid sm:grid-cols-2 gap-3">
+                        {STAFF_CAPABILITY_GROUPS.map(group=><fieldset key={group.title} className="rounded-xl bg-white border p-3 space-y-2" disabled={newStaff.role==='manager'}>
+                          <legend className="text-sm font-bold px-1">{group.title}</legend>
+                          {group.items.map(item=><label key={item.key} className="flex gap-2 items-center text-xs">
+                            <input type="checkbox" checked={newStaffPermissions.includes(item.key)}
+                              onChange={e=>setNewStaffPermissions(p=>e.target.checked?[...new Set([...p,item.key])]:p.filter(x=>x!==item.key))}/>
+                            {item.label}
+                          </label>)}
+                        </fieldset>)}
+                      </div>
+                    </div>
                     <button type="submit" disabled={creatingStaff} className="sm:col-span-2 rounded-xl bg-emerald-800 text-white font-semibold p-3 disabled:opacity-50">
                       {creatingStaff?'Creating…':'Create staff account'}
                     </button>
