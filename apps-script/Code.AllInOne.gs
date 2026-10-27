@@ -3064,7 +3064,7 @@ function auroraFinanceSnapshot_(book) {
   });
   deposits.forEach(function(row){
     var id=String(row.rider_id||'').trim().toLowerCase(),amount=Number(row.amount);
-    if(!id||!isFinite(amount)||amount<=0)return;
+    if(!id||!isFinite(amount)||amount<=0||row.voided_at)return;
     if(!riders[id])riders[id]={rider_id:id,rider_name:id,collected:0,deposited:0,remaining:0,delivered_count:0};
     riders[id].deposited=Math.round((riders[id].deposited+amount)*100)/100;
   });
@@ -3093,7 +3093,8 @@ function auroraFinanceSnapshot_(book) {
   return {ok:true,riders:balances,
     deposits:deposits.slice(-100).reverse().map(function(d){
       return {id:String(d.id),rider_id:String(d.rider_id),amount:Number(d.amount),
-      date:String(d.date),actor_name:String(d.actor_name),created_at:String(d.created_at),notes:String(d.notes||'')};
+      date:String(d.date),actor_name:String(d.actor_name),created_at:String(d.created_at),notes:String(d.notes||''),
+      voided_at:String(d.voided_at||''),voided_by:String(d.voided_by||''),void_reason:String(d.void_reason||'')};
     }),costs:costs,cost_totals:totals,products:catalog,variants:variants};
 }
 function auroraFinancePost_(input){
@@ -3101,13 +3102,33 @@ function auroraFinancePost_(input){
   var action=String(input.action||'');
   auroraStaffRequire_(actor,'finance_view');
   if(action==='staff_finance_summary')return auroraFinanceSnapshot_(auroraSpreadsheet_());
-  if(['staff_cash_deposit','staff_cake_cost_save','staff_cake_cost_archive'].indexOf(action)<0)
+  if(['staff_cash_deposit','staff_cash_deposit_void','staff_cake_cost_save','staff_cake_cost_archive'].indexOf(action)<0)
     auroraReject_('invalid_action','Unknown finance operation.');
   auroraStaffRequire_(actor,'finance_edit');
   var lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))auroraReject_('busy','Another financial update is being saved.');
   try{
     var book=auroraSpreadsheet_();
+    if(action==='staff_cash_deposit_void'){
+      var table=auroraPrivateTable_(book,'rider_cash_deposits');
+      var depositId=String(input.deposit_id||'').trim(),reason=String(input.reason||'').trim();
+      if(reason.length<8||reason.length>300)auroraReject_('invalid_reason','Enter a correction reason (8 to 300 characters).');
+      var index=table.rows.findIndex(function(d){return String(d.id)===depositId;});
+      if(index<0)auroraReject_('not_found','Cash deposit not found.');
+      var deposit=table.rows[index];
+      if(deposit.voided_at)
+        return {ok:true,already_voided:true,snapshot:auroraFinanceSnapshot_(book)};
+      ['voided_at','voided_by','void_reason'].forEach(function(field){
+        if(table.headers.indexOf(field)<0)auroraReject_('upgrade_required','Run setupSheetDatabase() for cash adjustment columns.');
+      });
+      var updates={
+        voided_at:new Date().toISOString(),voided_by:actor.name,void_reason:reason
+      };
+      Object.keys(updates).forEach(function(field){
+        table.sheet.getRange(index+2,table.headers.indexOf(field)+1,1,1).setValues([[updates[field]]]);
+      });
+      return {ok:true,already_voided:false,snapshot:auroraFinanceSnapshot_(book)};
+    }
     if(action==='staff_cash_deposit'){
       var requestId=String(input.request_id||'').trim().toLowerCase();
       if(!/^[a-f0-9-]{36}$/.test(requestId))auroraReject_('invalid_request','A stable deposit request ID is required.');
