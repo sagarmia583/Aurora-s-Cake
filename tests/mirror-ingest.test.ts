@@ -7,7 +7,7 @@ const origin='https://example.supabase.co';
 function invoke(method:string,secret:string,body:unknown){
  const out={statusCode:200,headers:{} as Record<string,string>,text:''};
  const res={statusCode:200,setHeader(k:string,v:string){out.headers[k]=v;},
-  end(x:string){out.statusCode=this.statusCode;out.text=x;}} as never;
+  end(x:string){out.statusCode=this.statusCode;out.text=x;}};
  const req={method,headers:{'x-aurora-mirror-secret':secret},body} as never;
  return handler(req,res).then(()=>({status:out.statusCode,body:JSON.parse(out.text),headers:out.headers}));
 }
