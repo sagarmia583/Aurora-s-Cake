@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, CheckCircle2, Circle, Phone, RotateCcw, Search, ShieldCheck, Truck } from 'lucide-react';
 import {
-  getPhoneOrderStatuses, normalizeTrackingPhone, type PhoneTrackingStatus
+  getPhoneOrderPage, normalizeTrackingPhone, type PhoneTrackingStatus
 } from '../services/phoneOrderTracking';
 
 const PHONE_STORAGE_KEY = 'aurora_tracking_phone_v1';
@@ -16,8 +16,8 @@ const PROGRESS_STAGES = [
   {status: 'delivered', label: 'Delivered'}
 ] as const;
 
-const orderCardKey = (order: PhoneTrackingStatus, index: number): string =>
-  order.reference + ':' + order.created_at + ':' + index;
+const orderCardKey = (order: PhoneTrackingStatus): string =>
+  order.reference + ':' + order.created_at;
 const formatCheckedTime = () => new Date().toLocaleTimeString('en-BD', {hour:'numeric',minute:'2-digit'});
 const labels: Record<PhoneTrackingStatus['status'], string> = {
   pending: 'Order placed',
@@ -52,6 +52,7 @@ interface Props {
 export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '', onResults }) => {
   const [phone, setPhone] = useState(() => initialPhone || lastSavedPhone());
   const [orders, setOrders] = useState<PhoneTrackingStatus[]>([]);
+  const [nextCursor, setNextCursor] = useState<number|null>(null);
   const [searched, setSearched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -60,18 +61,19 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
   const [checkedAt, setCheckedAt] = useState('');
   const activeSearchId=useRef(0);
 
-  const search = async (candidate: string, signal?: { cancelled: boolean }) => {
+  const search = async (candidate: string, signal?: { cancelled: boolean }, cursor?: number) => {
     if (!endpoint || !candidate || signal?.cancelled) return;
     const requestId=++activeSearchId.current;
     const current=()=>requestId===activeSearchId.current&&!signal?.cancelled;
     setLoading(true); setError('');
     try {
-      const result = await getPhoneOrderStatuses(endpoint, candidate);
+      const page = await getPhoneOrderPage(endpoint, candidate, cursor);
       // A previous phone's request can finish after a new phone is entered.
       // Never render or save results for a phone that is no longer selected.
       if (!current()) return;
-      setOrders(result);
-      onResults?.(result);
+      setOrders(previous => cursor===undefined ? page.orders : [...previous,...page.orders]);
+      setNextCursor(page.nextCursor);
+      onResults?.(cursor===undefined ? page.orders : [...orders,...page.orders]);
       setSearched(true);
       setCheckedAt(formatCheckedTime());
       try { localStorage.setItem(PHONE_STORAGE_KEY, normalizeTrackingPhone(candidate)); } catch { /* Private storage is optional. */ }
@@ -132,7 +134,7 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
             onChange={event => {
               activeSearchId.current++;
               setLoading(false);
-              setPhone(event.target.value);setSearched(false);setOrders([]);
+              setPhone(event.target.value);setSearched(false);setOrders([]);setNextCursor(null);
               setExpandedOrderKey(null);setCheckedAt('');onResults?.([]);setError('');
             }}
             placeholder="01XXXXXXXXX" aria-label="Your 11-digit mobile number"
@@ -162,7 +164,7 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
               ← Back to all orders
             </button>}
             {orders.map((order,i)=>{
-              const cardKey = orderCardKey(order,i);
+              const cardKey = orderCardKey(order);
               const expanded = expandedOrderKey === cardKey;
               if (expandedOrderKey && !expanded) return null;
               const currentStage = PROGRESS_STAGES.findIndex(stage => stage.status === order.status);
@@ -279,6 +281,11 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
                 </article>
               );
             })}
+            {nextCursor!==null && !expandedOrderKey && <button type="button"
+              disabled={loading} onClick={()=>void search(phone,undefined,nextCursor)}
+              className="w-full rounded-xl border border-emerald-300 bg-white px-4 py-3 text-sm font-bold text-emerald-900 disabled:opacity-50">
+              {loading?'Loading earlier orders…':'Load earlier orders'}
+            </button>}
           </>
         )}
       </div>}
