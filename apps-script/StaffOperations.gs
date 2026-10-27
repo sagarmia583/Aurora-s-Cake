@@ -195,7 +195,9 @@ function auroraOperationsOrders_(actor, table) {
     delete order.customer_google_sub;
     if (!auroraStaffHas_(actor,'customers_lookup') && !assigned) {
       delete order.customer_phone;
+      delete order.customer_name;
       delete order.delivery_address;
+      delete order.order_note;
     }
     if (actor.role === 'accountant') {
       delete order.customer_phone;
@@ -343,7 +345,9 @@ function auroraOperationsPost_(input) {
     var isOwnDelivery=String(order.rider_id||'').toLowerCase()===actor.email;
     if(!auroraStaffHas_(actor,'customers_lookup')&&!isOwnDelivery){
       delete safeOrder.customer_phone;
+      delete safeOrder.customer_name;
       delete safeOrder.delivery_address;
+      delete safeOrder.order_note;
     }
     if(actor.role==='accountant'){
       delete safeOrder.customer_phone;
