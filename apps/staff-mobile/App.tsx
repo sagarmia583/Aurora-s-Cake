@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import {ApiError, clearSession, login, mutate, ordersFor, restore} from './src/api';
 import {
-  money,nextOperation,operationLabels,roleLabel,statusLabel,visibleOrders,
+  money,canOperate,nextOperation,operationLabels,roleLabel,statusLabel,visibleOrders,
   type Operation,type StaffOrder,type StaffSession,type Tab
 } from './src/domain';
 
