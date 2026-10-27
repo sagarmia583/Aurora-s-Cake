@@ -5,6 +5,7 @@ import { verifyCustomerGoogle, linkCustomerReceipt, recoverCustomerReceipts } fr
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
 import { getPhoneCustomerProfile, signupPhoneCustomer, loginPhoneCustomer, updatePhoneCustomerProfile, phoneCustomerOrders, linkPhoneCustomerReceipt, logoutPhoneCustomer, changePhoneCustomerPassword, closePhoneCustomerAccount } from '../services/phoneCustomerApi';
 import type { PhoneCustomerProfile } from '../services/phoneCustomerApi';
+import { normalizeCheckoutPhone } from '../services/customerPhoneLookup';
 
 type GoogleSdk = {
   initialize: (options: { client_id: string; callback: (result:{credential?:string})=>void; ux_mode?:'popup'; use_fedcm_for_button?:boolean;auto_select?:boolean }) => void;
@@ -103,13 +104,27 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
       const info=phoneMode==='signup'
         ? await signupPhoneCustomer(endpoint,phoneForm.name,phoneForm.phone,phoneForm.password)
         : await loginPhoneCustomer(endpoint,phoneForm.phone,phoneForm.password);
-      const history=await phoneCustomerOrders(endpoint,info.token);
+      // Link confirmed original receipts from this device after proving account
+      // credentials. Never attach a guessed order by phone number alone.
+      let history=await phoneCustomerOrders(endpoint,info.token);
+      let linkedCount=0;
+      const ownPhone=normalizeCheckoutPhone(info.profile.phone);
+      const candidates=localReceipts.filter(order=>order.persistence==='google_sheets'
+        && !!order.customer_access_token
+        && normalizeCheckoutPhone(order.customer_phone)===ownPhone
+        && !history.some(item=>item.id===order.id)).slice(0,8);
+      for(const receipt of candidates){
+        try{await linkPhoneCustomerReceipt(endpoint,info.token,receipt);linkedCount++;}
+        catch{ /* Keep the original receipt on device; retry with its private key. */ }
+      }
+      if(linkedCount)history=await phoneCustomerOrders(endpoint,info.token);
       try{sessionStorage.setItem('aurora_customer_phone_session_v1',info.token);}catch{}
       setPhoneAccount(info);
       setPhoneHistory(history);
       setPhoneProfileDraft({name:info.profile.name,email:info.profile.email,address:info.profile.address});
       setPhoneForm({name:'',phone:'',password:''});
       onRecover(history);
+      if(candidates.length>linkedCount)setError('Signed in. Some older receipts could not be linked automatically; check the original receipt key.');
     }catch(e){setError(e instanceof Error?e.message:'Phone account sign-in failed.');}
     finally{setBusy(false);}
   };
