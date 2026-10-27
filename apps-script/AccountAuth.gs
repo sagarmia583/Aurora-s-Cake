@@ -39,7 +39,8 @@ function auroraAccountSave_(table,record) {
 function auroraAccountProfiles_() {
   var table=auroraPrivateTable_(auroraSpreadsheet_(),'staff_accounts');
   return table.rows.map(function(person){return {name:String(person.name||person.username),username:String(person.username),
-    role:String(person.role),active:person.active===true||String(person.active).toLowerCase()==='true'};});
+    role:String(person.role),active:person.active===true||String(person.active).toLowerCase()==='true',
+    permissions:auroraStaffParsePermissions_(person.permissions,String(person.role))};});
 }
 function auroraAccountStart_(kind,id) {
   var t=auroraPrivateTable_(auroraSpreadsheet_(),'auth_sessions'),now=Date.now();
@@ -107,9 +108,13 @@ function auroraAccountCreateStaff_(actor,input) {
   var username=String(input.username||'').toLowerCase().trim();
   if(!/^[a-z][a-z0-9_]{3,30}$/.test(username))auroraReject_('invalid_username','Use 4–31 letters, numbers and underscores, starting with a letter.');
   var role=String(input.role||'');
-  if(['admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'].indexOf(role)<0)
+  if(['admin','manager','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'].indexOf(role)<0)
     auroraReject_('invalid_role','Choose an allowed employee role.');
   var name=auroraOrderText_(input.name,'Staff name',2,100),password=auroraAccountPassword_(input.password);
+  var selectedPermissions=input.permissions===undefined
+    ? auroraStaffDefaultPermissions_(role)
+    : auroraStaffValidatedPermissions_(input.permissions);
+  if(role==='manager')selectedPermissions=auroraStaffDefaultPermissions_(role);
   var lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))auroraReject_('busy','Please retry staff setup.');
   try {
@@ -119,7 +124,8 @@ function auroraAccountCreateStaff_(actor,input) {
     var salt=auroraAccountToken_();
     auroraAppendPrivate_(table,{id:'staff_'+Utilities.getUuid(),username:username,name:name,role:role,password_salt:salt,
       password_hash:auroraAccountHash_(password,salt),failed_attempts:0,locked_until:0,active:true,
-      created_at:new Date().toISOString(),updated_at:new Date().toISOString()});
+      created_at:new Date().toISOString(),updated_at:new Date().toISOString(),
+      permissions:JSON.stringify(selectedPermissions)});
     return {ok:true,created:true,username:username};
   }finally{lock.releaseLock();}
 }
@@ -131,7 +137,7 @@ function auroraAccountStaffPost_(input) {
   var actor=auroraStaffAuthenticate_(input);
   if(input.action==='staff_account_create')return auroraAccountCreateStaff_(actor,input);
   if(input.action==='staff_password_logout'){if(input.auth_token)auroraAccountSignOut_('staff',input.auth_token);return {ok:true};}
-  if(input.action==='staff_account_set_active'||input.action==='staff_account_reset_password'){
+  if(input.action==='staff_account_set_active'||input.action==='staff_account_reset_password'||input.action==='staff_account_update_permissions'){
     if(actor.role!=='super_admin')auroraReject_('forbidden','Only Super Admin can update staff.');
     var username=String(input.username||'').toLowerCase().trim();
     var lock=LockService.getScriptLock();if(!lock.tryLock(10000))auroraReject_('busy','Retry staff update.');
@@ -140,7 +146,10 @@ function auroraAccountStaffPost_(input) {
       var person=t.rows.filter(function(row){return String(row.username)===username;})[0];
       if(!person)auroraReject_('not_found','Staff user was not found.');
       if(input.action==='staff_account_set_active')person.active=input.active===true;
-      else{
+      else if(input.action==='staff_account_update_permissions'){
+        if(String(person.role)==='manager')auroraReject_('protected','Manager always retains all operational permissions.');
+        person.permissions=JSON.stringify(auroraStaffValidatedPermissions_(input.permissions));
+      }else{
         var password=auroraAccountPassword_(input.password),salt=auroraAccountToken_();
         person.password_salt=salt;person.password_hash=auroraAccountHash_(password,salt);
         person.failed_attempts=0;person.locked_until=0;

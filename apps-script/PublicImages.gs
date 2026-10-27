@@ -35,7 +35,7 @@ function auroraImageMime_(bytes){
 }
 function auroraImageUpload_(input){
   var actor=auroraStaffAuthenticate_(input);
-  if(actor.role!=='super_admin'&&actor.role!=='admin')auroraReject_('forbidden','Only the shop administrator can upload public images.');
+  auroraStaffRequire_(actor,'catalog_edit');
   if(typeof input.base64!=='string'||!/^([A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(input.base64)||
       input.base64.length>Math.ceil(AURORA_IMAGE_MAX_BYTES_*4/3)+8)
     auroraReject_('invalid_image','Please resize or compress the image (max 650 KB).');

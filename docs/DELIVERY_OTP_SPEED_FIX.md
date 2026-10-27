@@ -1,44 +1,33 @@
-# Aurora's Cake — Delivery OTP & Speed Fix (Vercel + Apps Script)
+# Aurora's Cake — Customer Order Details and OTP-free Delivery
 
-## What changed
+## Customer order panel
 
-- **Customer Tracking:** checks the selected confirmed order every **12 seconds** while visible, refreshes on focus, adds **Refresh now**, last checked time, and a visible connection error instead of silently showing stale status.
-- **OTP:** server issues the four-digit code only at the authorized rider's `Start delivery` transition. Only the original private checkout receipt holder, a linked Google customer or a linked **phone+password customer** may read it. No code leaks into a public catalog or Staff/Rider queue. It disappears on delivery/cancellation.
-- **My orders:** active phone-account histories refresh while open and show the OTP once the status becomes `out_for_delivery`. Linked Google account history also displays the code after a manual refresh.
-- **Rider speed:** order status changes update locally from the confirmed server mutation response; a secondary full-list fetch no longer blocks delivery-step feedback. Active Staff dashboards poll every 12 seconds, avoiding overlapping requests and background-tab polling.
-- **Google Sheets speed:** the status endpoint now reads only the ID column, private receipt cell and headers instead of scanning all columns of every private order. Staff list reads only the receipt JSON column. Other private Sheets remain unexposed.
-- **Storefront speed:** `/api/public` is a new **read-only Vercel Function** with a 20-second edge cache, avoiding the browser's slow CORS/JSONP redirect fallback. No payment gateway, no new paid services, and no private data via this endpoint.
-- **Catalog refresh:** throttles unnecessary rereads when switching tabs or refocusing the browser.
+- Customer enters only their Bangladeshi phone number and taps **Track Orders**.
+- Each returned order card opens a **View progress & actions** panel with current status, progress timeline, itemized cake/variant/flavor, quantities, unit price, subtotal, delivery fee, discount, total, COD payment status, delivery date and time slot, and a **Refresh status** action.
+- Data comes from the private Google Sheet when the lookup runs. Up to 10 recent matching orders are displayed.
+- The lookup returns only deliberately selected fields, never the raw private receipt, customer name, phone number, exact delivery address, private cake-writing message, original order UUID, receipt key or delivery OTP.
+- The same browser's securely held private checkout receipt can show additional customer/recipient detail in **Full receipts saved on this device**.
+- Phone alone does not prove identity, so anyone who knows a phone number can see these non-address purchase details. To expose private details across devices, implement actual identity verification first.
+- Local storage keeps the checkout phone and retained receipts; a page refresh should not erase Google Sheets order history.
 
-## Required manual Apps Script update
+## Delivery change — OTP removed
 
-**These source changes are not yet on the owner's live Apps Script deployment.**
+- The server does **not** issue a delivery OTP at Start delivery.
+- Only the **signed-in, assigned delivery rider** can change `out_for_delivery` to `delivered`.
+- The rider must explicitly confirm `package_handed_over: true` and, for COD, `cash_collected: true`. The backend validates both, records the status in the order history and marks COD paid.
+- OTP is removed from the Web Staff Panel, customer tracker, demo rider screens and native staff mobile interface.
+- Customer tracking never includes a delivery OTP even for previously linked Google/phone accounts. Existing stored legacy codes are cleared at Start delivery/Deliver/Cancel.
+- An unauthorized user, the wrong rider, or a delivery without handover/cash confirmation must not be able to mark Delivered.
 
-1. Back up the current Google Spreadsheet.
-2. Open [latest one-file Code.gs](../apps-script/Code.AllInOne.gs). Copy **all** contents into your existing Apps Script project's one `Code.gs`, replacing the old code. Do **not** install parallel old module copies.
-3. Save. The current Sheet's orders and account tables should remain intact. `setupSheetDatabase()` is only needed if required tables or columns are missing; back up before using it.
-4. **Deploy → Manage deployments → Edit → Version: New version → Deploy**. Keep the same configured `/exec` URL.
-5. Verify `/exec?action=health`, then return to the **Draft PR Vercel Preview**, hard refresh the page and sign in.
+## REQUIRED: Deploy the new Google Apps Script version
 
-## Real end-to-end acceptance test
+**A GitHub/Vercel preview deployment does NOT publish an updated Apps Script Web App.**
 
-Use an explicitly marked test COD order on the owner's own staging/test Sheet if possible; **do not use a real customer's order**:
+1. Backup the owner's actual Google Sheets `orders`, `order_items`, customer and staff tables.
+2. Copy all of `apps-script/Code.AllInOne.gs` from branch `feat/passwordless-customer-order-panel` to the current Apps Script project's single `Code.gs`. Do not leave duplicate old modules alongside it.
+3. **Deploy > Manage deployments > Edit > New version > Deploy**, retain the existing `/exec` URL.
+4. The backend release must be `aurora-2026-10-27-order-details-no-delivery-otp-r4`; visit the preview's `/api/backend-health` to confirm `up_to_date:true`.
+5. Test a safe staging COD order from checkout through Owner Confirm > Kitchen Preparing > Ready > Assign Rider > Pickup > Start delivery > Rider handover + Cash collection > Delivered. Validate the buyer sees order details by phone after refresh, and neither rider nor customer needs an OTP.
+6. The previous deployed backend version still requires OTP and will reject the new rider request; **do not roll out the OTP-free interface into production without upgrading the Apps Script endpoint first**.
 
-1. Place a test guest COD order from the Preview, verify it appears once in private `orders` / `order_items`.
-2. Super Admin approves (Confirm), Kitchen marks Baking → Ready.
-3. Delivery Manager or Admin assigns a **registered active rider** to the order.
-4. That rider signs in with their own authorized username/password or authorized legacy Gmail, taps **Pick up cake**, then **Start delivery**.
-5. Open the original customer receipt in the Preview. Under My Orders or Track order, press **Refresh now**. Verify status is `Out for Delivery` and the 4-digit OTP is visible only on that customer's device/account.
-6. Confirm a different customer account cannot obtain the OTP. The Rider screen itself never receives the OTP.
-7. Rider enters the customer's OTP only after handing over the package and confirming full **cash received**; only then does status become `Delivered`.
-8. Refresh the Customer receipt: code disappears after delivery, and the confirmed timeline/payment status update. Check private Sheet records once.
-9. Sign in from a second device with the owner's linked phone account; its order history and delivery status should match.
-
-**If an OTP is missing:** Confirm backend Web App is the latest version, the order is actually `out_for_delivery`, the customer holds the original `customer_access_token` or owns the linked Google/phone account, and the Vercel Preview uses the updated branch. The Customer tracking UI now exposes request errors for diagnosis. The browser Network tab can show the POST status code for `/api/operations` without revealing payload/OTP.
-
-## Remaining limitations
-
-- Google Apps Script cannot be redeployed from GitHub or Vercel merely by pushing code: the owner must publish the new Script version.
-- Automated tests and read-only Preview API checks passed, but the live OTP/CDO end-to-end browser test has not been performed with a real owner/staging Sheet account.
-- Polling is not instant/push; Google Apps Script/Sheets and Vercel Hobby have usage limits. Background tab requests pause intentionally.
-- No SMS OTP is sent. The delivery OTP is an on-site code visible in the authenticated/receipt-owning customer's order UI.
+This workflow retains free-tier Google Apps Script/Vercel limits. Browser/real-Sheet acceptance testing is required before claiming production-ready.

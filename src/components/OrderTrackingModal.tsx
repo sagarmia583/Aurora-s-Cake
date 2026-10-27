@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useCakeDialog } from './useCakeDialog';
+import { PhoneOrderTracking } from './PhoneOrderTracking';
 import { 
   X, 
   CheckCircle2, 
   Circle, 
-  Key, 
   MapPin, 
   Clock, 
   Phone, 
@@ -17,6 +17,7 @@ import { Order, OrderStatus } from '../types';
 interface OrderTrackingModalProps {
   isOpen: boolean;
   onClose: () => void;
+  trackingEndpoint: string;
   orders: Order[];
   currentOrderId?: string;
   currency: string;
@@ -37,7 +38,7 @@ const STAGES: { status: OrderStatus; label: string; icon: string; desc: string }
   { status: 'assigned', label: 'Rider Assigned', icon: '🛵', desc: 'Designated express delivery rider' },
   { status: 'picked_up', label: 'Picked Up', icon: '📦', desc: 'Rider dispatched from bakery dispatch' },
   { status: 'out_for_delivery', label: 'Out for Delivery', icon: '🚀', desc: 'Rider on route to your location' },
-  { status: 'delivered', label: 'Delivered & Celebrated', icon: '🎉', desc: 'Verified via OTP. Enjoy your cake!' },
+  { status: 'delivered', label: 'Delivered & Celebrated', icon: '🎉', desc: 'Your cake has arrived. Enjoy!' },
 ];
 
 export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = (props) =>
@@ -47,6 +48,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
   isOpen,
   onClose,
   orders,
+  trackingEndpoint,
   currentOrderId,
   currency,
   onReorder,
@@ -60,7 +62,6 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
   const [recoveryKey,setRecoveryKey]=useState('');
   const [recoveryError,setRecoveryError]=useState('');
   const [restoring,setRestoring]=useState(false);
-  const [copiedReceipt,setCopiedReceipt]=useState(false);
   const restoreLegacy=async(order:Order)=>{
     if(!onRestoreLegacyAccess||restoring)return;
     setRestoring(true);setRecoveryError('');
@@ -78,12 +79,9 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
   if (!selectedOrder) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="tracking-empty-title" data-cake-dialog tabIndex={-1} className="bg-white rounded-3xl p-8 max-w-md w-full text-center space-y-4">
-          <div className="text-4xl">🎂</div>
-          <h3 id="tracking-empty-title" className="text-lg font-bold text-slate-800">Your cake journey starts here</h3>
-          <p className="text-xs text-slate-500">
-            Choose a cake and open checkout. Order receipts from this device appear here.
-          </p>
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="tracking-empty-title" data-cake-dialog tabIndex={-1} className="bg-white rounded-3xl p-5 sm:p-8 max-w-lg w-full space-y-4">
+          <h3 id="tracking-empty-title" className="text-lg font-bold text-slate-800">Track your order by phone number</h3>
+          <PhoneOrderTracking endpoint={trackingEndpoint}/>
           <button
             onClick={onClose}
             aria-label="Close order tracking"
@@ -140,6 +138,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
 
         {/* Content */}
         <div className="overflow-y-auto p-6 space-y-6 flex-1">
+          <details className="rounded-2xl border border-emerald-200 p-2"><summary className="cursor-pointer text-sm font-bold text-emerald-900 px-2 py-2">Track other orders using only a phone number</summary><PhoneOrderTracking endpoint={trackingEndpoint}/></details>
           {selectedOrder.persistence==='google_sheets'?
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-emerald-50 p-3 border border-emerald-100">
               <div>
@@ -152,20 +151,6 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
               </button>}
             </div>
             :<p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">This is a demo order saved on this device, not a real bakery delivery.</p>}
-          {selectedOrder.persistence==='google_sheets'&&!!selectedOrder.customer_access_token&&
-            <div className="rounded-xl border border-slate-200 p-3 bg-slate-50 flex flex-wrap gap-3 items-center justify-between">
-              <div>
-                <strong className="block text-sm text-slate-900">Keep your private recovery receipt</strong>
-                <p className="text-xs text-slate-600">Use this on another device without a password. Don't share it publicly.</p>
-              </div>
-              <button type="button" className="rounded-lg border bg-white px-3 py-2 text-xs font-semibold"
-                onClick={()=>void navigator.clipboard.writeText(
-                  'Order ID: '+selectedOrder.id+'\nPhone: '+selectedOrder.customer_phone+
-                  '\nPrivate receipt key: '+selectedOrder.customer_access_token
-                ).then(()=>setCopiedReceipt(true)).catch(()=>setCopiedReceipt(false))}>
-                {copiedReceipt?'Copied recovery details':'Copy private receipt'}
-              </button>
-            </div>}
           {!!syncError && selectedOrder.persistence==='google_sheets'&&
             <p role="alert" className="text-xs rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950">
               Live delivery status could not be refreshed: {syncError}. Showing the last confirmed status.
@@ -190,61 +175,11 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
             </div>
           )}
 
-          {selectedOrder.persistence==='google_sheets'&&selectedOrder.status==='out_for_delivery'&&
-            !selectedOrder.customer_access_token&&!selectedOrder.delivery_otp&&onRestoreLegacyAccess&&(
-            <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 space-y-2">
-              <p className="font-bold text-amber-950">Older receipt: verify access to display your delivery code</p>
-              <p className="text-xs text-amber-900">
-                This order was placed before secure receipt keys were introduced. Contact the shop using its published contact details.
-                After the shop owner independently verifies you, paste the private recovery key they provide here.
-                An order number and phone number alone cannot unlock an OTP.
-              </p>
-              <form onSubmit={e=>{e.preventDefault();void restoreLegacy(selectedOrder);}} className="flex flex-wrap gap-2">
-                <input type="text" autoComplete="off" required value={recoveryKey} onChange={e=>setRecoveryKey(e.target.value)}
-                  aria-label="Private legacy receipt recovery key" placeholder="Private receipt recovery key"
-                  className="rounded-xl border bg-white p-2 text-xs flex-1 min-w-44" />
-                <button type="submit" disabled={restoring} className="rounded-xl bg-amber-800 text-white p-2 text-sm disabled:opacity-50">
-                  {restoring?'Verifying…':'Restore secure receipt'}
-                </button>
-              </form>
-              {recoveryError&&<p role="alert" className="text-xs text-red-700">{recoveryError}</p>}
-            </div>
+          {selectedOrder.status === 'out_for_delivery' && (
+            <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-900">
+              Your cake is on the way. No delivery OTP is required. The assigned rider confirms handover and COD collection.
+            </p>
           )}
-          {/* Only the original receipt holder or linked account sees the code after dispatch. */}
-          {selectedOrder.persistence==='google_sheets'&&selectedOrder.status!=='out_for_delivery'
-            &&selectedOrder.status!=='delivered'&&selectedOrder.status!=='cancelled'&&
-            <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
-              <Key size={16} className="inline mr-2"/>Your delivery code will appear here automatically when your rider starts delivery. Do not share it before receiving your order.
-            </p>}
-          {(selectedOrder.persistence !== 'google_sheets' || selectedOrder.status === 'out_for_delivery') && (
-          <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold text-xl shadow-md">
-                <Key className="w-6 h-6" />
-              </div>
-              <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-amber-800">
-                  Your Delivery Verification OTP
-                </span>
-                <p className="text-xs text-amber-900/80">
-                  Provide this 4-digit secret code to the delivery rider only after receiving your cake package.
-                </p>
-              </div>
-            </div>
-            <div className="bg-white px-5 py-2.5 rounded-xl border-2 border-amber-400 font-mono text-2xl font-black text-amber-900 tracking-widest shadow-sm">
-              {selectedOrder.delivery_otp || 'Code not loaded yet'}
-            </div>
-          </div>
-
-          )}
-          {selectedOrder.persistence==='google_sheets' && selectedOrder.status==='out_for_delivery' &&
-            !selectedOrder.delivery_otp && !!selectedOrder.customer_access_token &&
-            <p role="status" className="text-sm rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-900">
-              Your rider has started delivery, but this browser has not received the OTP yet.
-              Tap <strong>Refresh now</strong>. If it remains unavailable, sign in under
-              <strong> Sign up / My orders</strong> to recover your linked receipt, or contact the shop.
-              Never share your password or private receipt key with the rider.
-            </p>}
           {/* 8-Stage Visual Progress Timeline */}
           <div className="space-y-3">
             <h4 className="text-sm font-bold text-slate-900">Cake Production & Delivery Pipeline</h4>

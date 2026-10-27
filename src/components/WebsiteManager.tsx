@@ -3,7 +3,7 @@ import { Database, RefreshCw, Plus, Save, Archive, Search } from 'lucide-react';
 import { CMS_TABLE_OPTIONS, fetchCmsTable, mutateCmsTable, uploadCmsImage } from '../services/sheetStaffApi';
 import type { CmsSnapshot, CmsTable } from '../services/sheetStaffApi';
 
-interface Props {endpoint:string;token:string;role:'super_admin'|'admin';onUpdated:()=>void}
+interface Props {endpoint:string;token:string;role:string;canEdit:boolean;canArchive:boolean;onUpdated:()=>void}
 type Cell = string|number|boolean;
 const numberFields=new Set(['sort_order','base_price','sale_price','price','weight_grams','rating','review_count','delivery_fee','discount_value','min_order_amount','max_discount_amount','usage_count']);
 const boolFields=new Set(['is_active','is_featured','accepting_orders','delivery_enabled']);
@@ -20,7 +20,7 @@ const convert=(key:string,value:Cell):Cell=>{
 };
 const isLocked=(name:string)=>name==='id'||name==='key'||name==='created_at';
 const columnsFor=(data:CmsSnapshot)=>data.columns.filter(col=>!isLocked(col));
-export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
+export const WebsiteManager:React.FC<Props>=({endpoint,token,role,canEdit,canArchive,onUpdated})=>{
   const [table,setTable]=useState<CmsTable>('products');
   const [data,setData]=useState<CmsSnapshot|null>(null);
   const [loading,setLoading]=useState(false);
@@ -50,14 +50,14 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
     setNotice('');setError('');
   };
   const create=()=>{
-    if(!data)return;
+    if(!data||!canEdit)return;
     setCreating(true);setSelected('');setNewKey('');
     setDraft(Object.fromEntries(columnsFor(data).map(field=>
-      [field,boolFields.has(field)?field==='is_active':numberFields.has(field)?0:field==='discount_type'?'percentage':field==='status'?'pending':''])));
+      [field,boolFields.has(field)?field==='is_active':emptyOptionalNumbers.has(field)?'':numberFields.has(field)?0:field==='discount_type'?'percentage':field==='status'?'pending':''])));
     setNotice('');setError('');
   };
   const save=async()=>{
-    if(!data||saving)return;
+    if(!data||saving||!canEdit)return;
     setSaving(true);setError('');setNotice('');
     try{
       const values:Record<string,Cell>={};
@@ -75,7 +75,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
     finally{setSaving(false);}
   };
   const uploadImage=async(file:File,field:string)=>{
-    if(uploading||saving)return;
+    if(uploading||saving||!canEdit)return;
     setUploading(true);setError('');setNotice('');
     try{
       if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>12000000)
@@ -128,7 +128,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
    *  updates it, then archives it; never touches existing public or private rows.
    */
   const runCmsSmoke=async()=>{
-    if(role!=='super_admin'||saving||loading||uploading)return;
+    if(!canEdit||saving||loading||uploading)return;
     if(!window.confirm('Run a real Google Sheets CRUD test? This adds one clearly labeled, hidden FAQ test row (preserved/archived for audit). No existing orders or products will be changed.'))return;
     setSaving(true);setError('');setNotice('');
     const marker='AURORA_CMS_TEST_'+Date.now();
@@ -152,7 +152,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
     finally{setSaving(false);}
   };
   const archive=async()=>{
-    if(!data||!selected||role!=='super_admin'||saving)return;
+    if(!data||!selected||!canArchive||saving)return;
     if(!window.confirm('Archive this public record? Historical orders stay intact. This cannot be used for private orders.'))return;
     setSaving(true);setError('');setNotice('');
     try{
@@ -192,7 +192,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
             className="p-2 flex-1 min-w-0 outline-none"/>
         </span>
       </label>
-      <button disabled={!data||loading} type="button" onClick={create} className="rounded-xl bg-emerald-800 px-4 py-3 text-white text-sm font-semibold flex items-center gap-2">
+      <button disabled={!canEdit||!data||loading} type="button" onClick={create} className="rounded-xl bg-emerald-800 px-4 py-3 text-white text-sm font-semibold flex items-center gap-2">
         <Plus size={15}/> Create
       </button>
     </div>
@@ -215,27 +215,27 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
         <div className="rounded-xl border p-4 space-y-4">
           <h4 className="font-bold">{creating?'Create new record':'Edit '+selected}</h4>
           {creating&&(table==='settings'||table==='content')&&<label className="block text-xs font-semibold">Approved website key
-            <input className="block w-full border rounded-lg p-2 mt-1" required value={newKey}
+            <input disabled={!canEdit} className="block w-full border rounded-lg p-2 mt-1" required value={newKey}
               placeholder="e.g. footer_about" onChange={e=>setNewKey(e.target.value)}/>
           </label>}
           <div className="grid sm:grid-cols-2 gap-3 max-h-[450px] overflow-y-auto pr-1">
             {columnsFor(data).map(field=><label key={field} className="block text-xs font-semibold text-slate-700">
               {field.replaceAll('_',' ')}
               {boolFields.has(field) || (table==='settings'&&field==='value'&&(typeof draft[field]==='boolean'||['accepting_orders','delivery_enabled'].includes(creating?newKey:selected))) ?
-                <select aria-label={field} value={String(draft[field]??false)} onChange={e=>setDraft(prev=>({...prev,[field]:e.target.value==='true'}))}
+                <select disabled={!canEdit} aria-label={field} value={String(draft[field]??false)} onChange={e=>setDraft(prev=>({...prev,[field]:e.target.value==='true'}))}
                   className="block w-full border rounded-lg p-2 mt-1"><option value="true">Yes / ON</option><option value="false">No / OFF</option></select>
                :field==='discount_type'?
-                <select value={String(draft[field]??'percentage')} onChange={e=>setDraft(prev=>({...prev,[field]:e.target.value}))}
+                <select disabled={!canEdit} value={String(draft[field]??'percentage')} onChange={e=>setDraft(prev=>({...prev,[field]:e.target.value}))}
                   className="block w-full border rounded-lg p-2 mt-1"><option value="percentage">Percentage</option><option value="fixed">Fixed</option></select>
                :field==='status'&&table==='reviews'?
-                <select value={String(draft[field]??'pending')} onChange={e=>setDraft(prev=>({...prev,[field]:e.target.value}))}
+                <select disabled={!canEdit} value={String(draft[field]??'pending')} onChange={e=>setDraft(prev=>({...prev,[field]:e.target.value}))}
                   className="block w-full border rounded-lg p-2 mt-1">{['pending','approved','rejected','hidden'].map(o=><option key={o}>{o}</option>)}</select>
-               :<textarea value={String(draft[field]??'')} rows={/description|body|content|note|address|value|_ids|gallery_images/.test(field)?3:1}
+               :<textarea disabled={!canEdit} value={String(draft[field]??'')} rows={/description|body|content|note|address|value|_ids|gallery_images/.test(field)?3:1}
                   onChange={e=>setDraft(prev=>({...prev,[field]:e.target.value}))}
                   className="block w-full border rounded-lg p-2 mt-1 resize-y"/>}
               {isUploadField(field)&&<span className="block mt-2 text-xs font-normal text-emerald-900">
                 <span className="font-semibold">{uploading?'Uploading image…':'Upload image from device'}</span>
-                <input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading||saving}
+                <input type="file" accept="image/jpeg,image/png,image/webp" disabled={!canEdit||uploading||saving}
                   aria-label={'Upload image for '+field} className="block mt-1 text-xs max-w-full"
                   onChange={event=>{const file=event.target.files?.[0];if(file)void uploadImage(file,field);event.target.value='';}}/>
                 <span className="text-slate-500">Images are compressed to a maximum of 650 KB and stored in the private bakery Drive folder.</span>
@@ -243,10 +243,10 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
             </label>)}
           </div>
           <div className="flex gap-2 flex-wrap">
-            <button type="button" disabled={saving||loading} onClick={()=>void save()} className="rounded-xl bg-emerald-800 text-white px-4 py-2 font-semibold text-sm flex gap-2 items-center">
+            <button type="button" disabled={!canEdit||saving||loading} onClick={()=>void save()} className="rounded-xl bg-emerald-800 text-white px-4 py-2 font-semibold text-sm flex gap-2 items-center">
               <Save size={15}/>{saving?'Saving…':creating?'Create in Sheet':'Save to Sheet'}
             </button>
-            {!creating&&role==='super_admin'&&table!=='settings'&&table!=='content'&&
+            {!creating&&canArchive&&table!=='settings'&&table!=='content'&&
               <button type="button" disabled={saving} onClick={()=>void archive()}
                 className="rounded-xl border border-red-300 text-red-700 px-3 py-2 text-sm flex items-center gap-2">
                 <Archive size={15}/> Archive / hide

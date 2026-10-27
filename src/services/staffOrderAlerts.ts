@@ -8,6 +8,7 @@ export function staffAlertStage(order: StaffOrder,role: StaffRoleName,identity: 
   switch(role){
     case 'super_admin':
     case 'admin':
+    case 'manager':
     case 'order_manager':
       return order.status==='pending' ? 'pending' : null;
     case 'kitchen_manager':

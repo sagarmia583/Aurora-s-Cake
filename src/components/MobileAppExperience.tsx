@@ -107,9 +107,10 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
   const [appSearch, setAppSearch] = useState<string>('');
   // Selected category in catalog
   const [selectedCat, setSelectedCat] = useState<string>('all');
-  // Rider OTP inputs
-  const [riderOtpInputs, setRiderOtpInputs] = useState<Record<string, string>>({});
-  const [riderOtpErrors, setRiderOtpErrors] = useState<Record<string, string>>({});
+  // Demo rider requires explicit handover and cash confirmation.
+  const [riderHandover, setRiderHandover] = useState<Record<string, boolean>>({});
+  const [riderCash, setRiderCash] = useState<Record<string, boolean>>({});
+  const [riderDeliveryErrors, setRiderDeliveryErrors] = useState<Record<string, string>>({});
 
   const cartCount = cartItems.reduce((acc, it) => acc + it.quantity, 0);
   const cartSubtotal = cartItems.reduce((acc, it) => acc + it.total_price, 0);
@@ -126,18 +127,13 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
   });
 
   // Rider actions
-  const handleVerifyOtp = (order: Order) => {
-    const entered = riderOtpInputs[order.id];
-    if (!entered) {
-      setRiderOtpErrors({ ...riderOtpErrors, [order.id]: 'Please enter the 4-digit OTP' });
-      return;
-    }
-    const res = mockDb.verifyDeliveryOTP(order.id, entered, 'Rahim Mia');
-    if (!res.success) {
-      setRiderOtpErrors({ ...riderOtpErrors, [order.id]: res.message });
-    } else {
-      setRiderOtpErrors({ ...riderOtpErrors, [order.id]: '' });
-      setRiderOtpInputs({ ...riderOtpInputs, [order.id]: '' });
+  const confirmRiderDelivery = (order: Order) => {
+    const res = mockDb.completeDelivery(order.id,!!riderHandover[order.id],!!riderCash[order.id],'Demo Rider');
+    if (!res.success) setRiderDeliveryErrors(previous=>({...previous,[order.id]:res.message}));
+    else {
+      setRiderDeliveryErrors(previous=>({...previous,[order.id]:''}));
+      setRiderHandover(previous=>({...previous,[order.id]:false}));
+      setRiderCash(previous=>({...previous,[order.id]:false}));
     }
   };
 
@@ -621,30 +617,26 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
                             </button>
                           )}
 
-                          {/* OTP verification input */}
-                          <div className="flex-1 flex items-center gap-1.5">
-                            <input
-                              type="text"
-                              maxLength={4}
-                              placeholder="4-digit OTP"
-                              value={riderOtpInputs[order.id] || ''}
-                              onChange={(e) =>
-                                setRiderOtpInputs({ ...riderOtpInputs, [order.id]: e.target.value })
-                              }
-                              className="w-24 px-2 py-1.5 text-xs text-center font-mono rounded-xl border border-slate-300"
-                            />
-                            <button
-                              onClick={() => handleVerifyOtp(order)}
-                              className="flex-1 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 cursor-pointer"
-                            >
-                              Verify &amp; Done
-                            </button>
-                          </div>
+                          {order.status==='out_for_delivery'&&<div className="flex-1 flex flex-col gap-2 rounded-xl bg-emerald-50 p-2">
+                            <label className="flex items-center gap-2 text-xs font-semibold">
+                              <input type="checkbox" checked={!!riderHandover[order.id]}
+                                onChange={e=>setRiderHandover(previous=>({...previous,[order.id]:e.target.checked}))}/>
+                              Cake handed to customer
+                            </label>
+                            {order.payment_method==='cod'&&<label className="flex items-center gap-2 text-xs font-semibold">
+                              <input type="checkbox" checked={!!riderCash[order.id]}
+                                onChange={e=>setRiderCash(previous=>({...previous,[order.id]:e.target.checked}))}/>
+                              Full COD collected
+                            </label>}
+                            <button type="button" disabled={!riderHandover[order.id]||(order.payment_method==='cod'&&!riderCash[order.id])}
+                              onClick={()=>confirmRiderDelivery(order)}
+                              className="py-2 bg-emerald-700 text-white rounded-xl text-xs font-bold disabled:opacity-50">Mark Delivered</button>
+                          </div>}
                         </div>
 
-                        {riderOtpErrors[order.id] && (
+                        {riderDeliveryErrors[order.id] && (
                           <p className="text-[10px] text-rose-600 font-semibold">
-                            {riderOtpErrors[order.id]}
+                            {riderDeliveryErrors[order.id]}
                           </p>
                         )}
                       </div>

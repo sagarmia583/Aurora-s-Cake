@@ -4,7 +4,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { Order } from '../src/types';
 import type { SheetOrderDraft } from '../src/services/googleSheetOrders';
-import { calculateSheetOrderEstimate, createSheetOrderAttempt, submitSheetOrder, SheetOrderSubmissionError, isValidSheetOrderReceipt, loadConfirmedSheetOrders, rememberConfirmedSheetOrder } from '../src/services/googleSheetOrders';
+import { calculateSheetOrderEstimate, createSheetOrderAttempt, submitSheetOrder, SheetOrderSubmissionError, isValidSheetOrderReceipt, loadConfirmedSheetOrders, rememberConfirmedSheetOrder, storePendingSheetOrderAttempt, loadPendingSheetOrderAttempt, clearPendingSheetOrderAttempt } from '../src/services/googleSheetOrders';
 import { CheckoutModal } from '../src/components/CheckoutModal';
 
 const endpoint = 'https://script.google.com/macros/s/test_deployment/exec';
@@ -160,4 +160,31 @@ test('an ambiguous frozen attempt replays original bytes and UUID after current 
     return new Response(JSON.stringify({ success: true, persisted: true, order: receipt() }));
   } });
   assert.equal(result.persistence, 'google_sheets');
+});
+
+test('ambiguous COD attempt survives refresh with the identical idempotency request and proof',()=>{
+  const original=Object.getOwnPropertyDescriptor(globalThis,'sessionStorage');
+  const values=new Map<string,string>();
+  const storage={getItem:(k:string)=>values.get(k)??null,
+    setItem:(k:string,v:string)=>{values.set(k,v);},removeItem:(k:string)=>{values.delete(k);}};
+  Object.defineProperty(globalThis,'sessionStorage',{configurable:true,value:storage});
+  try{
+    const attempt=createSheetOrderAttempt(endpoint,draft());
+    assert.equal(storePendingSheetOrderAttempt(attempt),true);
+    const restored=loadPendingSheetOrderAttempt(endpoint);
+    assert.ok(restored);
+    assert.equal(restored.request_id,attempt.request_id);
+    assert.equal(restored.body,attempt.body);
+    assert.deepEqual(restored,attempt);
+    assert.equal(loadPendingSheetOrderAttempt('https://script.google.com/macros/s/other/exec'),null);
+    const corrupt={...attempt,body:JSON.stringify({...JSON.parse(attempt.body),request_id:'different'})};
+    storage.setItem('aurora_pending_cod_checkout_v1',JSON.stringify(corrupt));
+    assert.equal(loadPendingSheetOrderAttempt(endpoint),null);
+    storage.setItem('aurora_pending_cod_checkout_v1',JSON.stringify(attempt));
+    clearPendingSheetOrderAttempt();
+    assert.equal(loadPendingSheetOrderAttempt(endpoint),null);
+  }finally{
+    if(original)Object.defineProperty(globalThis,'sessionStorage',original);
+    else delete (globalThis as {sessionStorage?:unknown}).sessionStorage;
+  }
 });

@@ -5,7 +5,7 @@
 // Leave blank when this script is bound to the intended Sheet through Extensions > Apps Script.
 var AURORA_SPREADSHEET_ID = '18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4';
 var AURORA_SCHEMA_VERSION = 1;
-var AURORA_BACKEND_RELEASE = 'aurora-2026-10-26-customer-master-r2';
+var AURORA_BACKEND_RELEASE = 'aurora-2026-10-27-finance-inventory-r8';
 var PUBLIC_TABLE_SCHEMAS = {
   settings: ['key','value'],
   content: ['key','value'],
@@ -81,11 +81,17 @@ var PRIVATE_ORDER_SCHEMAS = {
   orders: ['id','order_number','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','delivery_address','delivery_zone_id','delivery_zone_name','delivery_fee','delivery_slot','delivery_date','status','subtotal','discount_amount','total_amount','coupon_code','order_note','payment_method','payment_status','receipt_json'],
   order_items: ['id','order_id','product_id','product_name','variant_id','variant_name','flavor_id','flavor_name','writing_message','unit_price','quantity','addons_json','subtotal'],
   custom_cake_requests: ['id','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','cake_type','approx_size','flavor','color_theme','writing_text','instructions','reference_image_url','status','estimated_price','quoted_price','receipt_json'],
-  staff_accounts: ['id','username','name','role','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'],
+  staff_accounts: ['id','username','name','role','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at','permissions'],
   customer_accounts: ['id','phone','name','address','email','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'],
   auth_sessions: ['token_hash','account_type','account_id','created_at','expires_at','revoked'],
   customer_master: ['id','phone_key','name','delivery_address','created_at','updated_at','order_count','last_order_id','last_order_at'],
-  customer_contact_requests: ['id','phone_key','name','delivery_address','created_at','status']
+  customer_contact_requests: ['id','phone_key','name','delivery_address','created_at','status'],
+  rider_cash_deposits: ['id','request_id','rider_id','amount','date','actor_name','created_at','notes','voided_at','voided_by','void_reason','status','initiated_by_id','approved_by_id','approved_at'],
+  cake_cost_items: ['id','request_id','product_id','variant_id','component','unit_label','quantity','unit_cost','active','updated_at','inventory_item_id'],
+  inventory_items: ['id','name','unit','reorder_level','created_at'],
+  inventory_movements: ['id','request_id','item_id','delta','unit_cost','reason','order_id','actor','created_at'],
+  refund_returns: ['id','request_id','order_id','kind','amount','reason','status','created_by','created_at','approved_by','approved_at','settled_at','settlement_note','settled_by'],
+  order_cost_snapshots: ['id','order_id','order_number','recorded_at','total_cost','missing_recipe','lines_json']
 };
 
 // This handler creates a private COD receipt. GET never calls these functions.
@@ -103,7 +109,7 @@ function doPost(e) {
     if(input&&input.action==='staff_image_upload')return auroraResponse_(auroraImageUpload_(input));
     // Private operations authenticate every POST; never expose these reads via GET.
     // All credential/private account routes use POST; never exposed via public GET.
-    if(input && /^(staff_password_login|staff_password_logout|staff_account_create|staff_account_set_active|staff_account_reset_password)$/.test(String(input.action||'')))
+    if(input && /^(staff_password_login|staff_password_logout|staff_account_create|staff_account_set_active|staff_account_reset_password|staff_account_update_permissions)$/.test(String(input.action||'')))
       return auroraResponse_(auroraAccountStaffPost_(input));
     if(input && /^customer_phone_(signup|login|session|logout|orders|profile|claim|password|close)$/.test(String(input.action||'')))
       return auroraResponse_(auroraAccountCustomerPost_(input));
@@ -111,6 +117,9 @@ function doPost(e) {
     if (input && input.action === 'staff_customer_lookup') return auroraResponse_(auroraStaffCustomerLookup_(input));
     if (input && input.action === 'customer_contact_submit') return auroraResponse_(auroraGuestContactSubmit_(input));
     if (input && input.action === 'customer_receipt_recover') return auroraResponse_(auroraCustomerReceiptRecover_(input));
+    if(input && /^(staff_inventory_summary|staff_stock_item_create|staff_stock_adjust|staff_refund_request|staff_refund_approve|staff_refund_settle)$/.test(String(input.action||''))) return auroraResponse_(auroraInventoryPost_(input));
+    if(input && /^(staff_finance_summary|staff_cash_deposit|staff_cash_deposit_approve|staff_cash_deposit_void|staff_cake_cost_save|staff_cake_cost_archive)$/.test(String(input.action||''))) return auroraResponse_(auroraFinancePost_(input));
+    if (input && input.action === 'customer_phone_tracking') return auroraResponse_(auroraPhoneOnlyTracking_(input));
     if (input && input.action === 'get_order_status') return auroraResponse_(auroraCustomerOrderStatus_(input));
     if (input && /^staff_cms_(list|create|update|delete)$/.test(String(input.action||''))) return auroraResponse_(auroraCmsPost_(input));
     if (input && (input.action==='staff_catalog'||input.action==='staff_catalog_update')) return auroraResponse_(auroraCatalogPost_(input));
@@ -132,6 +141,7 @@ function doPost(e) {
       if (!receipt || !receipt.id || !Array.isArray(receipt.items) || receipt.id !== String(previous[0].id)) throw new Error('Incomplete committed receipt.');
       auroraRepairOrderItems_(itemTable,receipt);
       auroraCustomerMasterUpsert_(book,orders,receipt);
+      auroraSyncCouponUsage_(book,receipt.coupon_code);
       return auroraResponse_({success:true,persisted:true,order:auroraCheckoutReceiptSafe_(receipt)});
     }
     if (!request.checkout_proof) auroraReject_('upgrade_required','Refresh the website before placing a new order.');
@@ -151,11 +161,20 @@ function doPost(e) {
     });
     auroraRepairOrderItems_(itemTable,order);
     auroraCustomerMasterUpsert_(book,orders,order);
+    auroraSyncCouponUsage_(book,order.coupon_code);
     return auroraResponse_({success:true,persisted:true,order:auroraCheckoutReceiptSafe_(order)});
   } catch (error) {
     if (error && error.auroraValidation) return auroraResponse_({ok:false,success:false,persisted:false,code:error.code,error:error.message});
     console.error(error && error.stack ? error.stack : error);
-    // A write may already have committed. Never tell the client this outcome is definitely unpersisted.
+    // A non-checkout read/write must never report a misleading checkout failure.
+    // Do not disclose internal Sheet names, script properties or exception text.
+    if (typeof input !== 'undefined' && input && input.action === 'customer_contact_submit')
+      return auroraResponse_({ok:false,success:false,code:'contact_save_unavailable',
+        error:'Customer details could not be saved. Confirm setupSheetDatabase() and redeploy the updated Apps Script.'});
+    if (typeof input !== 'undefined' && input && input.action === 'customer_phone_tracking')
+      return auroraResponse_({ok:false,success:false,code:'tracking_unavailable',
+        error:'Phone tracking could not load orders. Check the active Apps Script version and private orders Sheet.'});
+    // A checkout write may already have committed; an uncertain receipt needs the same request ID.
     return auroraResponse_({ok:false,success:false,code:'submission_uncertain',error:'Order confirmation is unavailable. Retry with the same request ID; do not create a new request.'});
   } finally {
     if (locked) lock.releaseLock();
@@ -280,6 +299,23 @@ function auroraCurrent_(index,id,label) {
   if (!row || !auroraActive_(row.is_active)) auroraReject_('unavailable_selection',label + ' is no longer available. Refresh the cake selection.');
   return row;
 }
+/** Returns ending minute for conventional morning/evening or 24-hour slot labels. */
+function auroraSlotEndMinute_(label){
+  var text=String(label||'');
+  var twelve=Array.from(text.matchAll(/(\d{1,2})(?::([0-5]\d))?\s*(AM|PM)\b/ig));
+  if(twelve.length>=2){
+    var last=twelve[twelve.length-1],hour=Number(last[1]),minute=Number(last[2]||0);
+    if(hour<1||hour>12)return null;
+    return (hour%12+(last[3].toUpperCase()==='PM'?12:0))*60+minute;
+  }
+  var twentyFour=Array.from(text.matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g));
+  if(twentyFour.length>=2){
+    var item=twentyFour[twentyFour.length-1];
+    return Number(item[1])*60+Number(item[2]);
+  }
+  return null; // Existing unstructured labels are retained for compatibility.
+}
+
 function auroraBuildOrder_(book,request) {
   var settings = auroraPairs_(auroraRows_(book,'settings'),PUBLIC_SETTINGS_KEYS);
   if (!auroraActive_(settings.accepting_orders)) auroraReject_('shop_closed','The shop is not accepting orders right now.');
@@ -293,6 +329,13 @@ function auroraBuildOrder_(book,request) {
   var zones = auroraIndex_(auroraRows_(book,'delivery_zones'),'delivery_zones');
   var slots = auroraRows_(book,'delivery_slots').filter(function(row) { return auroraActive_(row.is_active) && String(row.slot_label) === request.delivery_slot; });
   if (slots.length !== 1) auroraReject_('unavailable_selection','Choose a currently available delivery time.');
+  if(request.delivery_date===today) {
+    var endMinute=auroraSlotEndMinute_(request.delivery_slot);
+    var localTime=Utilities.formatDate(new Date(),'Asia/Dhaka','HH:mm');
+    var parts=/^(\d{2}):(\d{2})$/.exec(localTime);
+    if(endMinute!==null && parts && endMinute<=Number(parts[1])*60+Number(parts[2]))
+      auroraReject_('slot_closed','This delivery time has already passed today. Choose a later time or another date.');
+  }
   var zone = auroraCurrent_(zones,request.delivery_zone_id,'Delivery area');
   var orderId = 'ord_' + request.request_id;
   var items = request.cart_items.map(function(line,index) {
@@ -308,7 +351,26 @@ function auroraBuildOrder_(book,request) {
     } else if (allowedFlavors.some(function(id) { return flavors[id] && auroraActive_(flavors[id].is_active); })) {
       auroraReject_('unavailable_selection','Choose an available flavour for this cake.');
     }
-    var basePrice = auroraMoney_(variant.sale_price === '' || variant.sale_price === undefined || variant.sale_price === null ? variant.price : variant.sale_price,'variant price');
+    var regularVariantPrice=auroraMoney_(variant.price,'variant price');
+    var explicitSale=variant.sale_price!==''&&variant.sale_price!==undefined&&variant.sale_price!==null;
+    var markdown=0;
+    if(product.sale_price!==''&&product.sale_price!==undefined&&product.sale_price!==null){
+      var regularProduct=auroraMoney_(product.base_price,'product base price');
+      var productSale=auroraMoney_(product.sale_price,'product sale price');
+      markdown=Math.max(0,regularProduct-productSale);
+    }
+    if(regularVariantPrice<=0)auroraReject_('invalid_price','Cake size must have a positive regular price.');
+    if(explicitSale && Number(variant.sale_price)<=0)
+      auroraReject_('invalid_price','Cake size sale price must be greater than zero.');
+    if(product.sale_price!==''&&product.sale_price!==undefined&&product.sale_price!==null &&
+       Number(product.sale_price)<=0)
+      auroraReject_('invalid_price','Cake sale price must be greater than zero.');
+    if(markdown>=regularVariantPrice && (!explicitSale || Number(variant.sale_price)>=regularVariantPrice))
+      auroraReject_('invalid_price','This cake discount exceeds the selected size price. Please contact the bakery.');
+    var basePrice=explicitSale && Number(variant.sale_price)<regularVariantPrice
+      ? auroraMoney_(variant.sale_price,'variant sale price')
+      : auroraMoneyRound_(regularVariantPrice-markdown);
+    if(basePrice<=0)auroraReject_('invalid_price','Cake cannot be ordered for zero taka.');
     var selectedAddons = line.addon_ids.map(function(id) {
       if (allowedAddons.indexOf(id) === -1) auroraReject_('unavailable_selection','The selected add-on is not allowed for this cake.');
       var addon = auroraCurrent_(addons,id,'Add-on');
@@ -536,7 +598,36 @@ function setupSheetDatabase() {
   Object.keys(PRIVATE_ORDER_SCHEMAS).forEach(function(name) {
     var sheet = book.getSheetByName(name);
     if (!sheet) sheet = book.insertSheet(name);
-    if (sheet.getLastRow() !== 0) { report.push(name + ': existing private data preserved'); return; }
+    if (sheet.getLastRow() !== 0) {
+      if(name==='staff_accounts'){
+        // Safe, additive header migration: never rewrite existing account rows.
+        var existingHeaders=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0]
+          .map(function(x){return String(x).trim().toLowerCase();});
+        if(existingHeaders.indexOf('permissions')===-1){
+          if(existingHeaders.length>=100)throw new Error('Staff accounts table has no space for permissions header.');
+          sheet.getRange(1,existingHeaders.length+1,1,1).setValues([['permissions']]);
+          report.push(name + ': permissions header added; existing employee roles preserved');
+        }else report.push(name + ': existing private data preserved');
+      }else if(name==='cake_cost_items'){
+        var cols=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0]
+          .map(function(v){return String(v).trim().toLowerCase();});
+        if(cols.indexOf('inventory_item_id')<0)
+          sheet.getRange(1,cols.length+1,1,1).setValues([['inventory_item_id']]);
+        report.push(name+': inventory mapping column available');
+      }else if(name==='rider_cash_deposits'){
+        var requiredFinance=['voided_at','voided_by','void_reason','status','initiated_by_id','approved_by_id','approved_at'];
+        var existing=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0]
+          .map(function(x){return String(x).trim().toLowerCase();});
+        requiredFinance.forEach(function(field){
+          if(existing.indexOf(field)===-1){
+            sheet.getRange(1,existing.length+1,1,1).setValues([[field]]);
+            existing.push(field);
+          }
+        });
+        report.push(name + ': deposit reversal audit columns available');
+      }else report.push(name + ': existing private data preserved');
+      return;
+    }
     var columns = PRIVATE_ORDER_SCHEMAS[name];
     sheet.getRange(1,1,1,columns.length).setValues([columns]);
     sheet.setFrozenRows(1);
@@ -547,6 +638,35 @@ function setupSheetDatabase() {
   CacheService.getScriptCache().remove(auroraCacheKey_());
   console.log(report.join('\n'));
   return report.join('\n');
+}
+
+/**
+ * Rebuild coupon usage from committed orders rather than incrementing a
+ * counter. Replaying a checkout request can never count the coupon twice.
+ * Called while the existing checkout/order ScriptLock is held.
+ */
+function auroraSyncCouponUsage_(book,code) {
+  var normalized=String(code||'').trim().toUpperCase();
+  if(!normalized)return;
+  var sheet=book.getSheetByName('coupons');
+  if(!sheet||sheet.getLastRow()<2)return;
+  var headers=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0]
+    .map(function(x){return String(x).trim().toLowerCase();});
+  var codeCol=headers.indexOf('code'),usageCol=headers.indexOf('usage_count');
+  if(codeCol<0||usageCol<0)return; // older schema, never damage it
+  var values=sheet.getRange(2,1,sheet.getLastRow()-1,headers.length).getValues();
+  var row=-1;
+  for(var i=0;i<values.length;i++) {
+    if(String(values[i][codeCol]||'').trim().toUpperCase()===normalized){row=i+2;break;}
+  }
+  if(row<0)return;
+  var orders=auroraPrivateTable_(book,'orders').rows;
+  var count=orders.filter(function(order){
+    return String(order.coupon_code||'').trim().toUpperCase()===normalized &&
+      String(order.status||'')!=='cancelled';
+  }).length;
+  sheet.getRange(row,usageCol+1,1,1).setValues([[count]]);
+  CacheService.getScriptCache().remove(auroraCacheKey_());
 }
 
 function auroraSeedRows_(name,seed) {

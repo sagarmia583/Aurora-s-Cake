@@ -8,7 +8,7 @@ type Row = unknown[];
 const ORDER_HEADERS=['id','order_number','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','delivery_address','delivery_zone_id','delivery_zone_name','delivery_fee','delivery_slot','delivery_date','status','subtotal','discount_amount','total_amount','coupon_code','order_note','payment_method','payment_status','receipt_json'];
 const ITEM_HEADERS=['id','order_id','product_id','product_name','variant_id','variant_name','flavor_id','flavor_name','writing_message','unit_price','quantity','addons_json','subtotal'];
 const CUSTOM_HEADERS=['id','request_id','request_hash','created_at','updated_at','customer_name','customer_phone','cake_type','approx_size','flavor','color_theme','writing_text','instructions','reference_image_url','status','estimated_price','quoted_price','receipt_json'];
-const STAFF_HEADERS=['id','username','name','role','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'];
+const STAFF_HEADERS=['id','username','name','role','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at','permissions'];
 const CUSTOMER_HEADERS=['id','phone','name','address','email','password_salt','password_hash','failed_attempts','locked_until','active','created_at','updated_at'];
 const SESSION_HEADERS=['token_hash','account_type','account_id','created_at','expires_at','revoked'];
 const MASTER_HEADERS=['id','phone_key','name','delivery_address','created_at','updated_at','order_count','last_order_id','last_order_at'];
@@ -79,11 +79,14 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean}={}) {
   } else {
   vm.runInContext(fs.readFileSync(new URL('../apps-script/Code.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/StaffOperations.gs',import.meta.url),'utf8'),context);
+  vm.runInContext(fs.readFileSync(new URL('../apps-script/StaffPermissions.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/AccountAuth.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/CustomerMaster.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/CustomerAccounts.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/LiveCatalog.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/CustomCakeRequests.gs',import.meta.url),'utf8'),context);
+   vm.runInContext(fs.readFileSync(new URL('../apps-script/FinanceOperations.gs',import.meta.url),'utf8'),context);
+  vm.runInContext(fs.readFileSync(new URL('../apps-script/InventoryOperations.gs',import.meta.url),'utf8'),context);
   }
   const post=(payload:unknown)=>JSON.parse(context.doPost({postData:{type:'text/plain',contents:JSON.stringify(payload)}}).content);
   const get=(action:string)=>JSON.parse(context.doGet({parameter:{action}}).content);
@@ -134,10 +137,17 @@ test('lost acknowledgement after the header commit remains uncertain and retries
   const retry=h.post(request());assert.equal(retry.persisted,true);assert.equal(h.records('orders').length,1);assert.equal(h.records('order_items').length,1);
 });
 
-test('zero Sheet prices and zero coupon maximum stay zero',()=>{
-  const h=harness();h.change('product_variants','sale_price',0);h.change('product_addons','price',0);h.change('delivery_zones','delivery_fee',0);
+test('zero cake sale price is rejected; free add-ons and zero coupon cap remain supported',()=>{
+  const invalid=harness();invalid.change('product_variants','sale_price',0);
+  const rejected=invalid.post(request());
+  assert.equal(rejected.code,'invalid_price');
+  assert.equal(invalid.records('orders').length,0);
+  const h=harness();h.change('product_addons','price',0);h.change('delivery_zones','delivery_fee',0);
   h.change('coupons','min_order_amount',0);h.change('coupons','max_discount_amount',0);
-  const response=h.post(request());assert.equal(response.success,true);assert.equal(response.order.items[0].unit_price,0);assert.equal(response.order.subtotal,0);assert.equal(response.order.total_amount,0);
+  const response=h.post(request());assert.equal(response.success,true);
+  assert.equal(response.order.items[0].unit_price,800);
+  assert.equal(response.order.discount_amount,0);
+  assert.equal(response.order.total_amount,1600);
 });
 
 test('unavailable choices, invalid date/phone/quantity and online payment reject before writing',()=>{
@@ -212,12 +222,12 @@ test('verified staff manage the same private receipt; riders see assigned orders
   const orderId=created.order.id;
   const adminSession=h.post({action:'staff_session',id_token:ADMIN_TOKEN});
   assert.equal(adminSession.role,'super_admin');
-  assert.equal(adminSession.riders[0].email,'rider@example.com');
+  assert.equal(adminSession.riders.some((r:{email:string})=>r.email==='rider@example.com'),true);
   const riderBefore=h.post({action:'staff_orders',id_token:RIDER_TOKEN});
   assert.equal(riderBefore.orders.length,0);
   const update=(operation:string,id_token:string,extra:Record<string,unknown>={})=>h.post({action:'staff_mutate',id_token,operation,order_id:orderId,...extra});
   assert.equal(update('confirm',ADMIN_TOKEN).ok,true);
-  assert.equal(update('start_baking',ADMIN_TOKEN).ok,true);
+  const baking = update('start_baking',ADMIN_TOKEN);assert.equal(baking.ok,true,JSON.stringify(baking));
   assert.equal(update('mark_ready',ADMIN_TOKEN).ok,true);
   assert.equal(update('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
   const riderQueue=h.post({action:'staff_orders',id_token:RIDER_TOKEN});
@@ -225,8 +235,8 @@ test('verified staff manage the same private receipt; riders see assigned orders
   assert.equal(Object.prototype.hasOwnProperty.call(riderQueue.orders[0],'delivery_otp'),false);
   assert.equal(update('pick_up',RIDER_TOKEN).ok,true);
   assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
-  assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp,cash_collected:false}).code,'cash_unconfirmed');
-  assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp,cash_collected:true}).ok,true);
+  assert.equal(update('deliver',RIDER_TOKEN,{package_handed_over:true,cash_collected:false}).code,'cash_unconfirmed');
+  assert.equal(update('deliver',RIDER_TOKEN,{package_handed_over:true,cash_collected:true}).ok,true);
   const customer=h.post({action:'get_order_status',order_id:orderId,customer_phone:request().customer_phone,customer_access_token:created.order.customer_access_token});
   assert.equal(customer.status,'delivered');
   assert.equal(customer.payment_status,'paid');
@@ -237,7 +247,7 @@ test('verified staff manage the same private receipt; riders see assigned orders
   assert.equal(h.records('orders').length,1);
   assert.equal(h.records('order_items').length,1);
 });
-test('delivery OTP rate limit and order transition checks are persisted server-side',()=>{
+test('delivery handover confirmation and order transition checks are persisted server-side',()=>{
   const h=harness(),created=h.post(request());
   const orderId=created.order.id;
   const update=(operation:string,id_token:string,extra:Record<string,unknown>={})=>h.post({action:'staff_mutate',id_token,operation,order_id:orderId,...extra});
@@ -247,9 +257,10 @@ test('delivery OTP rate limit and order transition checks are persisted server-s
   assert.equal(update('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
   assert.equal(update('pick_up',RIDER_TOKEN).ok,true);
   assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
-  for(let i=0;i<5;i++) assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:'0000',cash_collected:true}).code,'invalid_otp');
-  assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:created.order.delivery_otp,cash_collected:true}).code,'otp_locked');
-  assert.equal(h.post({action:'get_order_status',order_id:orderId,customer_phone:request().customer_phone,customer_access_token:created.order.customer_access_token}).status,'out_for_delivery');
+  assert.equal(update('deliver',RIDER_TOKEN,{cash_collected:true}).code,'handover_unconfirmed');
+  assert.equal(update('deliver',RIDER_TOKEN,{package_handed_over:true,cash_collected:false}).code,'cash_unconfirmed');
+  assert.equal(update('deliver',RIDER_TOKEN,{package_handed_over:true,cash_collected:true}).ok,true);
+  assert.equal(h.post({action:'get_order_status',order_id:orderId,customer_phone:request().customer_phone,customer_access_token:created.order.customer_access_token}).status,'delivered');
 });
 test('customer status requires both unpredictable order reference and matching phone',()=>{
   const h=harness(),created=h.post(request());
@@ -305,11 +316,11 @@ test('free Google recovery shows delivery OTP only after the linked order is out
   assert.equal(update('pick_up',RIDER_TOKEN).ok,true);
   assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
   const orders=h.post({action:'customer_orders',id_token:ADMIN_TOKEN}).orders;
-  assert.equal(orders[0].delivery_otp,JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp);
+  assert.equal(orders[0].delivery_otp,'');
   assert.equal(orders[0].status,'out_for_delivery');
 });
 
-test('linked customer gets delivery OTP only after dispatch with their own valid Google token',()=>{
+test('linked customer sees live delivery stage without an OTP',()=>{
   const h=harness();const order=h.post(request()).order;
   const status=(token?:string)=>h.post({action:'get_order_status',order_id:order.id,customer_phone:order.customer_phone,...(token?{id_token:token}:{} )});
   assert.equal(h.post({action:'customer_claim_order',id_token:ADMIN_TOKEN,order_id:order.id,customer_phone:order.customer_phone,customer_access_token:order.customer_access_token}).ok,true);
@@ -321,8 +332,9 @@ test('linked customer gets delivery OTP only after dispatch with their own valid
   assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
   assert.equal(status().delivery_otp,undefined);
   assert.equal(status(INTRUDER_TOKEN).code,'forbidden');
-  assert.equal(status(ADMIN_TOKEN).delivery_otp,JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp);
-  assert.equal(h.post({action:'get_order_status',order_id:order.id,customer_phone:order.customer_phone,customer_access_token:order.customer_access_token}).delivery_otp,JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp);
+  assert.equal(status(ADMIN_TOKEN).delivery_otp,undefined);
+  assert.equal(status(ADMIN_TOKEN).status,'out_for_delivery');
+  assert.equal(h.post({action:'get_order_status',order_id:order.id,customer_phone:order.customer_phone,customer_access_token:order.customer_access_token}).delivery_otp,undefined);
 });
 
 test('only verified admins can edit live catalogue; arbitrary fields and other roles are rejected',()=>{
@@ -448,7 +460,7 @@ test('valid Google identity is briefly cached but changed staff allowlist is enf
   assert.equal(h.post({action:'staff_session',id_token:ADMIN_TOKEN}).code,'forbidden');
   assert.equal(fetchCalls,1);
 });
-test('a delivery OTP is issued only at dispatch and destroyed after confirmed COD delivery',()=>{
+test('no delivery OTP is issued; assigned rider completes COD with handover and cash confirmation',()=>{
   const h=harness(),created=h.post(request());
   const change=(operation:string,id_token:string,extra:Record<string,unknown>={})=>h.post({
     action:'staff_mutate',id_token,operation,order_id:created.order.id,...extra});
@@ -459,9 +471,8 @@ test('a delivery OTP is issued only at dispatch and destroyed after confirmed CO
   assert.equal(change('pick_up',RIDER_TOKEN).ok,true);
   assert.equal(server().delivery_otp,'');
   assert.equal(change('start_delivery',RIDER_TOKEN).ok,true);
-  const code=server().delivery_otp;
-  assert.match(code,/^\d{4}$/);
-  assert.equal(change('deliver',RIDER_TOKEN,{delivery_otp:code,cash_collected:true}).ok,true);
+  assert.equal(server().delivery_otp,'');
+  assert.equal(change('deliver',RIDER_TOKEN,{package_handed_over:true,cash_collected:true}).ok,true);
   assert.equal(server().delivery_otp,'');
   assert.equal(h.post({action:'get_order_status',order_id:created.order.id,customer_phone:created.order.customer_phone,
     customer_access_token:created.order.customer_access_token}).delivery_otp,undefined);
@@ -575,10 +586,8 @@ test('verified super admin creates username/password rider; only the assigned ri
   assert.equal(adminChange('assign',{rider_email:'rider02'}).ok,true);
   assert.equal(change('pick_up',signed.auth_token).ok,true);
   assert.equal(change('start_delivery',signed.auth_token).ok,true);
-  assert.equal(change('deliver',signed.auth_token,{delivery_otp:'0000',cash_collected:true}).code,'invalid_otp');
-  const code=JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp;
-  assert.match(code,/^\d{4}$/);
-  assert.equal(change('deliver',signed.auth_token,{delivery_otp:code,cash_collected:true}).ok,true);
+  assert.equal(change('deliver',signed.auth_token,{cash_collected:true}).code,'handover_unconfirmed');
+  assert.equal(change('deliver',signed.auth_token,{package_handed_over:true,cash_collected:true}).ok,true);
   assert.equal(h.post({action:'staff_password_logout',auth_token:signed.auth_token}).ok,true);
   assert.equal(h.post({action:'staff_orders',auth_token:signed.auth_token}).code,'unauthorized');
 });
@@ -793,7 +802,7 @@ test('fast customer status reads only id/header/receipt columns, not the whole p
   assert.equal(touched.filter(item=>item.height>1).every(item=>item.width===1),true,
     'Status polling should not read entire multi-column order sheets');
 });
-test('phone account linked to receipt receives dispatch OTP; an unlinked customer is denied',()=>{
+test('phone account linked to receipt sees dispatch status but not an OTP; an unlinked customer is denied',()=>{
   const h=harness({singleFile:true});
   const first=h.post(request()).order;
   const owner=h.post({action:'customer_phone_signup',name:'Recipient',phone:'01700112283',password:'TestSecretPassOne2026!'});
@@ -810,11 +819,10 @@ test('phone account linked to receipt receives dispatch OTP; an unlinked custome
   assert.equal(transition('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
   assert.equal(transition('pick_up',RIDER_TOKEN).ok,true);
   assert.equal(transition('start_delivery',RIDER_TOKEN).ok,true);
-  const code=String(JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp);
-  assert.match(code,/^\d{4}$/);
-  assert.equal(status(owner.auth_token).delivery_otp,code);
+  assert.equal(JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp,'');
+  assert.equal(status(owner.auth_token).delivery_otp,undefined);
   assert.equal(status(other.auth_token).code,'forbidden');
-  assert.equal(transition('deliver',RIDER_TOKEN,{delivery_otp:code,cash_collected:true}).ok,true);
+  assert.equal(transition('deliver',RIDER_TOKEN,{package_handed_over:true,cash_collected:true}).ok,true);
   assert.equal(status(owner.auth_token).delivery_otp,undefined);
   assert.equal(status(owner.auth_token).status,'delivered');
 });
@@ -835,7 +843,7 @@ test('customer phone account history only scans receipt JSON rather than the wid
   assert.ok(orderDataReads.every(r=>r.width===1),'Account refresh must read receipt JSON only');
 });
 
-test('legacy dispatch OTP requires owner-verified one-time receipt recovery; phone number alone never reveals OTP',()=>{
+test('legacy private receipt recovery remains owner-verified while delivery needs no OTP',()=>{
   const h=harness({singleFile:true}),order=h.post(request()).order;
   const staff=(action:string,id_token:string,other:Record<string,unknown>={})=>
     h.post({action:'staff_mutate',id_token,operation:action,order_id:order.id,...other});
@@ -844,8 +852,7 @@ test('legacy dispatch OTP requires owner-verified one-time receipt recovery; pho
   assert.equal(staff('pick_up',RIDER_TOKEN).ok,true);
   assert.equal(staff('start_delivery',RIDER_TOKEN).ok,true);
   const original=JSON.parse(String(h.records('orders')[0].receipt_json));
-  const otp=String(original.delivery_otp);
-  assert.match(otp,/^\d{4}$/);
+  assert.equal(original.delivery_otp,'');
   // Simulate an authentic order from the original, pre-capability checkout.
   delete original.customer_access_token;
   h.tables.orders[1][ORDER_HEADERS.indexOf('receipt_json')]=JSON.stringify(original);
@@ -865,7 +872,7 @@ test('legacy dispatch OTP requires owner-verified one-time receipt recovery; pho
   assert.equal(issued.delivery_otp,undefined);
   assert.equal(h.post({...cmd,id_token:ADMIN_TOKEN}).code,'already_secured');
   assert.equal(h.post({...customer,customer_access_token:'wrong'}).code,'forbidden');
-  assert.equal(h.post({...customer,customer_access_token:issued.customer_access_token}).delivery_otp,otp);
+  assert.equal(h.post({...customer,customer_access_token:issued.customer_access_token}).delivery_otp,undefined);
   assert.equal(h.records('orders').length,1);
   assert.equal(h.records('order_items').length,1);
 });
@@ -888,7 +895,7 @@ test('private order lookup uses native exact-cell TextFinder when supported',()=
 });
 
 
-test('full COD acceptance: guest checkout, verified owner, password kitchen, assigned rider, phone customer OTP and paid delivery',()=>{
+test('full COD acceptance: guest checkout, verified owner, password kitchen, assigned rider, handover and paid delivery',()=>{
   const h=harness({singleFile:true});
   const signedUp=h.post({action:'customer_phone_signup',name:'Test Customer',phone:'01700000000',password:'StrongPrivateCustomerPass!'});
   assert.equal(signedUp.ok,true,JSON.stringify(signedUp));
@@ -937,18 +944,18 @@ test('full COD acceptance: guest checkout, verified owner, password kitchen, ass
   assert.equal(Object.hasOwn(dispatched.order,'customer_access_token'),false);
   const customerAtDispatch=getCustomer();
   assert.equal(customerAtDispatch.status,'out_for_delivery');
-  assert.match(customerAtDispatch.delivery_otp,/^\d{4}$/);
+  assert.equal(customerAtDispatch.delivery_otp,undefined);
   assert.equal(h.post({action:'staff_orders',id_token:RIDER_TOKEN}).orders[0].delivery_otp,undefined);
-  assert.equal(owner('deliver',{delivery_otp:customerAtDispatch.delivery_otp,cash_collected:true}).code,'forbidden');
-  assert.equal(rider('deliver',{delivery_otp:'0000',cash_collected:true}).code,'invalid_otp');
-  assert.equal(rider('deliver',{delivery_otp:customerAtDispatch.delivery_otp,cash_collected:false}).code,'cash_unconfirmed');
-  assert.equal(rider('deliver',{delivery_otp:customerAtDispatch.delivery_otp,cash_collected:true}).order.status,'delivered');
+  assert.equal(owner('deliver',{package_handed_over:true,cash_collected:true}).code,'forbidden');
+  assert.equal(rider('deliver',{cash_collected:true}).code,'handover_unconfirmed');
+  assert.equal(rider('deliver',{package_handed_over:true,cash_collected:false}).code,'cash_unconfirmed');
+  assert.equal(rider('deliver',{package_handed_over:true,cash_collected:true}).order.status,'delivered');
   const finished=getCustomer();
   assert.equal(finished.status,'delivered');
   assert.equal(finished.payment_status,'paid');
   assert.equal(finished.cod_collected,true);
   assert.equal(Object.hasOwn(finished,'delivery_otp'),false);
-  assert.equal(rider('deliver',{delivery_otp:customerAtDispatch.delivery_otp,cash_collected:true}).code,'invalid_transition');
+  assert.equal(rider('deliver',{package_handed_over:true,cash_collected:true}).code,'invalid_transition');
   assert.equal(h.records('orders').length,1);
   assert.equal(h.records('order_items').length,1);
   const data=JSON.parse(String(h.records('orders')[0].receipt_json));
@@ -1084,4 +1091,294 @@ test('password-free receipt recovery needs both original long key and phone; OTP
   assert.equal(recovered.order.delivery_otp,'');
   assert.equal(recovered.order.customer_access_token,created.customer_access_token);
   assert.equal('password_hash' in recovered.order,false);
+});
+
+
+function secondCashApprover(h:ReturnType<typeof harness>):string {
+ const username='cashreview01';
+ const created=h.post({action:'staff_account_create',id_token:ADMIN_TOKEN,name:'Cash Reviewer',
+   username,role:'manager',password:'StrongCashReviewer123!'});
+ assert.equal(created.created,true);
+ const login=h.post({action:'staff_password_login',username,password:'StrongCashReviewer123!'});
+ assert.equal(login.ok,true);
+ return login.auth_token;
+}
+
+test('rider COD cash ledger applies daily deposit debit once and never overdraws',()=>{
+ const h=harness({singleFile:true});h.context.setupSheetDatabase();
+ const placed=h.post(request());assert.equal(placed.persisted,true);
+ const id=placed.order.id;
+ const update=(operation:string,id_token:string,extra:Record<string,unknown>={})=>
+   h.post({action:'staff_mutate',id_token,operation,order_id:id,...extra});
+ for(const op of ['confirm','start_baking','mark_ready'])assert.equal(update(op,ADMIN_TOKEN).ok,true);
+ assert.equal(update('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
+ assert.equal(update('pick_up',RIDER_TOKEN).ok,true);
+ assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
+ assert.equal(update('deliver',RIDER_TOKEN,{package_handed_over:true,cash_collected:true}).ok,true);
+ const read=()=>h.post({action:'staff_finance_summary',id_token:ADMIN_TOKEN});
+ assert.equal(read().riders[0].collected,1680);
+ const requestId='a3333333-2222-4333-8444-555555555555';
+ const deposit={action:'staff_cash_deposit',id_token:ADMIN_TOKEN,request_id:requestId,
+   rider_id:'rider@example.com',amount:500,date:'2026-10-27',notes:'Daily cash'};
+ assert.equal(h.post({...deposit,id_token:RIDER_TOKEN}).code,'forbidden');
+ assert.equal(h.post({...deposit,amount:2000}).code,'balance_exceeded');
+ const submitted=h.post(deposit);
+ assert.equal(submitted.snapshot.riders[0].remaining,1680);
+ assert.equal(submitted.snapshot.deposits[0].status,'pending');
+ assert.equal(h.post({action:'staff_cash_deposit_approve',id_token:ADMIN_TOKEN,deposit_id:submitted.deposit_id}).code,'independent_approval_required');
+ assert.equal(h.post({action:'staff_cash_deposit_approve',auth_token:secondCashApprover(h),deposit_id:submitted.deposit_id}).snapshot.riders[0].remaining,1180);
+ assert.equal(h.post(deposit).already_saved,true);
+ assert.equal(h.post({...deposit,amount:600}).code,'idempotency_conflict');
+ assert.equal(h.records('rider_cash_deposits').length,1);
+ assert.equal(read().riders[0].deposited,500);
+ assert.equal(h.post({...deposit,request_id:'b3333333-2222-4333-8444-555555555555',amount:1181}).code,'balance_exceeded');
+ assert.equal(h.get('staff_finance_summary').ok,false);
+});
+
+test('per-cake recipe costs stay private and repeated writes cannot double count',()=>{
+ const h=harness({singleFile:true});h.context.setupSheetDatabase();
+ const input={action:'staff_cake_cost_save',id_token:ADMIN_TOKEN,request_id:'a4444444-2222-4333-8444-555555555555',
+   product_id:'p1',variant_id:'v1',component:'Flour',unit_label:'g',quantity:300,unit_cost:0.2};
+ assert.equal(h.post({...input,id_token:RIDER_TOKEN}).code,'forbidden');
+ const saved=h.post(input);
+ assert.equal(saved.ok,true,JSON.stringify(saved));
+ assert.equal(saved.snapshot.cost_totals['p1::v1'],60);
+ assert.equal(h.post(input).already_saved,true);
+ assert.equal(h.post({...input,quantity:320}).code,'idempotency_conflict');
+ assert.equal(h.records('cake_cost_items').length,1);
+ const id=h.records('cake_cost_items')[0].id;
+ assert.equal(h.post({action:'staff_cake_cost_archive',id_token:ADMIN_TOKEN,entry_id:id}).ok,true);
+ assert.equal(h.post({action:'staff_finance_summary',id_token:ADMIN_TOKEN}).costs.length,0);
+ assert.equal(h.get('staff_cake_cost_save').ok,false);
+});
+
+test('product base-price markdown is honored by authoritative sheet checkout when variant sale is blank',()=>{
+  const h=harness({singleFile:true});
+  h.tables.products[0].push('base_price','sale_price');
+  h.tables.products[1].push(800,650);
+  h.change('product_variants','sale_price','');
+  const reply=h.post(request());
+  assert.equal(reply.persisted,true,JSON.stringify(reply));
+  assert.equal(reply.order.items[0].unit_price,750);
+  assert.equal(reply.order.subtotal,1600);
+  assert.equal(reply.order.discount_amount,120);
+  assert.equal(reply.order.total_amount,1580);
+});
+
+test('owner can set individual staff access and changes revoke previous sessions',()=>{
+  const h=harness({singleFile:true});
+  const make={action:'staff_account_create',id_token:ADMIN_TOKEN,name:'Kitchen Employee',
+    username:'chef01',role:'kitchen_manager',password:'TestKitchenPassword123!',
+    permissions:['orders_view','kitchen_start']};
+  assert.equal(h.post(make).created,true);
+  const signIn=()=>h.post({action:'staff_password_login',username:'chef01',password:make.password});
+  const login=signIn();
+  assert.equal(login.ok,true);
+  const perm=h.post({action:'staff_session',auth_token:login.auth_token});
+  assert.equal(perm.role,'kitchen_manager');
+  assert.deepEqual(Array.from(perm.permissions),['orders_view','kitchen_start']);
+  const placed=h.post(request());assert.equal(placed.persisted,true);
+  const id=placed.order.id;
+  const act=(token:string,operation:string,extra:Record<string,unknown>={})=>
+    h.post({action:'staff_mutate',auth_token:token,order_id:id,operation,...extra});
+  assert.equal(act(login.auth_token,'confirm').code,'forbidden');
+  assert.equal(h.post({action:'staff_mutate',id_token:ADMIN_TOKEN,order_id:id,operation:'confirm'}).ok,true);
+  assert.equal(act(login.auth_token,'start_baking').ok,true);
+  assert.equal(act(login.auth_token,'mark_ready').code,'forbidden');
+  assert.equal(h.post({action:'staff_account_update_permissions',auth_token:login.auth_token,
+    username:'chef01',permissions:['orders_view','kitchen_start','kitchen_ready']}).code,'forbidden');
+  assert.equal(h.post({action:'staff_account_update_permissions',id_token:ADMIN_TOKEN,
+    username:'chef01',permissions:['orders_view','kitchen_start','kitchen_ready']}).updated,true);
+  assert.equal(h.post({action:'staff_session',auth_token:login.auth_token}).code,'unauthorized');
+  const renewed=signIn();
+  assert.equal(renewed.ok,true);
+  assert.equal(act(renewed.auth_token,'mark_ready').ok,true);
+  assert.equal(h.post({action:'staff_account_update_permissions',id_token:ADMIN_TOKEN,
+    username:'chef01',permissions:['orders_view','unrecognized_admin_override']}).code,'invalid_permissions');
+  const directory=h.post({action:'staff_session',id_token:ADMIN_TOKEN}).staff_profiles;
+  const chef=directory.find((p:{username?:string})=>p.username==='chef01');
+  assert.deepEqual(Array.from(chef.permissions),['orders_view','kitchen_start','kitchen_ready']);
+});
+
+test('manager performs kitchen, assignment, own delivery and COD without staff admin permission',()=>{
+  const h=harness({singleFile:true});h.context.setupSheetDatabase();
+  const make={action:'staff_account_create',id_token:ADMIN_TOKEN,name:'Store Manager',
+    username:'manager01',role:'manager',password:'FullManagerPassword123!'};
+  assert.equal(h.post(make).created,true);
+  const login=h.post({action:'staff_password_login',username:'manager01',password:make.password});
+  const token=login.auth_token;
+  const manager=h.post({action:'staff_session',auth_token:token});
+  assert.equal(manager.role,'manager');
+  assert.ok(manager.riders.some((r:{email:string})=>r.email==='manager01'));
+  assert.ok(manager.permissions.includes('delivery_complete'));
+  assert.ok(manager.permissions.includes('finance_edit'));
+  assert.equal(h.post({action:'staff_account_create',auth_token:token,name:'Fake Admin',
+    username:'fakeadm',password:'SomethingStrong555!',role:'admin'}).code,'forbidden');
+  assert.equal(h.post({action:'staff_account_update_permissions',id_token:ADMIN_TOKEN,
+    username:'manager01',permissions:['orders_view']}).code,'protected');
+  const order=h.post(request());
+  assert.equal(order.persisted,true);
+  const id=order.order.id;
+  const mutate=(operation:string,extra:Record<string,unknown>={})=>
+    h.post({action:'staff_mutate',auth_token:token,order_id:id,operation,...extra});
+  for(const operation of ['confirm','start_baking','mark_ready'])assert.equal(mutate(operation).ok,true);
+  assert.equal(mutate('assign',{rider_email:'manager01'}).ok,true);
+  assert.equal(mutate('pick_up').ok,true);
+  assert.equal(mutate('start_delivery').ok,true);
+  assert.equal(mutate('deliver',{package_handed_over:true,cash_collected:false}).code,'cash_unconfirmed');
+  assert.equal(mutate('deliver',{package_handed_over:true,cash_collected:true}).order.status,'delivered');
+  const finance=h.post({action:'staff_finance_summary',auth_token:token});
+  assert.equal(finance.ok,true);
+  assert.equal(finance.riders[0].remaining,1680);
+  const pending=h.post({action:'staff_cash_deposit',auth_token:token,request_id:'a2222222-3333-4333-8333-444444444444',
+    date:'2026-10-27',rider_id:'manager01',amount:200,notes:'Manager delivered COD'});
+  assert.equal(pending.snapshot.riders[0].remaining,1680);
+  assert.equal(h.post({action:'staff_cash_deposit_approve',auth_token:token,deposit_id:pending.deposit_id}).code,'independent_approval_required');
+  assert.equal(h.post({action:'staff_cash_deposit_approve',id_token:ADMIN_TOKEN,deposit_id:pending.deposit_id}).snapshot.riders[0].remaining,1480);
+  assert.equal(h.post({action:'staff_customer_lookup',auth_token:token,phone:'01700000000'}).found,true);
+});
+
+test('staff accounts permissions header can be added without rewriting existing staff',()=>{
+  const h=harness({singleFile:true});
+  const manager=h.post({action:'staff_account_create',id_token:ADMIN_TOKEN,name:'Shift Manager',
+    username:'shiftman',role:'manager',password:'ShiftManagerStrong777!'});
+  assert.equal(manager.created,true);
+  const oldRows=structuredClone(h.tables.staff_accounts.slice(1));
+  const oldHeader=h.tables.staff_accounts[0];
+  assert.equal(oldHeader.pop(),'permissions');
+  for(const row of h.tables.staff_accounts.slice(1))row.pop();
+  const msg=h.context.setupSheetDatabase();
+  assert.match(msg,/permissions header added/);
+  assert.equal(h.tables.staff_accounts[0].at(-1),'permissions');
+  assert.deepEqual(h.tables.staff_accounts.slice(1),oldRows.map(r=>r.slice(0,-1)));
+  assert.equal(h.post({action:'staff_password_login',username:'shiftman',password:'ShiftManagerStrong777!'}).ok,true);
+});
+
+test('restricted kitchen employee cannot recover customer contact information from a successful mutation',()=>{
+  const h=harness({singleFile:true});
+  const created=h.post({action:'staff_account_create',id_token:ADMIN_TOKEN,name:'Scoped Chef',
+    username:'scopedchef',password:'KitchenStrongPass2026!',role:'kitchen_manager',
+    permissions:['orders_view','kitchen_start','kitchen_ready']});
+  assert.equal(created.ok,true);
+  const signed=h.post({action:'staff_password_login',username:'scopedchef',password:'KitchenStrongPass2026!'});
+  assert.equal(signed.ok,true);
+  const order=h.post(request());
+  assert.equal(order.persisted,true);
+  assert.equal(h.post({action:'staff_mutate',id_token:ADMIN_TOKEN,
+    order_id:order.order.id,operation:'confirm'}).ok,true);
+  const updates=h.post({action:'staff_mutate',auth_token:signed.auth_token,
+    order_id:order.order.id,operation:'start_baking'});
+  assert.equal(updates.ok,true);
+  assert.equal(updates.order.status,'preparing');
+  for(const secret of ['customer_phone','delivery_address','customer_access_token','delivery_otp'])
+    assert.equal(updates.order[secret],undefined,'restricted mutation leaked '+secret);
+  const listed=h.post({action:'staff_orders',auth_token:signed.auth_token});
+  assert.equal(listed.orders.length,1);
+  assert.equal(listed.orders[0].customer_phone,undefined);
+  assert.equal(listed.orders[0].delivery_address,undefined);
+});
+
+test('product markdown exceeding a smaller size price never produces a free cake',()=>{
+  const h=harness({singleFile:true});
+  h.tables.products[0].push('base_price','sale_price');
+  h.tables.products[1].push(1200,100);
+  h.change('product_variants','sale_price','');
+  const result=h.post(request());
+  assert.equal(result.code,'invalid_price');
+  assert.equal(h.records('orders').length,0);
+});
+
+test('coupon usage counter reflects committed orders and cancellation, not repeated requests',()=>{
+  const h=harness({singleFile:true});
+  h.tables.coupons[0].push('usage_count');
+  h.tables.coupons[1].push(0);
+  const first=h.post(request());
+  assert.equal(first.persisted,true);
+  assert.equal(h.records('coupons')[0].usage_count,1);
+  assert.equal(h.post(request()).persisted,true);
+  assert.equal(h.records('coupons')[0].usage_count,1);
+  assert.equal(h.post({action:'staff_mutate',id_token:ADMIN_TOKEN,
+    order_id:first.order.id,operation:'cancel'}).ok,true);
+  assert.equal(h.records('coupons')[0].usage_count,0);
+});
+
+test('mistaken rider deposit is voided with audit reason and outstanding cash restored once',()=>{
+ const h=harness({singleFile:true});h.context.setupSheetDatabase();
+ const placed=h.post(request());const id=placed.order.id;
+ const change=(operation:string,token:string,extra:Record<string,unknown>={})=>
+  h.post({action:'staff_mutate',id_token:token,order_id:id,operation,...extra});
+ for(const op of ['confirm','start_baking','mark_ready'])assert.equal(change(op,ADMIN_TOKEN).ok,true);
+ assert.equal(change('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
+ for(const op of ['pick_up','start_delivery'])assert.equal(change(op,RIDER_TOKEN).ok,true);
+ assert.equal(change('deliver',RIDER_TOKEN,{package_handed_over:true,cash_collected:true}).ok,true);
+ const dep=h.post({action:'staff_cash_deposit',id_token:ADMIN_TOKEN,
+   request_id:'12345678-2222-4333-8444-000000000000',rider_id:'rider@example.com',amount:500,
+   date:'2026-10-27',notes:'Wrong amount entered'});
+ assert.equal(dep.snapshot.riders[0].remaining,1680);
+ assert.equal(h.post({action:'staff_cash_deposit_approve',auth_token:secondCashApprover(h),deposit_id:dep.deposit_id}).snapshot.riders[0].remaining,1180);
+ const did=dep.deposit_id;
+ assert.equal(h.post({action:'staff_cash_deposit_void',id_token:RIDER_TOKEN,deposit_id:did,reason:'Wrong cash entry'}).code,'forbidden');
+ assert.equal(h.post({action:'staff_cash_deposit_void',id_token:ADMIN_TOKEN,deposit_id:did,reason:'short'}).code,'invalid_reason');
+ const voided=h.post({action:'staff_cash_deposit_void',id_token:ADMIN_TOKEN,deposit_id:did,reason:'Duplicate physical cash deposit'});
+ assert.equal(voided.ok,true,JSON.stringify(voided));
+ assert.equal(voided.snapshot.riders[0].remaining,1680);
+ assert.equal(h.records('rider_cash_deposits').length,1);
+ assert.equal(h.post({action:'staff_cash_deposit_void',id_token:ADMIN_TOKEN,deposit_id:did,reason:'Duplicate physical cash deposit'}).already_voided,true);
+ assert.equal(h.records('rider_cash_deposits')[0].void_reason,'Duplicate physical cash deposit');
+});
+
+
+test('inventory restock and immutable baking cost consume mapped ingredients once',()=>{
+ const h=harness({singleFile:true});h.context.setupSheetDatabase();
+ const stock=h.post({action:'staff_stock_item_create',id_token:ADMIN_TOKEN,name:'Flour',unit:'g',reorder_level:100});
+ assert.equal(stock.ok,true,JSON.stringify(stock));
+ const stockId=stock.stock[0].id;
+ const restock={action:'staff_stock_adjust',id_token:ADMIN_TOKEN,
+   request_id:'10000000-2000-4000-8000-000000000001',item_id:stockId,
+   delta:800,reason:'Opening stock',unit_cost:0.2};
+ assert.equal(h.post(restock).stock[0].balance,800);
+ assert.equal(h.post(restock).already_saved,true);
+ assert.equal(h.post({...restock,request_id:'10000000-2000-4000-8000-000000000002',delta:-1000}).code,'invalid_stock');
+ const recipe=h.post({action:'staff_cake_cost_save',id_token:ADMIN_TOKEN,
+   request_id:'10000000-2000-4000-8000-000000000003',product_id:'p1',variant_id:'v1',
+   component:'Flour',unit_label:'g',quantity:100,unit_cost:0.2,inventory_item_id:stockId});
+ assert.equal(recipe.ok,true,JSON.stringify(recipe));
+ const order=h.post(request());
+ assert.equal(order.persisted,true);
+ const id=order.order.id;
+ assert.equal(h.post({action:'staff_mutate',id_token:ADMIN_TOKEN,order_id:id,operation:'confirm'}).ok,true);
+ assert.equal(h.post({action:'staff_mutate',id_token:ADMIN_TOKEN,order_id:id,operation:'start_baking'}).ok,true);
+ const state=h.post({action:'staff_inventory_summary',id_token:ADMIN_TOKEN});
+ assert.equal(state.stock[0].balance,600);
+ assert.equal(state.cost_snapshots.length,1);
+ assert.equal(state.cost_snapshots[0].total_cost,40);
+ assert.equal(state.movements.filter((m:{order_id:string})=>m.order_id===id).length,1);
+ assert.equal(h.post({action:'staff_mutate',id_token:ADMIN_TOKEN,order_id:id,operation:'start_baking'}).code,'invalid_transition');
+ assert.equal(h.post({action:'staff_inventory_summary',id_token:ADMIN_TOKEN}).stock[0].balance,600);
+});
+
+
+test('refund return request requires independent approval and settlement evidence',()=>{
+ const h=harness({singleFile:true});h.context.setupSheetDatabase();
+ const order=h.post(request()),id=order.order.id;
+ const update=(operation:string,id_token:string,extra:Record<string,unknown>={})=>
+  h.post({action:'staff_mutate',id_token,order_id:id,operation,...extra});
+ for(const op of ['confirm','start_baking','mark_ready'])assert.equal(update(op,ADMIN_TOKEN).ok,true);
+ assert.equal(update('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
+ for(const op of ['pick_up','start_delivery'])assert.equal(update(op,RIDER_TOKEN).ok,true);
+ assert.equal(update('deliver',RIDER_TOKEN,{package_handed_over:true,cash_collected:true}).ok,true);
+ const reviewer=secondCashApprover(h);
+ const req={action:'staff_refund_request',id_token:ADMIN_TOKEN,request_id:'20000000-2000-4000-8000-000000000001',
+   order_id:id,amount:500,kind:'return',reason:'Customer returned damaged cake'};
+ const created=h.post(req);
+ assert.equal(created.ok,true,JSON.stringify(created));
+ assert.equal(h.post(req).already_saved,true);
+ assert.equal(h.post({...req,request_id:'20000000-2000-4000-8000-000000000002',amount:1500}).code,'refund_exceeded');
+ const recId=created.refunds[0].id;
+ assert.equal(h.post({action:'staff_refund_approve',id_token:ADMIN_TOKEN,refund_id:recId}).code,'independent_approval_required');
+ assert.equal(h.post({action:'staff_refund_approve',auth_token:reviewer,refund_id:recId}).refunds[0].status,'approved');
+ assert.equal(h.post({action:'staff_refund_settle',id_token:ADMIN_TOKEN,refund_id:recId,settlement_note:'short'}).code,'approval_required');
+ assert.equal(h.post({action:'staff_refund_settle',id_token:ADMIN_TOKEN,refund_id:recId,
+   settlement_note:'Bank transfer receipt 12345'}).refunds[0].status,'settled');
+ assert.equal(h.post({action:'staff_refund_settle',id_token:ADMIN_TOKEN,refund_id:recId}).already_settled,true);
 });

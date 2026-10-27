@@ -19,11 +19,11 @@ export default async function operations(request) {
   if(!raw||raw.length>950000) return response(413,'Request too large.');
   let payload;
   try {payload=JSON.parse(raw);} catch {return response(400,'Invalid JSON.');}
-  const allowed=['create_order','get_order_status','customer_receipt_recover','customer_contact_submit','staff_session','staff_orders','staff_mutate','staff_legacy_receipt','staff_catalog',
+  const allowed=['create_order','get_order_status','customer_receipt_recover','customer_contact_submit','customer_phone_tracking','staff_inventory_summary','staff_stock_item_create','staff_stock_adjust','staff_refund_request','staff_refund_approve','staff_refund_settle','staff_finance_summary','staff_cash_deposit','staff_cash_deposit_approve','staff_cash_deposit_void','staff_cake_cost_save','staff_cake_cost_archive','staff_session','staff_orders','staff_mutate','staff_legacy_receipt','staff_catalog',
     'staff_catalog_update','staff_customer_lookup','customer_session','customer_orders','customer_claim_order','create_custom_cake',
     'get_custom_cake_status','staff_custom_cakes','staff_custom_quote',
     'staff_password_login','staff_password_logout','staff_account_create','staff_account_set_active',
-    'staff_account_reset_password','staff_cms_list','staff_cms_create','staff_cms_update','staff_cms_delete','staff_image_upload','customer_phone_signup','customer_phone_login','customer_phone_session',
+    'staff_account_reset_password','staff_account_update_permissions','staff_cms_list','staff_cms_create','staff_cms_update','staff_cms_delete','staff_image_upload','customer_phone_signup','customer_phone_login','customer_phone_session',
     'customer_phone_logout','customer_phone_profile','customer_phone_orders','customer_phone_claim','customer_phone_password','customer_phone_close'];
   if(!payload||typeof payload!=='object'||Array.isArray(payload)||!allowed.includes(payload.action))
     return response(400,'Unknown action.');

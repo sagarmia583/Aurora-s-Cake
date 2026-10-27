@@ -12,9 +12,9 @@ import {
   Truck,
   Sparkles
 } from 'lucide-react';
-import { CartItem, DeliveryZone, DeliverySlot, Order, PaymentMethod } from '../types';
+import { CartItem, DeliveryZone, DeliverySlot, Order, PaymentMethod, Coupon } from '../types';
 import { mockDb } from '../services/mockDatabase';
-import { calculateSheetOrderEstimate, createSheetOrderAttempt, submitSheetOrder, SheetOrderSubmissionError, loadConfirmedSheetOrders } from '../services/googleSheetOrders';
+import { calculateSheetOrderEstimate, createSheetOrderAttempt, submitSheetOrder, SheetOrderSubmissionError, loadConfirmedSheetOrders, storePendingSheetOrderAttempt, loadPendingSheetOrderAttempt, clearPendingSheetOrderAttempt } from '../services/googleSheetOrders';
 import { getPhoneCustomerProfile } from '../services/phoneCustomerApi';
 import { matchCheckoutCustomer, normalizeCheckoutPhone } from '../services/customerPhoneLookup';
 import type { CheckoutCustomerInfo } from '../services/customerPhoneLookup';
@@ -34,6 +34,8 @@ interface CheckoutModalProps {
   slots: DeliverySlot[];
   onOrderSuccess: (order: Order) => void;
   sheetOrderEndpoint?: string;
+  coupons?: Coupon[];
+  initialCoupon?: string;
 }
 
 export const CheckoutModal: React.FC<CheckoutModalProps> = (props) =>
@@ -48,8 +50,11 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   slots,
   onOrderSuccess,
   sheetOrderEndpoint,
+  coupons = [],
+  initialCoupon = '',
 }) => {
   const isLiveOrder = !!sheetOrderEndpoint;
+  const checkoutAvailable = isLiveOrder || import.meta.env?.PROD !== true;
 
   // Form State
   const [customerName, setCustomerName] = useState('');
@@ -64,8 +69,9 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cod');
 
   // Coupon
-  const [couponInput, setCouponInput] = useState('');
-  const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
+  const validInitialCoupon = coupons.find(c=>c.is_active && c.code.toUpperCase()===initialCoupon.trim().toUpperCase());
+  const [couponInput, setCouponInput] = useState(validInitialCoupon?.code||'');
+  const [appliedCoupon, setAppliedCoupon] = useState<string | null>(validInitialCoupon?.code.toUpperCase()||null);
   const [couponError, setCouponError] = useState<string | null>(null);
 
   // Submitting
@@ -126,6 +132,14 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     }).catch(()=>{/* An expired account session must not block guest checkout. */});
     return()=>{active=false;};
   },[isOpen,sheetOrderEndpoint]);
+  useEffect(() => {
+    if(!isOpen||!sheetOrderEndpoint||orderAttemptRef.current)return;
+    const pending=loadPendingSheetOrderAttempt(sheetOrderEndpoint);
+    if(!pending)return;
+    orderAttemptRef.current=pending;
+    setUnconfirmed(true);
+    setErrorMessage('An earlier order may already be saved. Retry that original request before placing another order. Your order details and request reference are preserved in this browser tab.');
+  },[isOpen,sheetOrderEndpoint]);
   const closeCheckout = () => { if (!submissionInFlight.current) onClose(); };
   const dialogRef = useCakeDialog(closeCheckout, isOpen);
 
@@ -133,7 +147,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const selectedDeliverySlot = slots.find((slot) => slot.slot_label === selectedSlot && slot.is_active)?.slot_label || slots.find((slot) => slot.is_active)?.slot_label || '';
   const itemsSubtotal = items.reduce((sum, item) => sum + item.total_price, 0);
 
-  const coupon = mockDb.getCoupons().find((item) => item.code.toUpperCase() === appliedCoupon && item.is_active);
+  const coupon = coupons.find((item) => item.code.toUpperCase() === appliedCoupon && item.is_active);
   const liveEstimate = isLiveOrder ? calculateSheetOrderEstimate(itemsSubtotal, selectedZone?.delivery_fee ?? 0, coupon) : undefined;
   let estimatedDiscount = liveEstimate?.discount ?? 0;
   if (!isLiveOrder && coupon && itemsSubtotal >= coupon.min_order_amount) {
@@ -146,7 +160,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     setCouponError(null);
     const code = couponInput.trim().toUpperCase();
     if (!code) return;
-    const match = mockDb.getCoupons().find((item) => item.code.toUpperCase() === code && item.is_active);
+    const match = coupons.find((item) => item.code.toUpperCase() === code && item.is_active);
     if (!match) {
       setCouponError('This coupon is not available.');
       return;
@@ -167,12 +181,15 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     try {
       const confirmedOrder = await submitSheetOrder(originalAttempt);
       orderAttemptRef.current = null;
+      clearPendingSheetOrderAttempt();
       setUnconfirmed(false);
       onOrderSuccess(confirmedOrder);
       onClose();
     } catch (error: unknown) {
+      const ambiguous=error instanceof SheetOrderSubmissionError && error.ambiguous;
+      if(!ambiguous){clearPendingSheetOrderAttempt();orderAttemptRef.current=null;}
       setErrorMessage(error instanceof Error ? error.message : 'The original order could not be confirmed.');
-      setUnconfirmed(error instanceof SheetOrderSubmissionError && error.ambiguous);
+      setUnconfirmed(ambiguous);
     } finally {
       submissionInFlight.current = false;
       setIsSubmitting(false);
@@ -182,6 +199,10 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submissionInFlight.current) return;
+    if (!checkoutAvailable) {
+      setErrorMessage('Live checkout is unavailable. We cannot save a demo order on the published bakery website.');
+      return;
+    }
     // An uncertain original write must be retried unchanged before consulting refreshed form or catalog data.
     if (unconfirmed && orderAttemptRef.current) { await retryOriginalOrder(); return; }
     setErrorMessage(null);
@@ -192,6 +213,10 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     }
     if (!items.length || !selectedZone || !selectedDeliverySlot) {
       setErrorMessage('Add a cake and choose an available delivery zone and time.');
+      return;
+    }
+    if (appliedCoupon && (!coupon || itemsSubtotal < coupon.min_order_amount)) {
+      setErrorMessage('This coupon is no longer applicable. Remove or reapply it before ordering.');
       return;
     }
     if (!deliveryDate || deliveryDate < localDate()) {
@@ -227,8 +252,12 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
           payment_method: 'cod',
           expected_total: estimatedTotal,
         }, orderAttemptRef.current);
+        // Save before any network request: even a refresh during submission
+        // must retry with the same request ID and checkout proof.
+        storePendingSheetOrderAttempt(orderAttemptRef.current);
         const confirmedOrder = await submitSheetOrder(orderAttemptRef.current);
         orderAttemptRef.current = null;
+        clearPendingSheetOrderAttempt();
         onOrderSuccess(confirmedOrder);
         onClose();
       } else {
@@ -243,8 +272,10 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
         onClose();
       }
     } catch (error: unknown) {
+      const ambiguous=error instanceof SheetOrderSubmissionError && error.ambiguous;
+      if(!ambiguous){clearPendingSheetOrderAttempt();orderAttemptRef.current=null;}
       setErrorMessage(error instanceof Error ? error.message : 'The order could not be confirmed. Your bag has been kept.');
-      setUnconfirmed(error instanceof SheetOrderSubmissionError && error.ambiguous);
+      setUnconfirmed(ambiguous);
     } finally {
       submissionInFlight.current = false;
       setIsSubmitting(false);
@@ -261,7 +292,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
         <div className="p-6 bg-gradient-to-r from-rose-50 to-amber-50 border-b border-rose-100 flex items-center justify-between">
           <div>
             <span className="text-xs font-bold uppercase tracking-wider text-rose-600 bg-rose-100/70 px-2.5 py-0.5 rounded-full">
-              {isLiveOrder ? 'Cash-on-delivery checkout' : 'Demo checkout'}
+              {!checkoutAvailable ? 'Checkout temporarily unavailable' : isLiveOrder ? 'Cash-on-delivery checkout' : 'Demo checkout'}
             </span>
             <h3 id="checkout-title" className="text-xl font-bold text-slate-900 mt-1">A little closer to cake</h3>
           </div>
@@ -447,7 +478,11 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
                 type="text"
                 aria-label="Coupon code" placeholder="Enter coupon code"
                 value={couponInput}
-                onChange={(e) => setCouponInput(e.target.value)}
+                onChange={(e) => {
+                  setCouponInput(e.target.value);
+                  if(e.target.value.trim().toUpperCase()!==appliedCoupon)setAppliedCoupon(null);
+                  setCouponError(null);
+                }}
                 className="flex-1 px-3.5 py-2 text-xs rounded-xl border border-slate-200 uppercase tracking-wider font-semibold"
               />
               <button
@@ -521,7 +556,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
           <button
             type="submit"
             hidden={unconfirmed}
-            disabled={isSubmitting || unconfirmed || !items.length || !selectedZone || !selectedDeliverySlot}
+            disabled={!checkoutAvailable || isSubmitting || unconfirmed || !items.length || !selectedZone || !selectedDeliverySlot}
             className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-3.5 px-4 rounded-2xl shadow-lg shadow-rose-200 flex items-center justify-center gap-2 text-sm transition-all cursor-pointer active:scale-98 disabled:opacity-50"
           >
             {isSubmitting ? (

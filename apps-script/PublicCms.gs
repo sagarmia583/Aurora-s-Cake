@@ -124,16 +124,17 @@ function auroraCmsValidateRefs_(book,name,row,oldId){
 }
 function auroraCmsPost_(input){
   var actor=auroraStaffAuthenticate_(input);
-  if(actor.role!=='super_admin'&&actor.role!=='admin')auroraReject_('forbidden','Only authorized shop administrators can edit public content.');
+  auroraStaffRequire_(actor,'catalog_view');
   var name=auroraCmsTable_(String(input.table||'')),action=String(input.action||'');
   if(action==='staff_cms_list'){
     var snapshot=auroraCmsRead_(auroraSpreadsheet_(),name);
     return {ok:true,table:name,columns:snapshot.columns,rows:auroraCmsRowsSafe_(snapshot),
-      total:snapshot.rows.length,truncated:snapshot.rows.length>500,can_delete:actor.role==='super_admin'};
+      total:snapshot.rows.length,truncated:snapshot.rows.length>500,can_delete:auroraStaffHas_(actor,'catalog_archive')};
   }
   if(['staff_cms_create','staff_cms_update','staff_cms_delete'].indexOf(action)===-1)
     auroraReject_('invalid_action','Unsupported website edit.');
-  if(action==='staff_cms_delete'&&actor.role!=='super_admin')auroraReject_('forbidden','Only Super Admin can archive public records.');
+  if(action==='staff_cms_delete')auroraStaffRequire_(actor,'catalog_archive');
+  else auroraStaffRequire_(actor,'catalog_edit');
   var lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))auroraReject_('busy','Another website change is being saved.');
   try {
@@ -166,6 +167,7 @@ function auroraCmsPost_(input){
       table.columns.forEach(function(field){
         row[field]=existing?existing[field]:field===table.key?nowId:
           AURORA_CMS_BOOLEAN_FIELDS_.indexOf(field)!==-1?false:
+          ['sale_price','max_discount_amount','rating'].indexOf(field)!==-1?'':
           AURORA_CMS_NUMBER_FIELDS_.indexOf(field)!==-1?0:'';
       });
       if(action==='staff_cms_delete'){
@@ -196,8 +198,16 @@ function auroraCmsPost_(input){
           return String(other.id)!==nowId&&String(other[uniqueField]||'').trim().toLowerCase()===candidate;
         }))auroraReject_('duplicate','Another record already uses this '+uniqueField+'.');
       }
-      if(name==='product_variants'&&row.sale_price!==''&&Number(row.sale_price)>Number(row.price))
-        auroraReject_('invalid_price','Sale price cannot exceed the regular price.');
+      if(name==='products' && auroraActive_(row.is_active) && Number(row.base_price)<=0)
+        auroraReject_('invalid_price','Active cake must have a positive base price.');
+      if(name==='products' && row.sale_price!=='' &&
+         (Number(row.sale_price)<=0 || Number(row.sale_price)>Number(row.base_price)))
+        auroraReject_('invalid_price','Cake sale price must be positive and no greater than the base price.');
+      if(name==='product_variants' && auroraActive_(row.is_active) && Number(row.price)<=0)
+        auroraReject_('invalid_price','Active cake size must have a positive price.');
+      if(name==='product_variants' && row.sale_price!=='' &&
+         (Number(row.sale_price)<=0 || Number(row.sale_price)>Number(row.price)))
+        auroraReject_('invalid_price','Cake size sale price must be positive and no greater than the regular price.');
       if(action==='staff_cms_create') {
         table.sheet.getRange(table.sheet.getLastRow()+1,1,1,table.headers.length).setValues([table.headers.map(function(field){return auroraSheetCell_(row[field]);})]);
       }else{

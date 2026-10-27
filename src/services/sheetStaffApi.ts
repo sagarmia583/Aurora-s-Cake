@@ -1,8 +1,10 @@
+import {normalizedStaffPermissions} from './staffPermissions';
+import type {StaffCapability} from './staffPermissions';
 import type { Order, OrderStatus } from '../types';
 import { resolveSheetsPostEndpoint, sheetsPostCredentials } from './googleSheets';
 import { validateStaffOrderList } from './staffOrderSnapshot';
 
-export type StaffRoleName = 'super_admin' | 'admin' | 'order_manager' | 'kitchen_manager' | 'delivery_manager' | 'delivery_man' | 'accountant';
+export type StaffRoleName = 'super_admin' | 'admin' | 'manager' | 'order_manager' | 'kitchen_manager' | 'delivery_manager' | 'delivery_man' | 'accountant';
 export type StaffOperation = 'confirm' | 'cancel' | 'start_baking' | 'mark_ready' | 'assign' | 'pick_up' | 'start_delivery' | 'deliver';
 export type StaffOrder = Omit<Order, 'delivery_otp'> & { legacy_receipt_missing?: boolean };
 export interface StaffProfile {
@@ -11,6 +13,7 @@ export interface StaffProfile {
   name: string;
   role: StaffRoleName;
   active?: boolean;
+  permissions?: StaffCapability[];
 }
 export interface StaffSession {
   role: StaffRoleName;
@@ -18,6 +21,7 @@ export interface StaffSession {
   email: string;
   username?: string;
   riders: { email: string; name: string }[];
+  permissions?: StaffCapability[];
   /** Only included after the backend verifies the signed-in super_admin. */
   staff_profiles?: StaffProfile[];
 }
@@ -54,8 +58,13 @@ export async function privatePost(endpoint: string, body: Record<string, unknown
       body: JSON.stringify(body), redirect: 'follow', credentials: sheetsPostCredentials(url),
       signal: controller.signal,
     });
-    if (!response.ok) throw new Error('The bakery operations endpoint is unavailable.');
     const data: unknown = await response.json().catch(() => null);
+    if (!response.ok) {
+      const message = objectValue(data) && typeof data.error === 'string'
+        ? data.error : 'The bakery operations endpoint is unavailable (HTTP ' + response.status + ').';
+      const code = objectValue(data) && typeof data.code === 'string' ? data.code : 'network';
+      throw new BakeryOperationsError(message, code);
+    }
     if (!objectValue(data)) throw new Error('Invalid bakery operations response. Check the Apps Script deployment.');
     if (data.ok !== true) throw new BakeryOperationsError(typeof data.error === 'string' ? data.error : 'Bakery operation was not accepted.', typeof data.code === 'string' ? data.code : 'unknown_error');
     return data;
@@ -73,8 +82,11 @@ export async function signInStaffPassword(endpoint:string,username:string,passwo
     throw new Error('Invalid staff login session.');
   return result.auth_token;
 }
-export async function createStaffAccount(endpoint:string,token:string,name:string,username:string,password:string,role:StaffRoleName):Promise<void>{
-  await privatePost(endpoint,{action:'staff_account_create',...staffCredential(token),name,username,password,role});
+export async function createStaffAccount(endpoint:string,token:string,name:string,username:string,password:string,role:StaffRoleName,permissions:StaffCapability[]):Promise<void>{
+  await privatePost(endpoint,{action:'staff_account_create',...staffCredential(token),name,username,password,role,permissions});
+}
+export async function changeStaffPermissions(endpoint:string,token:string,username:string,permissions:StaffCapability[]):Promise<void>{
+  await privatePost(endpoint,{action:'staff_account_update_permissions',...staffCredential(token),username,permissions});
 }
 export async function changeStaffStatus(endpoint:string,token:string,username:string,active:boolean):Promise<void>{
   await privatePost(endpoint,{action:'staff_account_set_active',...staffCredential(token),username,active});
@@ -86,14 +98,16 @@ export async function checkStaffSession(endpoint: string, idToken: string): Prom
   const data = await privatePost(endpoint, { action: 'staff_session', ...staffCredential(idToken) });
   if (typeof data.role !== 'string' || typeof data.email !== 'string') throw new Error('Staff role was not returned.');
   const riders = Array.isArray(data.riders) ? data.riders.filter(item => objectValue(item) && typeof item.email === 'string' && typeof item.name === 'string') as StaffSession['riders'] : [];
-  const allowedRoles: StaffRoleName[] = ['super_admin','admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'];
+  const allowedRoles: StaffRoleName[] = ['super_admin','admin','manager','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'];
   const staff_profiles: StaffProfile[] | undefined = data.role === 'super_admin' && Array.isArray(data.staff_profiles)
     ? data.staff_profiles.filter(item => objectValue(item)
         && typeof item.email === 'string' && typeof item.name === 'string'
         && typeof item.role === 'string' && allowedRoles.includes(item.role as StaffRoleName))
-      .map(item => ({ email: String(item.email), username: typeof item.username==='string'?item.username:undefined, name: String(item.name), role: item.role as StaffRoleName, active: typeof item.active==='boolean'?item.active:undefined }))
+      .map(item => ({ email: String(item.email), username: typeof item.username==='string'?item.username:undefined, name: String(item.name), role: item.role as StaffRoleName, active: typeof item.active==='boolean'?item.active:undefined,
+        permissions: normalizedStaffPermissions(item.permissions) }))
     : undefined;
-  return { role: data.role as StaffRoleName, email: data.email, username: typeof data.username==='string'?data.username:undefined, name: String(data.name || data.email), riders, staff_profiles };
+  return { role: data.role as StaffRoleName, email: data.email, username: typeof data.username==='string'?data.username:undefined, name: String(data.name || data.email), riders, staff_profiles,
+    permissions: normalizedStaffPermissions(data.permissions) };
 }
 export async function getStaffOrders(endpoint: string, idToken: string): Promise<StaffOrder[]> {
   const data = await privatePost(endpoint, { action: 'staff_orders', ...staffCredential(idToken) });

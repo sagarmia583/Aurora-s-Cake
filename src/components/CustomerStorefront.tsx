@@ -1,6 +1,7 @@
+import { variantPrice, variantDiscount } from '../services/productPricing';
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, ArrowUpRight, CakeSlice, Check, ChevronDown, Flower2, Heart, Leaf, Truck, Facebook, Phone, Mail, Plus } from 'lucide-react';
-import { Product, Category, ShopSettings, Flavor, Banner, Review } from '../types';
+import { Product, Category, ShopSettings, Flavor, Banner, Review, Coupon } from '../types';
 import type { PublicSiteData, SiteHighlight } from '../types/siteContent';
 import { DEFAULT_PUBLIC_SITE_DATA } from '../content/defaultSiteData';
 
@@ -11,6 +12,8 @@ interface CustomerStorefrontProps {
   flavors: Flavor[];
   banners: Banner[];
   reviews: Review[];
+  coupons?: Coupon[];
+  onUseCoupon?: (code: string) => void;
   currency: string;
   onSelectProduct: (product: Product) => void;
   onOpenTrackOrder: () => void;
@@ -26,7 +29,7 @@ const safeLink = (value?: string) => value && /^(https?:\/\/|mailto:|tel:|#)/i.t
 const safeImage = (value?: string) => value && /^(https?:\/\/|\/[^/])/i.test(value.trim()) ? value.trim() : '';
 
 function startingPrice(product: Product) {
-  const prices = product.variants.filter(v => v.is_active).map(v => v.sale_price ?? v.price);
+  const prices = product.variants.filter(v => v.is_active).map(v => variantPrice(product,v));
   return prices.length ? Math.min(...prices) : product.sale_price ?? product.base_price;
 }
 
@@ -38,7 +41,7 @@ function HighlightIcon({ name, size = 20 }: { name?: string; size?: number }) {
 
 export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
   settings: suppliedSettings, products, categories, currency, onSelectProduct, onOpenCustomCake,
-  onOpenTrackOrder, onOpenProfile, searchQuery, publicData,
+  onOpenTrackOrder, onOpenProfile, searchQuery, publicData, coupons = [], onUseCoupon,
 }) => {
   const data: PublicSiteData = publicData ?? DEFAULT_PUBLIC_SITE_DATA;
   const settings = publicData?.settings ?? suppliedSettings;
@@ -66,6 +69,7 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
   const customImage = safeImage(text('custom_image_url'));
   const storyImage = safeImage(text('story_image_url'));
   const logo = safeImage(settings.logo_url);
+  const [showAllCoupons,setShowAllCoupons]=useState(false);
   const activeProducts = products.filter(product => product.is_active);
   const filtered = useMemo(() => products.filter(product => product.is_active)
     .filter(product => category === 'all' || product.category_id === category)
@@ -105,6 +109,25 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
       </div>}
     </section>
 
+    {coupons.some(c=>c.is_active) && <section className="ac-container" aria-label="Available cake coupons" style={{paddingTop:20,paddingBottom:12}}>
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:p-5">
+        <div className="font-bold text-amber-950 text-sm mb-3">🎁 Available offers — use a coupon at checkout</div>
+        <div className="flex flex-wrap gap-3">
+          {coupons.filter(c=>c.is_active).slice(0,showAllCoupons?undefined:6).map(c=><div key={c.id} className="rounded-xl bg-white border border-amber-200 p-3 flex-1 min-w-[180px]">
+            <strong className="block text-lg text-emerald-900">{c.discount_type==='percentage'?c.discount_value+'% OFF':money(c.discount_value)+' OFF'}</strong>
+            <span className="text-xs text-slate-500 block mt-1">Min. cake subtotal {money(c.min_order_amount)}</span>
+            <button type="button" onClick={()=>onUseCoupon?.(c.code)} className="mt-3 rounded-lg bg-[#174b3b] text-white text-xs font-bold px-3 py-2" aria-label={'Use coupon '+c.code}>
+              Use code: {c.code}
+            </button>
+          </div>)}
+        </div>
+        {coupons.filter(c=>c.is_active).length>6 && <button type="button" onClick={()=>setShowAllCoupons(v=>!v)}
+          className="mt-3 text-sm font-bold text-emerald-900 underline underline-offset-4">
+          {showAllCoupons?'Show fewer coupons':'View all '+coupons.filter(c=>c.is_active).length+' coupons'}
+        </button>}
+      </div>
+    </section>}
+
     {promises.length > 0 && <div className="ac-promise-strip"><div className="ac-container ac-promises">{promises.map((item, index) => <React.Fragment key={item.id}>{index > 0 && <i />}<span><HighlightIcon name={item.icon} /><span>{item.title}{item.description && <small style={{ display: 'block' }}>{item.description}</small>}</span></span></React.Fragment>)}</div></div>}
 
     {occasions.length > 0 && <section className="ac-occasions ac-container" aria-labelledby="occasion-heading">
@@ -126,14 +149,14 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
       </div>
       <div className="ac-results-line" aria-live="polite">{searchQuery ? `“${searchQuery}” · ` : ''}{filtered.length} {text('catalog_results_label')}</div>
       <div className="ac-product-grid">{filtered.map(product => {
-        const firstVariant = product.variants.filter(variant => variant.is_active).sort((a, b) => (a.sale_price ?? a.price) - (b.sale_price ?? b.price))[0];
+        const firstVariant = product.variants.filter(variant => variant.is_active).sort((a, b) => variantPrice(product,a) - variantPrice(product,b))[0];
         return <article className="ac-product" key={product.id}>
           <button className="ac-product-image-button" onClick={() => onSelectProduct(product)} aria-label={`Choose ${product.name}`}>
             {safeImage(product.image_url) && <img src={safeImage(product.image_url)} alt={product.name} loading="lazy" width="800" height="800" />}
-            {product.is_featured && text('catalog_featured_badge') && <span className="ac-product-tag">{text('catalog_featured_badge')}</span>}
+            {firstVariant && variantDiscount(product,firstVariant)>0 ? <span className="ac-product-tag" style={{background:'#b91c1c',color:'white'}}>-{variantDiscount(product,firstVariant)}% OFF</span> : product.is_featured && text('catalog_featured_badge') && <span className="ac-product-tag">{text('catalog_featured_badge')}</span>}
             <span className="ac-product-hover">{text('catalog_customize_label')} <ArrowUpRight size={15} /></span>
           </button>
-          <div className="ac-product-info"><div><span className="ac-product-category">{categories.find(item => item.id === product.category_id)?.name ?? product.category_name}</span><h3><button onClick={() => onSelectProduct(product)}>{product.name}</button></h3><p className="ac-product-description">{product.description}</p><p>{text('catalog_from_label')} <strong>{money(startingPrice(product))}</strong>{firstVariant && <span> / {firstVariant.name.split(' (')[0]}</span>}</p></div><button className="ac-add-cake" onClick={() => onSelectProduct(product)} aria-label={`${text('catalog_customize_label')} ${product.name}`}><span>{text('catalog_customize_label')}</span><ArrowUpRight size={16} strokeWidth={1.8} /></button></div>
+          <div className="ac-product-info"><div><span className="ac-product-category">{categories.find(item => item.id === product.category_id)?.name ?? product.category_name}</span><h3><button onClick={() => onSelectProduct(product)}>{product.name}</button></h3><p className="ac-product-description">{product.description}</p><p>{text('catalog_from_label')} <strong>{money(startingPrice(product))}</strong>{firstVariant && variantDiscount(product,firstVariant)>0 && <del style={{marginLeft:8,color:'#8a8a8a'}}>{money(firstVariant.price)}</del>}{firstVariant && <span> / {firstVariant.name.split(' (')[0]}</span>}</p></div><button className="ac-add-cake" onClick={() => onSelectProduct(product)} aria-label={`${text('catalog_customize_label')} ${product.name}`}><span>{text('catalog_customize_label')}</span><ArrowUpRight size={16} strokeWidth={1.8} /></button></div>
         </article>;
       })}</div>
       {!filtered.length && <div className="ac-empty"><CakeSlice size={42} strokeWidth={1} /><h3>{text('catalog_empty_title')}</h3><p>{text('catalog_empty_description')}</p><button className="ac-text-button" onClick={() => setCategory('all')}>{text('catalog_reset_label')} <ArrowRight size={15} /></button></div>}

@@ -1,6 +1,8 @@
+import {STAFF_CAPABILITY_GROUPS, defaultStaffPermissions, hasStaffPermission, canStaffOperation, canStaffOperateAssignedOrder} from '../services/staffPermissions';
+import type {StaffCapability} from '../services/staffPermissions';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, RefreshCw, ShieldCheck, Truck, PackageCheck, LayoutDashboard, ShoppingBag, UsersRound, CakeSlice, Store, Search, ChevronDown, ChevronUp, LogOut, Clock3, BadgeCheck, ArrowRight, AlertCircle, CreditCard, MapPin } from 'lucide-react';
-import { checkStaffSession, getStaffOrders, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword, lookupStaffCustomer } from '../services/sheetStaffApi';
+import { checkStaffSession, getStaffOrders, mutateStaffOrder, signInStaffPassword, createStaffAccount, changeStaffPermissions, changeStaffStatus, resetStaffPassword, lookupStaffCustomer } from '../services/sheetStaffApi';
 import type { StaffCustomerMatch, StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
 import { getBrowserWorkspaceStorage, loadStaffCredential, saveStaffCredential, clearStaffCredential, loadStaffTab, saveStaffTab } from '../services/staffWorkspaceSession';
@@ -8,6 +10,8 @@ import { reconcileStaffOrders, loadStaffOrdersSnapshot, saveStaffOrdersSnapshot,
 import { activeStaffOrderAlertIds, detectNewStaffOrderAlerts } from '../services/staffOrderAlerts';
 // Download the larger forms only if the user opens those workspaces.
 const WebsiteManager=React.lazy(()=>import('./WebsiteManager').then(m=>({default:m.WebsiteManager})));
+const FinancePanel=React.lazy(()=>import('./FinancePanel'));
+const InventoryPanel=React.lazy(()=>import('./InventoryPanel'));
 const CustomCakeQueue=React.lazy(()=>import('./CustomCakeQueue').then(m=>({default:m.CustomCakeQueue})));
 
 type GoogleSdk = {
@@ -17,16 +21,8 @@ type GoogleSdk = {
 const googleSdk = (): GoogleSdk | undefined =>
   (window as Window & { google?: { accounts?: { id?: GoogleSdk } } }).google?.accounts?.id;
 
-function canOperate(role: StaffRoleName, operation: StaffOperation): boolean {
-  // Rider actions require an actual rider session, even for admins.
-  if (['pick_up', 'start_delivery', 'deliver'].includes(operation)) return role === 'delivery_man';
-  if (role === 'super_admin' || role === 'admin') return true;
-  const rules: Partial<Record<StaffRoleName, StaffOperation[]>> = {
-    order_manager: ['confirm', 'cancel'],
-    kitchen_manager: ['start_baking', 'mark_ready'],
-    delivery_manager: ['assign'],
-  };
-  return (rules[role] || []).includes(operation);
+function canOperate(role:StaffRoleName,operation:StaffOperation,permissions?:StaffCapability[]):boolean{
+  return canStaffOperation(role,permissions,operation);
 }
 const actionForStatus: Record<string, { operation: StaffOperation; label: string } | null> = {
   pending: { operation: 'confirm', label: 'Confirm order' },
@@ -35,11 +31,11 @@ const actionForStatus: Record<string, { operation: StaffOperation; label: string
   ready: { operation: 'assign', label: 'Assign rider' },
   assigned: { operation: 'pick_up', label: 'Pick up cake' },
   picked_up: { operation: 'start_delivery', label: 'Start delivery' },
-  out_for_delivery: { operation: 'deliver', label: 'Verify delivery OTP' },
+  out_for_delivery: { operation: 'deliver', label: 'Confirm delivery' },
   delivered: null, cancelled: null,
 };
 
-type StaffTab = 'overview' | 'orders' | 'cakes' | 'team' | 'website';
+type StaffTab = 'overview' | 'orders' | 'cakes' | 'team' | 'website' | 'finance';
 type OrderFilter = 'actionable' | 'active' | 'completed' | 'all';
 const terminalStatuses = new Set(['delivered','cancelled']);
 const stageNames:Record<string,string>={pending:'New order',confirmed:'Confirmed',preparing:'Baking',ready:'Ready for rider',assigned:'Rider assigned',picked_up:'Picked up',out_for_delivery:'On the way',delivered:'Delivered',cancelled:'Cancelled'};
@@ -75,6 +71,10 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [username,setUsername]=useState('');
   const [password,setPassword]=useState('');
   const [newStaff,setNewStaff]=useState({name:'',username:'',password:'',role:'kitchen_manager' as StaffRoleName});
+  const [newStaffPermissions,setNewStaffPermissions]=useState<StaffCapability[]>(defaultStaffPermissions('kitchen_manager'));
+  const [permissionEditFor,setPermissionEditFor]=useState('');
+  const [permissionDraft,setPermissionDraft]=useState<StaffCapability[]>([]);
+  const [savingPermissions,setSavingPermissions]=useState(false);
   const [creatingStaff,setCreatingStaff]=useState(false);
   const [resetFor,setResetFor]=useState('');
   const [resetPassword,setResetPassword]=useState('');
@@ -128,8 +128,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [loading, setLoading] = useState(false);
   const [busyOrderId, setBusyOrderId] = useState('');
   const [riderEmail, setRiderEmail] = useState('');
-  const [otpOrderId, setOtpOrderId] = useState('');
-  const [otp, setOtp] = useState('');
+  const [deliveryConfirmOrderId, setDeliveryConfirmOrderId] = useState('');
+  const [packageHandedOver, setPackageHandedOver] = useState(false);
   const [cashCollected, setCashCollected] = useState(false);
   const [updatedAt, setUpdatedAt] = useState('');
   const ordersRefreshInFlight=useRef<string|null>(null);
@@ -146,13 +146,12 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       .then(data=>{
         if(controller.signal.aborted)return;
         if(data?.ok===true&&data?.up_to_date===false)
-          setBackendWarning('The Google Apps Script deployment is outdated. Delivery OTP, the Website Manager and faster order updates require the latest All-in-One Code.gs and a New version deployment.');
+          setBackendWarning('The Google Apps Script deployment is outdated. Passwordless delivery confirmation and the Website Manager require the latest All-in-One Code.gs and a New version deployment.');
         else setBackendWarning('');
       })
       .catch(()=>{});
     return()=>controller.abort();
   },[isOpen,endpoint]);
-  const [legacyKey,setLegacyKey]=useState<{orderId:string;key:string}|null>(null);
   const lookupCustomer=async(event:React.FormEvent)=>{
     event.preventDefault();if(!identity||customerLookupBusy)return;
     setCustomerLookupBusy(true);setCustomerLookupMessage('');setCustomerLookupResult(null);
@@ -163,36 +162,38 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     }catch(error){setCustomerLookupMessage(error instanceof Error?error.message:'Customer search failed.');}
     finally{setCustomerLookupBusy(false);}
   };
-  const isActionable=(order:StaffOrder,role:StaffRoleName):boolean=>{
+  const isActionable=(order:StaffOrder,role:StaffRoleName,permissions?:StaffCapability[]):boolean=>{
     const next=actionForStatus[order.status];
-    return Boolean(next&&canOperate(role,next.operation));
+    return Boolean(next&&canStaffOperateAssignedOrder(role,permissions,next.operation,identity?.email,order.rider_id));
   };
+  const canActOnOrder=(order:StaffOrder,operation:StaffOperation):boolean=>
+    !!identity&&canStaffOperateAssignedOrder(identity.role,identity.permissions,operation,identity.email,order.rider_id);
+  const has=(cap:StaffCapability)=>!!identity&&hasStaffPermission(identity.role,identity.permissions,cap);
   useEffect(()=>{
     if(!identity)return;
-    const operational=['kitchen_manager','delivery_manager','delivery_man','order_manager'].includes(identity.role);
-    const stored=loadStaffTab(getBrowserWorkspaceStorage());
-    const allowed=['orders','overview',...(['super_admin','admin','order_manager'].includes(identity.role)?['cakes']:[]),
-      ...(identity.role==='super_admin'?['team']:[]),
-      ...(['super_admin','admin'].includes(identity.role)?['website']:[])];
-    const next=allowed.includes(stored)?stored as StaffTab:operational?'orders':'overview';
-    setActiveTab(next);
-    // Keep every authorized order visible as it moves between roles/stages.
-    // The old default 'Needs my action' made successfully updated orders
-    // disappear immediately, even when still present in state and Sheets.
+    const allowed:StaffTab[]=[
+      ...(hasStaffPermission(identity.role,identity.permissions,'orders_view')?['overview','orders'] as StaffTab[]:[]),
+      ...(hasStaffPermission(identity.role,identity.permissions,'custom_cakes_view')?['cakes'] as StaffTab[]:[]),
+      ...(identity.role==='super_admin'?['team'] as StaffTab[]:[]),
+      ...(hasStaffPermission(identity.role,identity.permissions,'catalog_view')?['website'] as StaffTab[]:[]),
+      ...(hasStaffPermission(identity.role,identity.permissions,'finance_view')?['finance'] as StaffTab[]:[])];
+    const saved=loadStaffTab(getBrowserWorkspaceStorage()) as StaffTab;
+    setActiveTab(allowed.includes(saved)?saved:allowed[0]||'overview');
     setOrderFilter('all');
-  },[identity?.role]);
+  },[identity?.role,identity?.email,identity?.permissions?.join(',')]);
   useEffect(()=>{if(identity)saveStaffTab(getBrowserWorkspaceStorage(),activeTab);},[activeTab,identity]);
-  const actionableCount=identity?orders.filter(order=>isActionable(order,identity.role)).length:0;
+  const actionableCount=identity?orders.filter(order=>isActionable(order,identity.role,identity.permissions)).length:0;
   const activeCount=orders.filter(order=>!terminalStatuses.has(order.status)).length;
   const deliveryCount=orders.filter(order=>['assigned','picked_up','out_for_delivery'].includes(order.status)).length;
   const collectedCOD=orders.filter(order=>order.payment_method==='cod'&&order.payment_status==='paid'&&order.cod_collected)
     .reduce((total,order)=>total+order.total_amount,0);
   const roleTabs:{id:StaffTab;label:string;hint:string;icon:typeof LayoutDashboard;show:boolean}[]=[
-    {id:'overview',label:'Overview',hint:'Shop pulse',icon:LayoutDashboard,show:true},
-    {id:'orders',label:'Orders & delivery',hint:'Live workflow',icon:ShoppingBag,show:true},
-    {id:'cakes',label:'Custom cake requests',hint:'Quotes & approvals',icon:CakeSlice,show:['super_admin','admin','order_manager'].includes(identity?.role||'')},
+    {id:'overview',label:'Overview',hint:'Shop pulse',icon:LayoutDashboard,show:has('orders_view')},
+    {id:'orders',label:'Orders & delivery',hint:'Live workflow',icon:ShoppingBag,show:has('orders_view')},
+    {id:'cakes',label:'Custom cake requests',hint:'Quotes & approvals',icon:CakeSlice,show:has('custom_cakes_view')},
     {id:'team',label:'Staff & access',hint:'People and roles',icon:UsersRound,show:identity?.role==='super_admin'},
-    {id:'website',label:'Website manager',hint:'Shop content',icon:Store,show:identity?.role==='super_admin'||identity?.role==='admin'},
+    {id:'finance',label:'Cash & costs',hint:'Rider settlements and cake expenses',icon:CreditCard,show:has('finance_view')},
+    {id:'website',label:'Website manager',hint:'Shop content',icon:Store,show:has('catalog_view')},
   ];
   const tabs=roleTabs.filter(tab=>tab.show);
   const pipeline=['pending','confirmed','preparing','ready','assigned','picked_up','out_for_delivery','delivered'];
@@ -200,11 +201,11 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     const query=orderSearch.trim().toLowerCase();
     const matches=!query||[order.order_number,order.customer_name,order.customer_phone,order.delivery_address,order.rider_name]
       .some(value=>String(value||'').toLowerCase().includes(query));
-    const filterMatch=orderFilter==='all'||(orderFilter==='actionable'&&isActionable(order,identity.role))||
+    const filterMatch=orderFilter==='all'||(orderFilter==='actionable'&&isActionable(order,identity.role,identity.permissions))||
       (orderFilter==='active'&&!terminalStatuses.has(order.status))||
       (orderFilter==='completed'&&terminalStatuses.has(order.status));
     return matches&&filterMatch;
-  }).sort((a,b)=>Number(isActionable(b,identity.role))-Number(isActionable(a,identity.role))||
+  }).sort((a,b)=>Number(isActionable(b,identity.role,identity.permissions))-Number(isActionable(a,identity.role,identity.permissions))||
     Date.parse(b.updated_at||'')-Date.parse(a.updated_at||'')):[];
 
   useEffect(()=>{
@@ -233,7 +234,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       setViewingSavedOrders(true);
       setIdentity({ ...profile, token: idToken });
       setStaffProfiles(profile.staff_profiles ?? []);
-      setRiderEmail(profile.riders[0]?.email || '');
+      setRiderEmail('');
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Staff login failed.'); }
     finally { setLoading(false); }
   }, [endpoint]);
@@ -283,7 +284,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       setIdentity({...profile,token});
       setStaffProfiles(profile.staff_profiles??[]);
       setPassword('');
-      setRiderEmail(profile.riders[0]?.email||'');
+      setRiderEmail('');
     }catch(caught){setError(caught instanceof Error?caught.message:'Staff sign-in failed.');}
     finally{setLoading(false);}
   };
@@ -291,8 +292,9 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     e.preventDefault();if(!identity||identity.role!=='super_admin')return;
     setCreatingStaff(true);setError('');
     try {
-      await createStaffAccount(endpoint,identity.token,newStaff.name,newStaff.username,newStaff.password,newStaff.role);
-      setNewStaff({name:'',username:'',password:'',role:'kitchen_manager'});
+      await createStaffAccount(endpoint,identity.token,newStaff.name,newStaff.username,newStaff.password,newStaff.role,newStaffPermissions);
+      setNewStaff({name:'',username:'',password:'',role:'kitchen_manager'});setNewStaffPermissions(defaultStaffPermissions('kitchen_manager'));
+      setPermissionEditFor('');
       const result=await checkStaffSession(endpoint,identity.token);
       setStaffProfiles(result.staff_profiles??[]);
     }catch(caught){setError(caught instanceof Error?caught.message:'Staff account could not be created.');}
@@ -306,7 +308,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       setViewingSavedOrders(true);
       setIdentity({...profile,token});
       setStaffProfiles(profile.staff_profiles??[]);
-      setRiderEmail(profile.riders[0]?.email||'');
+      setRiderEmail('');
       setError('');
     }catch(caught){
       if(!isActive())return;
@@ -342,7 +344,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   },[orders,identity?.token,identity?.role,identity?.email,viewingSavedOrders]);
 
   const refresh = useCallback(async () => {
-    if (!identity || !isOpen) return;
+    if (!identity || !isOpen || !hasStaffPermission(identity.role,identity.permissions,'orders_view')) return;
     if (ordersRefreshInFlight.current===identity.token) {
       // An explicit mutation refresh must run after an older poll completes.
       queuedOrderRefresh.current=true;
@@ -406,7 +408,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   }, [endpoint, identity?.token, isOpen,playOrderBeep,beepEnabled]);
 
   useEffect(() => {
-    if (!isOpen || !identity) return;
+    if (!isOpen || !identity || !hasStaffPermission(identity.role,identity.permissions,'orders_view')) return;
     void refresh();
     // Continue watching new COD orders even while the owner edits website content.
     // The current tab stays responsive; hidden tabs poll less aggressively.
@@ -425,6 +427,24 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     };
   }, [isOpen, identity, activeTab, refresh]);
 
+  const editPermissions=(person:StaffProfile)=>{
+    if(!person.username||person.role==='manager')return;
+    setPermissionEditFor(person.username);
+    setPermissionDraft(person.permissions||defaultStaffPermissions(person.role));
+    setError('');
+  };
+  const savePermissions=async()=>{
+    if(!identity||identity.role!=='super_admin'||!permissionEditFor||savingPermissions)return;
+    setSavingPermissions(true);setError('');
+    try{
+      await changeStaffPermissions(endpoint,identity.token,permissionEditFor,permissionDraft);
+      const profile=await checkStaffSession(endpoint,identity.token);
+      setStaffProfiles(profile.staff_profiles??[]);
+      setPermissionEditFor('');
+      setOrderUpdateMessage('Staff access updated. Previous employee sessions were revoked; they must sign in again.');
+    }catch(e){setError(e instanceof Error?e.message:'Could not update staff permissions.');}
+    finally{setSavingPermissions(false);}
+  };
   const toggleStaff=async(username:string,active:boolean)=>{
     if(!identity||identity.role!=='super_admin'||!window.confirm(active?'Enable this staff account?':'Disable this staff account and revoke its sessions?'))return;
     setRefreshingStaff(true);setError('');
@@ -458,36 +478,25 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     finally { setRefreshingStaff(false); }
   }, [endpoint, identity]);
 
-  const recoverLegacy=async(order:StaffOrder)=>{
-    if(!identity||identity.role!=='super_admin'||busyOrderId)return;
-    if(!window.confirm('Only continue after independently verifying the original customer in person or through a trusted prior contact. This creates a private receipt key; send it ONLY to that customer. Continue?'))return;
-    setBusyOrderId(order.id);setError('');setLegacyKey(null);
-    try{
-      const key=await issueLegacyReceiptAccess(endpoint,identity.token,order.id);
-      setLegacyKey({orderId:order.id,key});
-      setOrders(previous=>previous.map(item=>item.id===order.id?{...item,legacy_receipt_missing:false}:item));
-    }catch(error){setError(error instanceof Error?error.message:'Could not restore this legacy order receipt.');}
-    finally{setBusyOrderId('');}
-  };
-
   const mutate = async (order: StaffOrder, operation: StaffOperation) => {
     if (!identity || busyOrderId) return;
     if (operation === 'cancel' && !window.confirm('Cancel this order? This cannot be undone.')) return;
     if (operation === 'assign' && !riderEmail) { setError('Select a registered rider.'); return; }
-    if (operation === 'deliver' && (!/^\d{4}$/.test(otp) || (order.payment_method === 'cod' && !cashCollected))) {
-      setError('Enter the 4-digit delivery OTP and confirm that the cash was received.'); return;
+    if (operation === 'deliver' && (!packageHandedOver || (order.payment_method === 'cod' && !cashCollected))) {
+      setError('Confirm handing over the cake and collecting the full COD amount before marking delivered.'); return;
     }
     setBusyOrderId(order.id); setError('');
     try {
       const confirmed=await mutateStaffOrder(endpoint, identity.token, operation, order.id,
         operation === 'assign' ? { rider_email: riderEmail } :
-        operation === 'deliver' ? { delivery_otp: otp, cash_collected: cashCollected } : {});
+        operation === 'deliver' ? { package_handed_over: packageHandedOver, cash_collected: cashCollected } : {});
       // Display the server-confirmed stage immediately; don't block the rider
       // for another costly full Sheet list request.
       setOrders(previous=>reconcileStaffOrders(previous,previous.map(item=>item.id===confirmed.id?{...item,...confirmed}:item)));
       setUpdatedAt(new Date().toLocaleTimeString());
       setOrderUpdateMessage('Order '+order.order_number+' updated to '+confirmed.status.replaceAll('_',' ')+'.');
-      setOtp(''); setOtpOrderId(''); setCashCollected(false);
+      if(operation==='assign')setRiderEmail('');
+      setDeliveryConfirmOrderId(''); setPackageHandedOver(false); setCashCollected(false);
       // Refresh independently to reconcile staff roles/other active orders.
       void refresh();
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to update order.'); }
@@ -707,12 +716,34 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                                 {person.active===false?'Enable account':'Disable account'}
                               </button>
                               <button type="button" onClick={()=>{setResetFor(person.username!);setResetPassword('');}} className="text-xs underline text-slate-700">Reset password</button>
+                              {person.role!=='manager'&&<button type="button" onClick={()=>editPermissions(person)} className="text-xs font-bold underline text-emerald-900">Edit access</button>}
                             </div>
                           )}
                         </article>
                       ))}
                     </div>
                   ) : <p className="text-sm text-amber-800">This Apps Script deployment has not returned the staff directory yet. Install the newest all-in-one Code.gs and deploy a new version.</p>}
+                  {permissionEditFor&&<div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50/50 p-4 space-y-4" aria-label="Edit staff permissions">
+                    <div className="flex justify-between flex-wrap gap-2">
+                      <div><strong className="text-emerald-950">Access permissions — @{permissionEditFor}</strong>
+                        <p className="text-xs text-slate-600 mt-1">Turn individual capabilities on or off. Changes apply to the backend, not only this screen.</p></div>
+                      <button type="button" className="text-sm underline" onClick={()=>setPermissionEditFor('')}>Close</button>
+                    </div>
+                    <div className="grid sm:grid-cols-2 gap-3">
+                      {STAFF_CAPABILITY_GROUPS.map(group=><fieldset key={group.title} className="bg-white rounded-xl border p-3 space-y-2">
+                        <legend className="font-bold text-sm px-1">{group.title}</legend>
+                        {group.items.map(item=><label key={item.key} className="flex gap-2 items-center text-xs cursor-pointer">
+                          <input type="checkbox" checked={permissionDraft.includes(item.key)}
+                            onChange={e=>setPermissionDraft(p=>e.target.checked?[...new Set([...p,item.key])]:p.filter(x=>x!==item.key))}/>
+                          {item.label}
+                        </label>)}
+                      </fieldset>)}
+                    </div>
+                    <button type="button" disabled={savingPermissions} onClick={()=>void savePermissions()}
+                      className="bg-emerald-800 text-white rounded-xl px-5 py-3 text-sm font-bold disabled:opacity-60">
+                      {savingPermissions?'Saving access…':'Save staff permissions'}
+                    </button>
+                  </div>}
                   <p className="text-xs text-slate-500">
                     New employees sign in with the username and initial password you create below.
                     Keep the owner Google account private. Passwords cannot be viewed again after creation.
@@ -736,11 +767,25 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                       onChange={e=>setNewStaff(v=>({...v,username:e.target.value}))} className="border rounded-lg p-2"/>
                     <input required type="password" minLength={10} aria-label="New staff password" placeholder="Password (10+ characters)"
                       value={newStaff.password} onChange={e=>setNewStaff(v=>({...v,password:e.target.value}))} className="border rounded-lg p-2"/>
-                    <select aria-label="New staff role" value={newStaff.role} onChange={e=>setNewStaff(v=>({...v,role:e.target.value as StaffRoleName}))} className="border rounded-lg p-2">
-                      {(['admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'] as StaffRoleName[]).map(role=>(
+                    <select aria-label="New staff role" value={newStaff.role} onChange={e=>{const role=e.target.value as StaffRoleName;setNewStaff(v=>({...v,role}));setNewStaffPermissions(defaultStaffPermissions(role));}} className="border rounded-lg p-2">
+                      {(['manager','admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'] as StaffRoleName[]).map(role=>(
                         <option key={role} value={role}>{role.replaceAll('_',' ')}</option>
                       ))}
                     </select>
+                    <div className="sm:col-span-2 rounded-xl border bg-slate-50 p-4 space-y-3">
+                      <div><strong className="block text-sm">New employee permissions</strong>
+                        <p className="text-xs text-slate-500">Choose exactly which actions are allowed. Manager gets every operational permission, including delivery.</p></div>
+                      <div className="grid sm:grid-cols-2 gap-3">
+                        {STAFF_CAPABILITY_GROUPS.map(group=><fieldset key={group.title} className="rounded-xl bg-white border p-3 space-y-2" disabled={newStaff.role==='manager'}>
+                          <legend className="text-sm font-bold px-1">{group.title}</legend>
+                          {group.items.map(item=><label key={item.key} className="flex gap-2 items-center text-xs">
+                            <input type="checkbox" checked={newStaffPermissions.includes(item.key)}
+                              onChange={e=>setNewStaffPermissions(p=>e.target.checked?[...new Set([...p,item.key])]:p.filter(x=>x!==item.key))}/>
+                            {item.label}
+                          </label>)}
+                        </fieldset>)}
+                      </div>
+                    </div>
                     <button type="submit" disabled={creatingStaff} className="sm:col-span-2 rounded-xl bg-emerald-800 text-white font-semibold p-3 disabled:opacity-50">
                       {creatingStaff?'Creating…':'Create staff account'}
                     </button>
@@ -770,7 +815,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                         className="w-full bg-transparent py-1 outline-none text-sm" placeholder="Search order, customer, phone or rider"/>
                     </label>
                   </div>
-                  {activeTab==='orders'&&['super_admin','admin','order_manager','delivery_manager'].includes(identity.role)&&(
+                  {activeTab==='orders'&&has('customers_lookup')&&(
                     <section className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4 space-y-3" aria-label="Customer Master Lookup">
                       <h4 className="font-bold text-emerald-950">Customer Master · Phone VLOOKUP</h4>
                       <form className="flex flex-wrap gap-2" onSubmit={lookupCustomer}>
@@ -805,9 +850,9 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                   <div className="grid gap-3">
                     {matchingOrders.slice(0,activeTab==='overview'?5:100).map(order => {
                   const next = actionForStatus[order.status] || null;
-                  const canCancel = canOperate(identity.role, 'cancel') && ['pending','confirmed','preparing','ready','assigned'].includes(order.status);
+                  const canCancel = canOperate(identity.role, 'cancel',identity.permissions) && ['pending','confirmed','preparing','ready','assigned'].includes(order.status);
                   const expanded=expandedOrders.includes(order.id);
-                  return <article key={order.id} className={'bg-white rounded-[20px] border p-4 sm:p-5 space-y-4 transition-colors '+(next&&canOperate(identity.role,next.operation)?'border-emerald-300 shadow-[0_2px_18px_rgba(10,80,60,.07)]':'border-slate-200')}>
+                  return <article key={order.id} className={'bg-white rounded-[20px] border p-4 sm:p-5 space-y-4 transition-colors '+(next&&canActOnOrder(order,next.operation)?'border-emerald-300 shadow-[0_2px_18px_rgba(10,80,60,.07)]':'border-slate-200')}>
                     <div className="flex flex-wrap justify-between items-start gap-3">
                       <div className="flex gap-3 min-w-0">
                         <div className="shrink-0 h-11 w-11 rounded-2xl bg-[#eaf2eb] text-[#20533e] grid place-items-center"><PackageCheck size={21}/></div>
@@ -829,7 +874,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                         <a className="font-bold text-emerald-800 underline whitespace-nowrap" target="_blank" rel="noopener noreferrer"
                           href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.delivery_address)}`}>Directions</a>
                       </div>}
-                    {next&&canOperate(identity.role,next.operation)&&
+                    {next&&canActOnOrder(order,next.operation)&&
                       <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900">
                         Your next step: {next.label}. Customer progress updates after a successful save.
                       </p>}
@@ -858,7 +903,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                       {order.rider_name&&<p className="flex items-center gap-2"><Truck size={15}/> Rider: {order.rider_name}</p>}
                     </div>}
                     <div className="flex flex-wrap gap-2 items-center">
-                      {next && canOperate(identity.role, next.operation) && next.operation !== 'deliver' && (
+                      {next && canActOnOrder(order,next.operation) && next.operation !== 'deliver' && (
                         <>
                           {next.operation === 'assign' && <select aria-label="Assign registered rider" value={riderEmail} onChange={e => setRiderEmail(e.target.value)} className="min-h-12 border rounded-xl px-3 py-3 text-sm bg-white">
                             {identity.riders.map(rider => <option key={rider.email} value={rider.email}>{rider.name} — {rider.email}</option>)}
@@ -867,31 +912,17 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                             className="min-h-12 rounded-xl bg-[#1a493b] hover:bg-[#27644e] text-white px-5 py-3 text-sm font-bold disabled:opacity-50 flex items-center gap-2"><PackageCheck size={18} /> {busyOrderId===order.id?'Saving to Sheets…':next.label}</button>
                         </>
                       )}
-                      {next?.operation === 'deliver' && canOperate(identity.role,'deliver') && (
-                        otpOrderId === order.id ? (
-                          <div className="flex flex-wrap items-center gap-3">
-                            <input type="text" inputMode="numeric" maxLength={4} aria-label="Customer delivery OTP" placeholder="4-digit OTP" value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g,''))} className="w-32 border rounded-xl p-2" />
-                            {order.payment_method === 'cod' && <label className="text-sm"><input type="checkbox" checked={cashCollected} onChange={e => setCashCollected(e.target.checked)} /> I collected the full cash amount</label>}
-                            <button type="button" disabled={!!busyOrderId} onClick={() => void mutate(order,'deliver')} className="min-h-12 bg-[#1a493b] text-white font-bold rounded-xl px-5 py-3 text-sm">Verify & deliver</button>
+                      {next?.operation === 'deliver' && canActOnOrder(order,'deliver') && (
+                        deliveryConfirmOrderId === order.id ? (
+                          <div className="flex flex-col gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 w-full sm:w-auto">
+                            <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={packageHandedOver} onChange={e => setPackageHandedOver(e.target.checked)} /> Cake handed over to the customer</label>
+                            {order.payment_method === 'cod' && <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={cashCollected} onChange={e => setCashCollected(e.target.checked)} /> Full COD cash collected ({order.total_amount})</label>}
+                            <div className="flex flex-wrap gap-2">
+                              <button type="button" disabled={!!busyOrderId || !packageHandedOver || (order.payment_method==='cod' && !cashCollected)} onClick={() => void mutate(order,'deliver')} className="min-h-12 bg-[#1a493b] text-white font-bold rounded-xl px-5 py-3 text-sm disabled:opacity-50">Mark delivered</button>
+                              <button type="button" disabled={!!busyOrderId} onClick={() => {setDeliveryConfirmOrderId('');setPackageHandedOver(false);setCashCollected(false);}} className="rounded-xl border px-4 py-2 text-sm">Back</button>
+                            </div>
                           </div>
-                        ) : <button type="button" onClick={() => { setOtpOrderId(order.id); setOtp(''); setCashCollected(false); }} className="min-h-12 bg-[#1a493b] text-white font-bold rounded-xl px-5 py-3 text-sm">Verify customer OTP</button>
-                      )}
-                      {identity.role==='super_admin'&&order.legacy_receipt_missing&&order.status==='out_for_delivery'&&(
-                        <button type="button" disabled={!!busyOrderId} onClick={()=>void recoverLegacy(order)}
-                          className="rounded-xl border border-amber-400 bg-amber-50 text-amber-900 px-4 py-2 text-sm font-bold disabled:opacity-50">
-                          Recover old customer OTP access
-                        </button>
-                      )}
-                      {legacyKey?.orderId===order.id&&(
-                        <div className="w-full rounded-xl border border-amber-300 bg-amber-50 p-3 space-y-2" role="status">
-                          <strong className="block text-sm">Private recovery key — show only to the verified customer</strong>
-                          <p className="text-xs">Ask the customer to paste this under Track Order → Restore older receipt access. The key is shown here only once; it is NOT the 4-digit delivery OTP.</p>
-                          <input readOnly aria-label="Customer receipt recovery key" value={legacyKey.key} onFocus={e=>e.currentTarget.select()}
-                            className="w-full rounded-lg border p-2 text-xs font-mono bg-white" />
-                          <button type="button" onClick={()=>{void navigator.clipboard?.writeText(legacyKey.key).catch(()=>setError('Select and copy the key manually.'));}}
-                            className="rounded-lg border bg-white px-3 py-2 text-xs">Copy private key</button>
-                          <button type="button" onClick={()=>setLegacyKey(null)} className="rounded-lg px-3 py-2 text-xs underline">Dismiss key</button>
-                        </div>
+                        ) : <button type="button" onClick={() => { setDeliveryConfirmOrderId(order.id); setPackageHandedOver(false); setCashCollected(false); }} className="min-h-12 bg-[#1a493b] text-white font-bold rounded-xl px-5 py-3 text-sm">Confirm delivery</button>
                       )}
                       {canCancel && <button type="button" disabled={!!busyOrderId} onClick={() => void mutate(order,'cancel')} className="rounded-xl border border-red-200 text-red-700 px-4 py-2 text-sm">Cancel</button>}
                     </div>
@@ -901,9 +932,13 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                 </section>
               )}
               <React.Suspense fallback={<div className="rounded-2xl bg-white border p-8 text-center text-slate-500" role="status">Opening your workspace…</div>}>
-                {activeTab==='cakes'&&(['super_admin','admin','order_manager'] as string[]).includes(identity.role) && <CustomCakeQueue endpoint={endpoint} token={identity.token} />}
-                {activeTab==='website'&&(identity.role === 'super_admin' || identity.role === 'admin') && <WebsiteManager endpoint={endpoint} token={identity.token}
-                  role={identity.role} onUpdated={() => onCatalogUpdated?.()} />}
+                {activeTab==='cakes'&&has('custom_cakes_view') && <CustomCakeQueue endpoint={endpoint} token={identity.token} />}
+                {activeTab==='finance'&&has('finance_view')&& <div className="space-y-8">
+                  <FinancePanel endpoint={endpoint} token={identity.token} canEdit={has('finance_edit')}/>
+                  <InventoryPanel endpoint={endpoint} token={identity.token} canEdit={has('finance_edit')}/>
+                </div>}
+                {activeTab==='website'&&has('catalog_view') && <WebsiteManager endpoint={endpoint} token={identity.token}
+                  role={identity.role} canArchive={has('catalog_archive')} canEdit={has('catalog_edit')} onUpdated={() => onCatalogUpdated?.()} />}
               </React.Suspense>
               </div>
             </div>
