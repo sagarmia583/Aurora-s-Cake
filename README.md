@@ -62,3 +62,7 @@ The source is under the draft branch; it is **not** a signed APK/IPA.
 Vercel Production must expose `/api/operations` and the latest Apps Script
 must be deployed before native staff login works. See the app README for
 Expo SDK 58, Android APK and iOS test/build instructions.
+
+## Firebase (optional foundation)
+
+See [Firebase setup instructions](docs/FIREBASE_SETUP.md). The current order/staff backend remains unchanged. After creating a Firebase project and deploying restrictive rules, set the Firebase Vite environment variables and visit `/?firebase-check=1` to run a read-only server connectivity check. This is not a migration of existing production data.
