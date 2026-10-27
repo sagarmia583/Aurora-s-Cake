@@ -1326,3 +1326,33 @@ test('mistaken rider deposit is voided with audit reason and outstanding cash re
  assert.equal(h.post({action:'staff_cash_deposit_void',id_token:ADMIN_TOKEN,deposit_id:did,reason:'Duplicate physical cash deposit'}).already_voided,true);
  assert.equal(h.records('rider_cash_deposits')[0].void_reason,'Duplicate physical cash deposit');
 });
+
+
+test('inventory restock and immutable baking cost consume mapped ingredients once',()=>{
+ const h=harness({singleFile:true});h.context.setupSheetDatabase();
+ const stock=h.post({action:'staff_stock_item_create',id_token:ADMIN_TOKEN,name:'Flour',unit:'g',reorder_level:100});
+ assert.equal(stock.ok,true,JSON.stringify(stock));
+ const stockId=stock.stock[0].id;
+ const restock={action:'staff_stock_adjust',id_token:ADMIN_TOKEN,
+   request_id:'10000000-2000-4000-8000-000000000001',item_id:stockId,
+   delta:800,reason:'Opening stock',unit_cost:0.2};
+ assert.equal(h.post(restock).stock[0].balance,800);
+ assert.equal(h.post(restock).already_saved,true);
+ assert.equal(h.post({...restock,request_id:'10000000-2000-4000-8000-000000000002',delta:-1000}).code,'invalid_stock');
+ const recipe=h.post({action:'staff_cake_cost_save',id_token:ADMIN_TOKEN,
+   request_id:'10000000-2000-4000-8000-000000000003',product_id:'p1',variant_id:'v1',
+   component:'Flour',unit_label:'g',quantity:100,unit_cost:0.2,inventory_item_id:stockId});
+ assert.equal(recipe.ok,true,JSON.stringify(recipe));
+ const order=h.post(request());
+ assert.equal(order.persisted,true);
+ const id=order.order.id;
+ assert.equal(h.post({action:'staff_mutate',id_token:ADMIN_TOKEN,order_id:id,operation:'confirm'}).ok,true);
+ assert.equal(h.post({action:'staff_mutate',id_token:ADMIN_TOKEN,order_id:id,operation:'start_baking'}).ok,true);
+ const state=h.post({action:'staff_inventory_summary',id_token:ADMIN_TOKEN});
+ assert.equal(state.stock[0].balance,600);
+ assert.equal(state.cost_snapshots.length,1);
+ assert.equal(state.cost_snapshots[0].total_cost,40);
+ assert.equal(state.movements.filter((m:{order_id:string})=>m.order_id===id).length,1);
+ assert.equal(h.post({action:'staff_mutate',id_token:ADMIN_TOKEN,order_id:id,operation:'start_baking'}).code,'invalid_transition');
+ assert.equal(h.post({action:'staff_inventory_summary',id_token:ADMIN_TOKEN}).stock[0].balance,600);
+});
