@@ -52,8 +52,8 @@ function auroraPosPost_(input) {
   if(['cash','bkash','nagad'].indexOf(method)<0)auroraReject_('invalid_payment','Choose Cash, bKash or Nagad.');
   var discount=auroraPosCash_(input.discount_amount||0,'discount');
   if(discount>0)auroraStaffRequire_(actor,'sales_discount');
-  var phone=String(input.customer_phone||'').trim().replace(/[\\s-]/g,'');
-  if(phone&&!/^\\+?[0-9]{7,15}$/.test(phone))auroraReject_('invalid_phone','Enter a valid customer phone or leave it blank.');
+  var phone=String(input.customer_phone||'').trim().replace(/[\s-]/g,'');
+  if(phone&&!/^\+?[0-9]{7,15}$/.test(phone))auroraReject_('invalid_phone','Enter a valid customer phone or leave it blank.');
   var name=String(input.customer_name||'Walk-in').trim().slice(0,100)||'Walk-in';
   var reference=String(input.payment_reference||'').trim().slice(0,100);
   if(method!=='cash'&&(!/^[a-zA-Z0-9-]{6,50}$/.test(reference)))
