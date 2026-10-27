@@ -111,6 +111,7 @@ function doPost(e) {
     if (input && input.action === 'staff_customer_lookup') return auroraResponse_(auroraStaffCustomerLookup_(input));
     if (input && input.action === 'customer_contact_submit') return auroraResponse_(auroraGuestContactSubmit_(input));
     if (input && input.action === 'customer_receipt_recover') return auroraResponse_(auroraCustomerReceiptRecover_(input));
+    if (input && input.action === 'customer_phone_tracking') return auroraResponse_(auroraPhoneOnlyTracking_(input));
     if (input && input.action === 'get_order_status') return auroraResponse_(auroraCustomerOrderStatus_(input));
     if (input && /^staff_cms_(list|create|update|delete)$/.test(String(input.action||''))) return auroraResponse_(auroraCmsPost_(input));
     if (input && (input.action==='staff_catalog'||input.action==='staff_catalog_update')) return auroraResponse_(auroraCatalogPost_(input));
