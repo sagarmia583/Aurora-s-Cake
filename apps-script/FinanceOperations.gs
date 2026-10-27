@@ -1,0 +1,119 @@
+/**
+ * Private finance operations. No public read route exposes these tables.
+ * Credit = confirmed delivered COD receipts assigned to rider.
+ * Debit = an explicitly recorded daily physical cash handover to the bakery.
+ * Request IDs are idempotent and all debit writes are under one ScriptLock.
+ */
+function auroraFinanceSnapshot_(book) {
+  var orders=auroraPrivateTable_(book,'orders').rows;
+  var deposits=auroraPrivateTable_(book,'rider_cash_deposits').rows;
+  var recipes=auroraPrivateTable_(book,'cake_cost_items').rows;
+  var riders=Object.create(null);
+  orders.forEach(function(row){
+    var receipt;
+    try{receipt=JSON.parse(String(row.receipt_json||''));}catch(_){return;}
+    if(receipt.status!=='delivered'||receipt.payment_method!=='cod'||
+       receipt.payment_status!=='paid'||receipt.cod_collected!==true||
+       typeof receipt.rider_id!=='string'||!receipt.rider_id)return;
+    var id=String(receipt.rider_id).trim().toLowerCase();
+    if(!riders[id])riders[id]={rider_id:id,rider_name:String(receipt.rider_name||id).slice(0,100),
+      collected:0,deposited:0,remaining:0,delivered_count:0};
+    var amount=Number(receipt.cod_amount===undefined?receipt.total_amount:receipt.cod_amount);
+    if(!isFinite(amount)||amount<0)return;
+    riders[id].collected=Math.round((riders[id].collected+amount)*100)/100;
+    riders[id].delivered_count++;
+  });
+  deposits.forEach(function(row){
+    var id=String(row.rider_id||'').trim().toLowerCase(),amount=Number(row.amount);
+    if(!id||!isFinite(amount)||amount<=0)return;
+    if(!riders[id])riders[id]={rider_id:id,rider_name:id,collected:0,deposited:0,remaining:0,delivered_count:0};
+    riders[id].deposited=Math.round((riders[id].deposited+amount)*100)/100;
+  });
+  var balances=Object.keys(riders).map(function(id){
+    var line=riders[id];
+    line.remaining=Math.round((line.collected-line.deposited)*100)/100;
+    return line;
+  }).sort(function(a,b){return b.remaining-a.remaining;});
+  var costs=recipes.filter(function(r){return r.active===true||String(r.active).toLowerCase()==='true';})
+    .map(function(r){
+      var quantity=Number(r.quantity),unitCost=Number(r.unit_cost);
+      return {id:String(r.id),product_id:String(r.product_id),variant_id:String(r.variant_id),
+        component:String(r.component),unit_label:String(r.unit_label||''),
+        quantity:quantity,unit_cost:unitCost,total:Math.round(quantity*unitCost*100)/100};
+    });
+  var totals=Object.create(null);
+  costs.forEach(function(r){var id=r.product_id+'::'+r.variant_id;
+    totals[id]=Math.round(((totals[id]||0)+r.total)*100)/100;});
+  var catalog=auroraRows_(book,'products').map(function(p){
+    return {id:String(p.id),name:String(p.name||'')};
+  });
+  var variants=auroraRows_(book,'product_variants').map(function(v){
+    return {id:String(v.id),product_id:String(v.product_id),name:String(v.name||''),
+      price:Number(v.price)||0,sale_price:v.sale_price===''?'':Number(v.sale_price)};
+  });
+  return {ok:true,riders:balances,
+    deposits:deposits.slice(-100).reverse().map(function(d){
+      return {id:String(d.id),rider_id:String(d.rider_id),amount:Number(d.amount),
+      date:String(d.date),actor_name:String(d.actor_name),created_at:String(d.created_at),notes:String(d.notes||'')};
+    }),costs:costs,cost_totals:totals,products:catalog,variants:variants};
+}
+function auroraFinancePost_(input){
+  var actor=auroraStaffAuthenticate_(input);
+  var action=String(input.action||'');
+  if(['super_admin','admin','accountant'].indexOf(actor.role)<0)
+    auroraReject_('forbidden','Only authorized financial staff can access private cash reports.');
+  if(action==='staff_finance_summary')return auroraFinanceSnapshot_(auroraSpreadsheet_());
+  if(['staff_cash_deposit','staff_cake_cost_save','staff_cake_cost_archive'].indexOf(action)<0)
+    auroraReject_('invalid_action','Unknown finance operation.');
+  if(actor.role!=='super_admin'&&actor.role!=='admin')
+    auroraReject_('forbidden','Only an administrator can record cash deposits or edit recipe costs.');
+  var lock=LockService.getScriptLock();
+  if(!lock.tryLock(10000))auroraReject_('busy','Another financial update is being saved.');
+  try{
+    var book=auroraSpreadsheet_();
+    if(action==='staff_cash_deposit'){
+      var requestId=String(input.request_id||'').trim().toLowerCase();
+      if(!/^[a-f0-9-]{36}$/.test(requestId))auroraReject_('invalid_request','A stable deposit request ID is required.');
+      var table=auroraPrivateTable_(book,'rider_cash_deposits');
+      var duplicate=table.rows.filter(function(row){return String(row.request_id)===requestId;})[0];
+      if(duplicate)return {ok:true,already_saved:true,deposit_id:String(duplicate.id),snapshot:auroraFinanceSnapshot_(book)};
+      var rider=String(input.rider_id||'').trim().toLowerCase();
+      var amount=Number(input.amount);
+      var date=String(input.date||'');
+      var notes=String(input.notes||'').trim();
+      if(!rider||rider.length>200||!/^\d{4}-\d{2}-\d{2}$/.test(date)||
+         !isFinite(amount)||amount<=0||amount>10000000||Math.round(amount*100)!==amount*100||
+         notes.length>300)auroraReject_('invalid_deposit','Enter rider, deposit date and a valid cash amount.');
+      var cash=auroraFinanceSnapshot_(book).riders.filter(function(x){return x.rider_id===rider;})[0];
+      if(!cash||amount>cash.remaining+0.001)
+        auroraReject_('balance_exceeded','Deposit cannot exceed the cash currently held by this rider.');
+      var entry={id:'deposit_'+Utilities.getUuid(),request_id:requestId,rider_id:rider,
+        amount:amount,date:date,actor_name:actor.name,created_at:new Date().toISOString(),notes:notes};
+      auroraAppendPrivate_(table,entry);
+      return {ok:true,already_saved:false,deposit_id:entry.id,snapshot:auroraFinanceSnapshot_(book)};
+    }
+    var costsTable=auroraPrivateTable_(book,'cake_cost_items');
+    if(action==='staff_cake_cost_archive'){
+      var archive=String(input.entry_id||'');
+      var position=costsTable.rows.findIndex(function(x){return String(x.id)===archive;});
+      if(position<0)auroraReject_('not_found','Cost item is not found.');
+      var headerIndex=costsTable.headers.indexOf('active')+1;
+      costsTable.sheet.getRange(position+2,headerIndex,1,1).setValues([[false]]);
+      return {ok:true,snapshot:auroraFinanceSnapshot_(book)};
+    }
+    var productId=String(input.product_id||'').trim(),variantId=String(input.variant_id||'').trim();
+    var component=String(input.component||'').trim(),unitLabel=String(input.unit_label||'').trim();
+    var qty=Number(input.quantity),cost=Number(input.unit_cost);
+    if(!productId||!variantId||!component||component.length>100||unitLabel.length>30||
+       !isFinite(qty)||qty<=0||qty>100000||!isFinite(cost)||cost<0||cost>10000000)
+      auroraReject_('invalid_cost','Select cake size, ingredient, quantity and unit cost.');
+    var variants=auroraRows_(book,'product_variants');
+    if(!variants.some(function(v){return String(v.id)===variantId&&String(v.product_id)===productId;}))
+      auroraReject_('invalid_reference','Select a variant belonging to this product.');
+    var rec={id:'cost_'+Utilities.getUuid(),product_id:productId,variant_id:variantId,
+      component:component,unit_label:unitLabel,quantity:qty,unit_cost:cost,active:true,
+      updated_at:new Date().toISOString()};
+    auroraAppendPrivate_(costsTable,rec);
+    return {ok:true,snapshot:auroraFinanceSnapshot_(book)};
+  }finally{lock.releaseLock();}
+}
