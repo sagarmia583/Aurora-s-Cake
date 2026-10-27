@@ -2,7 +2,7 @@
  * Read-only check for whether the owner actually redeployed Apps Script.
  * Never accepts arbitrary target URLs, tokens or credentials.
  */
-const EXPECTED_RELEASE='aurora-2026-10-27-order-details-no-delivery-otp-r4';
+const EXPECTED_RELEASE='aurora-2026-10-27-cash-cost-coupons-r5';
 const JSON_HEADERS={'Content-Type':'application/json; charset=utf-8',
   'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
 export default async function handler(req,res){
