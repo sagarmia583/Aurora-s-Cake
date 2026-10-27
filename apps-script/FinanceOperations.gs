@@ -45,7 +45,7 @@ function auroraFinanceSnapshot_(book) {
   costs.forEach(function(r){var id=r.product_id+'::'+r.variant_id;
     totals[id]=Math.round(((totals[id]||0)+r.total)*100)/100;});
   var catalog=auroraRows_(book,'products').map(function(p){
-    return {id:String(p.id),name:String(p.name||'')};
+    return {id:String(p.id),name:String(p.name||''),base_price:Number(p.base_price)||0,sale_price:p.sale_price===''?'':Number(p.sale_price)};
   });
   var variants=auroraRows_(book,'product_variants').map(function(v){
     return {id:String(v.id),product_id:String(v.product_id),name:String(v.name||''),
@@ -82,7 +82,7 @@ function auroraFinancePost_(input){
       var date=String(input.date||'');
       var notes=String(input.notes||'').trim();
       if(!rider||rider.length>200||!/^\d{4}-\d{2}-\d{2}$/.test(date)||
-         !isFinite(amount)||amount<=0||amount>10000000||Math.round(amount*100)!==amount*100||
+         !isFinite(amount)||amount<=0||amount>10000000||Math.abs(Math.round(amount*100)-amount*100)>0.000001||
          notes.length>300)auroraReject_('invalid_deposit','Enter rider, deposit date and a valid cash amount.');
       var cash=auroraFinanceSnapshot_(book).riders.filter(function(x){return x.rider_id===rider;})[0];
       if(!cash||amount>cash.remaining+0.001)
@@ -101,6 +101,11 @@ function auroraFinancePost_(input){
       costsTable.sheet.getRange(position+2,headerIndex,1,1).setValues([[false]]);
       return {ok:true,snapshot:auroraFinanceSnapshot_(book)};
     }
+    var costRequestId=String(input.request_id||'').trim().toLowerCase();
+    if(!/^[a-f0-9-]{36}$/.test(costRequestId))
+      auroraReject_('invalid_request','A stable recipe cost request ID is required.');
+    var priorCost=costsTable.rows.filter(function(row){return String(row.request_id)===costRequestId;})[0];
+    if(priorCost)return {ok:true,already_saved:true,snapshot:auroraFinanceSnapshot_(book)};
     var productId=String(input.product_id||'').trim(),variantId=String(input.variant_id||'').trim();
     var component=String(input.component||'').trim(),unitLabel=String(input.unit_label||'').trim();
     var qty=Number(input.quantity),cost=Number(input.unit_cost);
@@ -110,7 +115,7 @@ function auroraFinancePost_(input){
     var variants=auroraRows_(book,'product_variants');
     if(!variants.some(function(v){return String(v.id)===variantId&&String(v.product_id)===productId;}))
       auroraReject_('invalid_reference','Select a variant belonging to this product.');
-    var rec={id:'cost_'+Utilities.getUuid(),product_id:productId,variant_id:variantId,
+    var rec={id:'cost_'+Utilities.getUuid(),request_id:costRequestId,product_id:productId,variant_id:variantId,
       component:component,unit_label:unitLabel,quantity:qty,unit_cost:cost,active:true,
       updated_at:new Date().toISOString()};
     auroraAppendPrivate_(costsTable,rec);
