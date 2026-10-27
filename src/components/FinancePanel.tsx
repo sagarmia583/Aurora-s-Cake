@@ -5,7 +5,7 @@ import type {FinanceSnapshot} from '../services/financeApi';
 
 type Props={endpoint:string;token:string;canEdit:boolean};
 const today=()=>new Date().toLocaleDateString('en-CA');
-const format=(value:number)=>'৳'+value.toLocaleString('en-BD',{maximumFractionDigits:2});
+const format=(value:number)=> (value<0?'-':'')+'৳'+Math.abs(value).toLocaleString('en-BD',{maximumFractionDigits:2});
 const newRequestId=()=>crypto.randomUUID();
 export default function FinancePanel({endpoint,token,canEdit}:Props){
   const [data,setData]=useState<FinanceSnapshot|null>(null);
@@ -15,6 +15,7 @@ export default function FinancePanel({endpoint,token,canEdit}:Props){
   const [date,setDate]=useState(today);
   const [note,setNote]=useState('');
   const requestId=useRef('');
+  const recipeRequestId=useRef('');
   const [product,setProduct]=useState('');
   const [variant,setVariant]=useState('');
   const [component,setComponent]=useState('');
@@ -45,11 +46,12 @@ export default function FinancePanel({endpoint,token,canEdit}:Props){
   };
   const recordCost=async(e:React.FormEvent)=>{
     e.preventDefault();if(busy||!canEdit)return;
+    if(!recipeRequestId.current)recipeRequestId.current=newRequestId();
     setBusy(true);setError('');setNotice('');
     try{
-      const next=await saveCakeCost(endpoint,token,{product_id:product,variant_id:variant,
+      const next=await saveCakeCost(endpoint,token,{request_id:recipeRequestId.current,product_id:product,variant_id:variant,
         component:component.trim(),unit_label:unitLabel.trim(),quantity:Number(quantity),unit_cost:Number(unitCost)});
-      setData(next);setComponent('');setQuantity('1');setUnitCost('');
+      setData(next);setComponent('');setQuantity('1');setUnitCost('');recipeRequestId.current='';
       setNotice('Ingredient cost added to the private cake costing sheet.');
     }catch(err){setError(err instanceof Error?err.message:'Cost could not be saved.');}
     finally{setBusy(false);}
@@ -65,8 +67,11 @@ export default function FinancePanel({endpoint,token,canEdit}:Props){
   const showCosts=data?.costs.filter(c=>!variant||c.variant_id===variant)||[];
   const recipeTotal=variant?data?.cost_totals[product+'::'+variant]||0:0;
   const selectedVariant=data?.variants.find(v=>v.id===variant);
+  const selectedProduct=data?.products.find(p=>p.id===product);
+  const baseMarkdown=selectedProduct?.sale_price!==''&&selectedProduct?.sale_price!==undefined
+    ? Math.max(0,selectedProduct.base_price-Number(selectedProduct.sale_price)):0;
   const regular=selectedVariant?.sale_price!==''&&selectedVariant?.sale_price!==undefined
-    ? Number(selectedVariant.sale_price) : Number(selectedVariant?.price||0);
+    ? Number(selectedVariant.sale_price) : Math.max(0,Number(selectedVariant?.price||0)-baseMarkdown);
   return <section className="space-y-5" aria-label="Bakery cash and cake costing">
     <div className="flex justify-between gap-3 flex-wrap items-center">
       <div><h3 className="font-black text-2xl text-emerald-950">Cash & Cake Costing</h3>
