@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, RefreshCw, ShieldCheck, Truck, PackageCheck, LayoutDashboard, ShoppingBag, UsersRound, CakeSlice, Store, Search, ChevronDown, ChevronUp, LogOut, Clock3, BadgeCheck, ArrowRight, AlertCircle, CreditCard, MapPin } from 'lucide-react';
-import { checkStaffSession, getStaffOrders, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword, lookupStaffCustomer } from '../services/sheetStaffApi';
+import { checkStaffSession, getStaffOrders, mutateStaffOrder, signInStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword, lookupStaffCustomer } from '../services/sheetStaffApi';
 import type { StaffCustomerMatch, StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
 import { getBrowserWorkspaceStorage, loadStaffCredential, saveStaffCredential, clearStaffCredential, loadStaffTab, saveStaffTab } from '../services/staffWorkspaceSession';
@@ -35,7 +35,7 @@ const actionForStatus: Record<string, { operation: StaffOperation; label: string
   ready: { operation: 'assign', label: 'Assign rider' },
   assigned: { operation: 'pick_up', label: 'Pick up cake' },
   picked_up: { operation: 'start_delivery', label: 'Start delivery' },
-  out_for_delivery: { operation: 'deliver', label: 'Verify delivery OTP' },
+  out_for_delivery: { operation: 'deliver', label: 'Confirm delivery' },
   delivered: null, cancelled: null,
 };
 
@@ -128,8 +128,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [loading, setLoading] = useState(false);
   const [busyOrderId, setBusyOrderId] = useState('');
   const [riderEmail, setRiderEmail] = useState('');
-  const [otpOrderId, setOtpOrderId] = useState('');
-  const [otp, setOtp] = useState('');
+  const [deliveryConfirmOrderId, setDeliveryConfirmOrderId] = useState('');
+  const [packageHandedOver, setPackageHandedOver] = useState(false);
   const [cashCollected, setCashCollected] = useState(false);
   const [updatedAt, setUpdatedAt] = useState('');
   const ordersRefreshInFlight=useRef<string|null>(null);
@@ -146,13 +146,12 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       .then(data=>{
         if(controller.signal.aborted)return;
         if(data?.ok===true&&data?.up_to_date===false)
-          setBackendWarning('The Google Apps Script deployment is outdated. Delivery OTP, the Website Manager and faster order updates require the latest All-in-One Code.gs and a New version deployment.');
+          setBackendWarning('The Google Apps Script deployment is outdated. Passwordless delivery confirmation and the Website Manager require the latest All-in-One Code.gs and a New version deployment.');
         else setBackendWarning('');
       })
       .catch(()=>{});
     return()=>controller.abort();
   },[isOpen,endpoint]);
-  const [legacyKey,setLegacyKey]=useState<{orderId:string;key:string}|null>(null);
   const lookupCustomer=async(event:React.FormEvent)=>{
     event.preventDefault();if(!identity||customerLookupBusy)return;
     setCustomerLookupBusy(true);setCustomerLookupMessage('');setCustomerLookupResult(null);
@@ -458,36 +457,24 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     finally { setRefreshingStaff(false); }
   }, [endpoint, identity]);
 
-  const recoverLegacy=async(order:StaffOrder)=>{
-    if(!identity||identity.role!=='super_admin'||busyOrderId)return;
-    if(!window.confirm('Only continue after independently verifying the original customer in person or through a trusted prior contact. This creates a private receipt key; send it ONLY to that customer. Continue?'))return;
-    setBusyOrderId(order.id);setError('');setLegacyKey(null);
-    try{
-      const key=await issueLegacyReceiptAccess(endpoint,identity.token,order.id);
-      setLegacyKey({orderId:order.id,key});
-      setOrders(previous=>previous.map(item=>item.id===order.id?{...item,legacy_receipt_missing:false}:item));
-    }catch(error){setError(error instanceof Error?error.message:'Could not restore this legacy order receipt.');}
-    finally{setBusyOrderId('');}
-  };
-
   const mutate = async (order: StaffOrder, operation: StaffOperation) => {
     if (!identity || busyOrderId) return;
     if (operation === 'cancel' && !window.confirm('Cancel this order? This cannot be undone.')) return;
     if (operation === 'assign' && !riderEmail) { setError('Select a registered rider.'); return; }
-    if (operation === 'deliver' && (!/^\d{4}$/.test(otp) || (order.payment_method === 'cod' && !cashCollected))) {
-      setError('Enter the 4-digit delivery OTP and confirm that the cash was received.'); return;
+    if (operation === 'deliver' && (!packageHandedOver || (order.payment_method === 'cod' && !cashCollected))) {
+      setError('Confirm handing over the cake and collecting the full COD amount before marking delivered.'); return;
     }
     setBusyOrderId(order.id); setError('');
     try {
       const confirmed=await mutateStaffOrder(endpoint, identity.token, operation, order.id,
         operation === 'assign' ? { rider_email: riderEmail } :
-        operation === 'deliver' ? { delivery_otp: otp, cash_collected: cashCollected } : {});
+        operation === 'deliver' ? { package_handed_over: packageHandedOver, cash_collected: cashCollected } : {});
       // Display the server-confirmed stage immediately; don't block the rider
       // for another costly full Sheet list request.
       setOrders(previous=>reconcileStaffOrders(previous,previous.map(item=>item.id===confirmed.id?{...item,...confirmed}:item)));
       setUpdatedAt(new Date().toLocaleTimeString());
       setOrderUpdateMessage('Order '+order.order_number+' updated to '+confirmed.status.replaceAll('_',' ')+'.');
-      setOtp(''); setOtpOrderId(''); setCashCollected(false);
+      setDeliveryConfirmOrderId(''); setPackageHandedOver(false); setCashCollected(false);
       // Refresh independently to reconcile staff roles/other active orders.
       void refresh();
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to update order.'); }
@@ -868,30 +855,16 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                         </>
                       )}
                       {next?.operation === 'deliver' && canOperate(identity.role,'deliver') && (
-                        otpOrderId === order.id ? (
-                          <div className="flex flex-wrap items-center gap-3">
-                            <input type="text" inputMode="numeric" maxLength={4} aria-label="Customer delivery OTP" placeholder="4-digit OTP" value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g,''))} className="w-32 border rounded-xl p-2" />
-                            {order.payment_method === 'cod' && <label className="text-sm"><input type="checkbox" checked={cashCollected} onChange={e => setCashCollected(e.target.checked)} /> I collected the full cash amount</label>}
-                            <button type="button" disabled={!!busyOrderId} onClick={() => void mutate(order,'deliver')} className="min-h-12 bg-[#1a493b] text-white font-bold rounded-xl px-5 py-3 text-sm">Verify & deliver</button>
+                        deliveryConfirmOrderId === order.id ? (
+                          <div className="flex flex-col gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 w-full sm:w-auto">
+                            <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={packageHandedOver} onChange={e => setPackageHandedOver(e.target.checked)} /> Cake handed over to the customer</label>
+                            {order.payment_method === 'cod' && <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={cashCollected} onChange={e => setCashCollected(e.target.checked)} /> Full COD cash collected ({order.total_amount})</label>}
+                            <div className="flex flex-wrap gap-2">
+                              <button type="button" disabled={!!busyOrderId || !packageHandedOver || (order.payment_method==='cod' && !cashCollected)} onClick={() => void mutate(order,'deliver')} className="min-h-12 bg-[#1a493b] text-white font-bold rounded-xl px-5 py-3 text-sm disabled:opacity-50">Mark delivered</button>
+                              <button type="button" disabled={!!busyOrderId} onClick={() => {setDeliveryConfirmOrderId('');setPackageHandedOver(false);setCashCollected(false);}} className="rounded-xl border px-4 py-2 text-sm">Back</button>
+                            </div>
                           </div>
-                        ) : <button type="button" onClick={() => { setOtpOrderId(order.id); setOtp(''); setCashCollected(false); }} className="min-h-12 bg-[#1a493b] text-white font-bold rounded-xl px-5 py-3 text-sm">Verify customer OTP</button>
-                      )}
-                      {identity.role==='super_admin'&&order.legacy_receipt_missing&&order.status==='out_for_delivery'&&(
-                        <button type="button" disabled={!!busyOrderId} onClick={()=>void recoverLegacy(order)}
-                          className="rounded-xl border border-amber-400 bg-amber-50 text-amber-900 px-4 py-2 text-sm font-bold disabled:opacity-50">
-                          Recover old customer OTP access
-                        </button>
-                      )}
-                      {legacyKey?.orderId===order.id&&(
-                        <div className="w-full rounded-xl border border-amber-300 bg-amber-50 p-3 space-y-2" role="status">
-                          <strong className="block text-sm">Private recovery key — show only to the verified customer</strong>
-                          <p className="text-xs">Ask the customer to paste this under Track Order → Restore older receipt access. The key is shown here only once; it is NOT the 4-digit delivery OTP.</p>
-                          <input readOnly aria-label="Customer receipt recovery key" value={legacyKey.key} onFocus={e=>e.currentTarget.select()}
-                            className="w-full rounded-lg border p-2 text-xs font-mono bg-white" />
-                          <button type="button" onClick={()=>{void navigator.clipboard?.writeText(legacyKey.key).catch(()=>setError('Select and copy the key manually.'));}}
-                            className="rounded-lg border bg-white px-3 py-2 text-xs">Copy private key</button>
-                          <button type="button" onClick={()=>setLegacyKey(null)} className="rounded-lg px-3 py-2 text-xs underline">Dismiss key</button>
-                        </div>
+                        ) : <button type="button" onClick={() => { setDeliveryConfirmOrderId(order.id); setPackageHandedOver(false); setCashCollected(false); }} className="min-h-12 bg-[#1a493b] text-white font-bold rounded-xl px-5 py-3 text-sm">Confirm delivery</button>
                       )}
                       {canCancel && <button type="button" disabled={!!busyOrderId} onClick={() => void mutate(order,'cancel')} className="rounded-xl border border-red-200 text-red-700 px-4 py-2 text-sm">Cancel</button>}
                     </div>
