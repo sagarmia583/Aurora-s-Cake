@@ -227,7 +227,7 @@ test('verified staff manage the same private receipt; riders see assigned orders
   assert.equal(riderBefore.orders.length,0);
   const update=(operation:string,id_token:string,extra:Record<string,unknown>={})=>h.post({action:'staff_mutate',id_token,operation,order_id:orderId,...extra});
   assert.equal(update('confirm',ADMIN_TOKEN).ok,true);
-  assert.equal(update('start_baking',ADMIN_TOKEN).ok,true);
+  const baking = update('start_baking',ADMIN_TOKEN);assert.equal(baking.ok,true,JSON.stringify(baking));
   assert.equal(update('mark_ready',ADMIN_TOKEN).ok,true);
   assert.equal(update('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
   const riderQueue=h.post({action:'staff_orders',id_token:RIDER_TOKEN});
