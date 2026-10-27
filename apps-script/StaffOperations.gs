@@ -331,6 +331,7 @@ function auroraOperationsPost_(input) {
     order.history.push({id:'staff_'+Utilities.getUuid(),status:order.status,
       notes:'Updated by authorized staff',actor_name:actor.name,created_at:order.updated_at});
     auroraPrivateSaveReceipt_(table,rowNumber,order);
+    if(action==='cancel' && order.coupon_code)auroraSyncCouponUsage_(book,order.coupon_code);
     var safeOrder = JSON.parse(JSON.stringify(order));
     delete safeOrder.customer_access_token;
     delete safeOrder.customer_google_sub;
