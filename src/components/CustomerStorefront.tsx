@@ -69,6 +69,7 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
   const customImage = safeImage(text('custom_image_url'));
   const storyImage = safeImage(text('story_image_url'));
   const logo = safeImage(settings.logo_url);
+  const [showAllCoupons,setShowAllCoupons]=useState(false);
   const activeProducts = products.filter(product => product.is_active);
   const filtered = useMemo(() => products.filter(product => product.is_active)
     .filter(product => category === 'all' || product.category_id === category)
@@ -112,7 +113,7 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:p-5">
         <div className="font-bold text-amber-950 text-sm mb-3">🎁 Available offers — use a coupon at checkout</div>
         <div className="flex flex-wrap gap-3">
-          {coupons.filter(c=>c.is_active).slice(0,6).map(c=><div key={c.id} className="rounded-xl bg-white border border-amber-200 p-3 flex-1 min-w-[180px]">
+          {coupons.filter(c=>c.is_active).slice(0,showAllCoupons?undefined:6).map(c=><div key={c.id} className="rounded-xl bg-white border border-amber-200 p-3 flex-1 min-w-[180px]">
             <strong className="block text-lg text-emerald-900">{c.discount_type==='percentage'?c.discount_value+'% OFF':money(c.discount_value)+' OFF'}</strong>
             <span className="text-xs text-slate-500 block mt-1">Min. cake subtotal {money(c.min_order_amount)}</span>
             <button type="button" onClick={()=>onUseCoupon?.(c.code)} className="mt-3 rounded-lg bg-[#174b3b] text-white text-xs font-bold px-3 py-2" aria-label={'Use coupon '+c.code}>
@@ -120,6 +121,10 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
             </button>
           </div>)}
         </div>
+        {coupons.filter(c=>c.is_active).length>6 && <button type="button" onClick={()=>setShowAllCoupons(v=>!v)}
+          className="mt-3 text-sm font-bold text-emerald-900 underline underline-offset-4">
+          {showAllCoupons?'Show fewer coupons':'View all '+coupons.filter(c=>c.is_active).length+' coupons'}
+        </button>}
       </div>
     </section>}
 
