@@ -161,7 +161,7 @@ export const CustomerAccountPortal: React.FC<Props> = ({
           <div className="grid grid-cols-3 gap-2 sm:gap-3 mt-6">
             <div className="rounded-2xl bg-white/15 p-3">
               <span className="block text-[11px] text-emerald-50">Phone orders</span>
-              <strong className="block text-xl font-black mt-1"{trackedOrders?.length ?? ownReceipts.length}</strong>
+              <strong className="block text-xl font-black mt-1">{trackedOrders?.length ?? ownReceipts.length}</strong>
             </div>
             <div className="rounded-2xl bg-white/15 p-3">
               <span className="block text-[11px] text-emerald-50">In progress</span>
