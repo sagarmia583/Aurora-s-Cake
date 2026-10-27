@@ -317,7 +317,17 @@ function auroraBuildOrder_(book,request) {
     } else if (allowedFlavors.some(function(id) { return flavors[id] && auroraActive_(flavors[id].is_active); })) {
       auroraReject_('unavailable_selection','Choose an available flavour for this cake.');
     }
-    var basePrice = auroraMoney_(variant.sale_price === '' || variant.sale_price === undefined || variant.sale_price === null ? variant.price : variant.sale_price,'variant price');
+    var regularVariantPrice=auroraMoney_(variant.price,'variant price');
+    var explicitSale=variant.sale_price!==''&&variant.sale_price!==undefined&&variant.sale_price!==null;
+    var markdown=0;
+    if(product.sale_price!==''&&product.sale_price!==undefined&&product.sale_price!==null){
+      var regularProduct=auroraMoney_(product.base_price,'product base price');
+      var productSale=auroraMoney_(product.sale_price,'product sale price');
+      markdown=Math.max(0,regularProduct-productSale);
+    }
+    var basePrice=explicitSale && Number(variant.sale_price)<regularVariantPrice
+      ? auroraMoney_(variant.sale_price,'variant sale price')
+      : auroraMoneyRound_(Math.max(0,regularVariantPrice-markdown));
     var selectedAddons = line.addon_ids.map(function(id) {
       if (allowedAddons.indexOf(id) === -1) auroraReject_('unavailable_selection','The selected add-on is not allowed for this cake.');
       var addon = auroraCurrent_(addons,id,'Add-on');
