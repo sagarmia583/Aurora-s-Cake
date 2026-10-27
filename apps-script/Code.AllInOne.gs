@@ -98,7 +98,11 @@ var PRIVATE_ORDER_SCHEMAS = {
   customer_master: ['id','phone_key','name','delivery_address','created_at','updated_at','order_count','last_order_id','last_order_at'],
   customer_contact_requests: ['id','phone_key','name','delivery_address','created_at','status'],
   rider_cash_deposits: ['id','request_id','rider_id','amount','date','actor_name','created_at','notes','voided_at','voided_by','void_reason','status','initiated_by_id','approved_by_id','approved_at'],
-  cake_cost_items: ['id','request_id','product_id','variant_id','component','unit_label','quantity','unit_cost','active','updated_at']
+  cake_cost_items: ['id','request_id','product_id','variant_id','component','unit_label','quantity','unit_cost','active','updated_at','inventory_item_id'],
+  inventory_items: ['id','name','unit','reorder_level','created_at'],
+  inventory_movements: ['id','request_id','item_id','delta','unit_cost','reason','order_id','actor','created_at'],
+  refund_returns: ['id','request_id','order_id','kind','amount','reason','status','created_by','created_at','approved_by','approved_at','settled_at'],
+  order_cost_snapshots: ['id','order_id','order_number','recorded_at','total_cost','missing_recipe','lines_json']
 };
 
 // This handler creates a private COD receipt. GET never calls these functions.
@@ -124,6 +128,7 @@ function doPost(e) {
     if (input && input.action === 'staff_customer_lookup') return auroraResponse_(auroraStaffCustomerLookup_(input));
     if (input && input.action === 'customer_contact_submit') return auroraResponse_(auroraGuestContactSubmit_(input));
     if (input && input.action === 'customer_receipt_recover') return auroraResponse_(auroraCustomerReceiptRecover_(input));
+    if(input && /^(staff_inventory_summary|staff_stock_item_create|staff_stock_adjust|staff_refund_request|staff_refund_approve)$/.test(String(input.action||''))) return auroraResponse_(auroraInventoryPost_(input));
     if(input && /^(staff_finance_summary|staff_cash_deposit|staff_cash_deposit_approve|staff_cash_deposit_void|staff_cake_cost_save|staff_cake_cost_archive)$/.test(String(input.action||''))) return auroraResponse_(auroraFinancePost_(input));
     if (input && input.action === 'customer_phone_tracking') return auroraResponse_(auroraPhoneOnlyTracking_(input));
     if (input && input.action === 'get_order_status') return auroraResponse_(auroraCustomerOrderStatus_(input));
@@ -614,6 +619,12 @@ function setupSheetDatabase() {
           sheet.getRange(1,existingHeaders.length+1,1,1).setValues([['permissions']]);
           report.push(name + ': permissions header added; existing employee roles preserved');
         }else report.push(name + ': existing private data preserved');
+      }else if(name==='cake_cost_items'){
+        var cols=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0]
+          .map(function(v){return String(v).trim().toLowerCase();});
+        if(cols.indexOf('inventory_item_id')<0)
+          sheet.getRange(1,cols.length+1,1,1).setValues([['inventory_item_id']]);
+        report.push(name+': inventory mapping column available');
       }else if(name==='rider_cash_deposits'){
         var requiredFinance=['voided_at','voided_by','void_reason','status','initiated_by_id','approved_by_id','approved_at'];
         var existing=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0]
@@ -3287,3 +3298,95 @@ function auroraStaffCandidate_(role,stored){
 }
 
 /* ==== END apps-script/StaffPermissions.gs ==== */
+
+/* ==== BEGIN apps-script/InventoryOperations.gs ==== */
+/** Private inventory and return journal. All writes use the shop ScriptLock. */
+function auroraInventoryState_(book){
+  var items=auroraPrivateTable_(book,'inventory_items').rows;
+  var moves=auroraPrivateTable_(book,'inventory_movements').rows;
+  var stock=items.map(function(i){return {id:String(i.id),name:String(i.name),unit:String(i.unit),
+    reorder_level:Number(i.reorder_level)||0,balance:0};});
+  moves.forEach(function(m){var a=stock.filter(function(x){return x.id===String(m.item_id);})[0];
+    if(a)a.balance=Math.round((a.balance+Number(m.delta||0))*1000)/1000;});
+  var refunds=auroraPrivateTable_(book,'refund_returns').rows;
+  var costs=auroraPrivateTable_(book,'order_cost_snapshots').rows;
+  return {ok:true,stock:stock,refunds:refunds.slice(-100).reverse(),
+    cost_snapshots:costs.slice(-100).reverse(),movements:moves.slice(-100).reverse()};
+}
+function auroraInventoryRequest_(x){
+  var id=String(x||'').trim();
+  if(!/^[a-f0-9-]{36}$/i.test(id))auroraReject_('invalid_request','Use a stable request ID.');
+  return id;
+}
+function auroraInventoryPost_(input){
+  var actor=auroraStaffAuthenticate_(input),action=String(input.action||'');
+  auroraStaffRequire_(actor,'finance_view');
+  if(action==='staff_inventory_summary')return auroraInventoryState_(auroraSpreadsheet_());
+  auroraStaffRequire_(actor,'finance_edit');
+  var lock=LockService.getScriptLock();
+  if(!lock.tryLock(10000))auroraReject_('busy','Another stock entry is being saved.');
+  try{
+    var book=auroraSpreadsheet_(),who=String(actor.username||actor.email||actor.name);
+    if(action==='staff_stock_item_create'){
+      var name=String(input.name||'').trim(),unit=String(input.unit||'').trim().toLowerCase();
+      if(name.length<2||name.length>100||['g','kg','ml','l','pcs'].indexOf(unit)<0)
+        auroraReject_('invalid_item','Enter item name and a valid stock unit.');
+      var table=auroraPrivateTable_(book,'inventory_items');
+      if(table.rows.some(function(i){return String(i.name).toLowerCase()===name.toLowerCase()&&i.unit===unit;}))
+        auroraReject_('duplicate_item','Stock item already exists.');
+      auroraAppendPrivate_(table,{id:'stock_'+Utilities.getUuid(),name:name,unit:unit,
+        reorder_level:Number(input.reorder_level)||0,created_at:new Date().toISOString()});
+      return auroraInventoryState_(book);
+    }
+    if(action==='staff_stock_adjust'){
+      var key=auroraInventoryRequest_(input.request_id),table=auroraPrivateTable_(book,'inventory_movements');
+      var prior=table.rows.filter(function(m){return m.request_id===key;})[0];
+      if(prior)return {ok:true,already_saved:true,state:auroraInventoryState_(book)};
+      var stock=auroraInventoryState_(book).stock.filter(function(i){return i.id===input.item_id;})[0];
+      var delta=Number(input.delta),reason=String(input.reason||'').trim();
+      if(!stock||!isFinite(delta)||delta===0||Math.abs(delta)>1000000||reason.length<5||
+        stock.balance+delta < -0.000001)auroraReject_('invalid_stock','Check stock quantity, balance and reason.');
+      auroraAppendPrivate_(table,{id:'move_'+Utilities.getUuid(),request_id:key,item_id:stock.id,
+        delta:delta,unit_cost:Math.max(0,Number(input.unit_cost)||0),reason:reason,
+        order_id:'',actor:who,created_at:new Date().toISOString()});
+      return auroraInventoryState_(book);
+    }
+    if(action==='staff_refund_request'){
+      var key=auroraInventoryRequest_(input.request_id),table=auroraPrivateTable_(book,'refund_returns');
+      var prior=table.rows.filter(function(r){return r.request_id===key;})[0];
+      if(prior)return {ok:true,already_saved:true,state:auroraInventoryState_(book)};
+      var orders=auroraPrivateTable_(book,'orders').rows;
+      var receiptRow=orders.filter(function(o){return o.id===input.order_id;})[0];
+      if(!receiptRow)auroraReject_('not_found','Order not found.');
+      var original=JSON.parse(String(receiptRow.receipt_json||'{}'));
+      var amount=Number(input.amount),reason=String(input.reason||'').trim();
+      if(original.payment_status!=='paid'||original.status!=='delivered'||!isFinite(amount)||
+         amount<=0||reason.length<8)auroraReject_('invalid_refund','Refund requires a paid order, amount and reason.');
+      var outstanding=table.rows.filter(function(r){return r.order_id===input.order_id&&r.status!=='rejected';})
+        .reduce(function(n,r){return n+Number(r.amount||0);},0);
+      if(amount+outstanding>Number(original.total_amount)+0.001)
+        auroraReject_('refund_exceeded','Refund exceeds the order payment.');
+      auroraAppendPrivate_(table,{id:'refund_'+Utilities.getUuid(),request_id:key,
+        order_id:String(input.order_id),kind:input.kind==='return'?'return':'refund',
+        amount:amount,reason:reason,status:'requested',created_by:who,
+        created_at:new Date().toISOString(),approved_by:'',approved_at:'',settled_at:''});
+      return auroraInventoryState_(book);
+    }
+    if(action==='staff_refund_approve'){
+      var table=auroraPrivateTable_(book,'refund_returns');
+      var idx=table.rows.findIndex(function(r){return r.id===input.refund_id;});
+      if(idx<0)auroraReject_('not_found','Refund not found.');
+      var r=table.rows[idx];
+      if(r.status==='approved')return {ok:true,already_approved:true,state:auroraInventoryState_(book)};
+      if(r.status!=='requested'||r.created_by===who)
+        auroraReject_('independent_approval_required','A different staff member must approve an open refund.');
+      [['status','approved'],['approved_by',who],['approved_at',new Date().toISOString()]].forEach(function(v){
+        table.sheet.getRange(idx+2,table.headers.indexOf(v[0])+1,1,1).setValues([[v[1]]]);
+      });
+      return auroraInventoryState_(book);
+    }
+    auroraReject_('invalid_action','Unknown inventory/refund action.');
+  }finally{lock.releaseLock();}
+}
+
+/* ==== END apps-script/InventoryOperations.gs ==== */
