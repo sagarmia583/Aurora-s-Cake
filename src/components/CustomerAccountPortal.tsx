@@ -1,14 +1,14 @@
 import React, { useMemo, useState } from 'react';
 import {
-  ArrowRight, CheckCircle2, ClipboardCopy, KeyRound, MapPin, PackageCheck,
+  ArrowRight, ClipboardCopy, MapPin, PackageCheck,
   Phone, ShieldCheck, ShoppingBag, Truck, UserRound, X
 } from 'lucide-react';
 import type { Order, OrderStatus } from '../types';
 import { privatePost } from '../services/sheetStaffApi';
-import { recoverOrderWithReceiptKey } from '../services/receiptRecovery';
+import { PhoneOrderTracking } from './PhoneOrderTracking';
 
 type Contact = { name: string; phone: string; address: string; email: string };
-type PanelTab = 'orders' | 'details' | 'recover';
+type PanelTab = 'orders' | 'details';
 
 const normalizePhone = (phone: string) =>
   phone.replace(/\D/g, '').replace(/^88(?=01[3-9]\d{8}$)/, '');
@@ -58,7 +58,6 @@ interface Props {
   onClose: () => void;
   endpoint: string;
   localReceipts: Order[];
-  onRecover: (orders: Order[]) => void;
   onTrackOrder?: (orderId: string) => void;
   onReorder?: (order: Order) => void;
   onBrowseCakes?: () => void;
@@ -66,12 +65,11 @@ interface Props {
 }
 
 export const CustomerAccountPortal: React.FC<Props> = ({
-  open, onClose, endpoint, localReceipts, onRecover,
+  open, onClose, endpoint, localReceipts,
   onTrackOrder, onReorder, onBrowseCakes, historySyncing = false
 }) => {
   const [contact, setContact] = useState<Contact>(() => initialContact(localReceipts));
   const [tab, setTab] = useState<PanelTab>('orders');
-  const [recovery, setRecovery] = useState({ orderId: '', phone: '', key: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -116,30 +114,6 @@ export const CustomerAccountPortal: React.FC<Props> = ({
       setTab('orders');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not save your details.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const recover = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (busy) return;
-    setBusy(true); setError(''); setMessage('');
-    try {
-      const order = await recoverOrderWithReceiptKey(
-        endpoint, recovery.orderId.trim(), recovery.phone.trim(), recovery.key.trim()
-      );
-      onRecover([order]);
-      setContact(previous => ({
-        ...previous, phone: order.customer_phone,
-        name: previous.name || order.customer_name,
-        address: previous.address || order.delivery_address
-      }));
-      setRecovery({ orderId: '', phone: '', key: '' });
-      setTab('orders');
-      setMessage('Order recovered successfully. It is now saved on this device.');
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not recover this order.');
     } finally {
       setBusy(false);
     }
@@ -202,11 +176,10 @@ export const CustomerAccountPortal: React.FC<Props> = ({
         </header>
 
         <div className="px-4 pt-4 sm:px-7">
-          <div role="tablist" aria-label="Customer order panel" className="grid grid-cols-3 gap-1 rounded-2xl bg-[#e9f1ea] p-1">
+          <div role="tablist" aria-label="Customer order panel" className="grid grid-cols-2 gap-1 rounded-2xl bg-[#e9f1ea] p-1">
             {([
               { id: 'orders' as const, label: 'My Orders', icon: PackageCheck },
-              { id: 'details' as const, label: 'My Details', icon: UserRound },
-              { id: 'recover' as const, label: 'Recover Order', icon: KeyRound }
+              { id: 'details' as const, label: 'My Details', icon: UserRound }
             ]).map(item => {
               const TabIcon = item.icon;
               return (
@@ -228,9 +201,10 @@ export const CustomerAccountPortal: React.FC<Props> = ({
 
           {tab === 'orders' && (
             <section role="tabpanel" aria-label="My Orders" className="space-y-4">
+              <PhoneOrderTracking endpoint={endpoint} initialPhone={contact.phone}/>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h3 className="text-lg font-black text-slate-900">Your cake orders</h3>
+                  <h3 className="text-lg font-black text-slate-900">Full receipts saved on this device</h3>
                   <p className="text-xs text-slate-500 mt-1">
                     {historySyncing ? 'Checking saved receipts with the bakery…' :
                       'Only orders securely saved on this device are displayed.'}
@@ -247,12 +221,10 @@ export const CustomerAccountPortal: React.FC<Props> = ({
                   <ShoppingBag className="mx-auto text-[#176346]" size={34}/>
                   <h4 className="mt-3 font-bold text-slate-900">No orders saved on this device</h4>
                   <p className="mt-2 text-sm text-slate-600 max-w-md mx-auto">
-                    After checkout, your order is saved here automatically. For an order
-                    placed on another phone, recover its original private receipt.
+                    After checkout, full receipts are saved on this device. To check any
+                    order using only your mobile number, use the tracking box above.
                   </p>
                   <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-                    <button type="button" onClick={() => changeTab('recover')}
-                      className="rounded-xl bg-[#174b3b] px-4 py-2.5 text-sm font-bold text-white">Recover an order</button>
                     {onBrowseCakes && <button type="button" onClick={onBrowseCakes}
                       className="rounded-xl border border-emerald-400 px-4 py-2.5 text-sm font-bold text-emerald-900">
                       Browse cakes
@@ -361,39 +333,7 @@ export const CustomerAccountPortal: React.FC<Props> = ({
             </section>
           )}
 
-          {tab === 'recover' && (
-            <section role="tabpanel" aria-label="Recover Order" className="space-y-4 max-w-2xl">
-              <h3 className="text-lg font-black text-slate-900">Recover a previous order</h3>
-              <p className="text-sm text-slate-600">
-                Switching phones? Enter the Order ID, phone number and private receipt
-                key supplied at checkout. Phone number alone cannot unlock an order.
-              </p>
-              <form onSubmit={recover} className="grid sm:grid-cols-2 gap-4">
-                <label className="text-sm font-semibold text-slate-700">Original Order ID
-                  <input required value={recovery.orderId} placeholder="ord_..."
-                    onChange={event => setRecovery(current => ({...current, orderId:event.target.value}))}
-                    className="w-full mt-2 rounded-xl border bg-white p-3"/>
-                </label>
-                <label className="text-sm font-semibold text-slate-700">Checkout mobile number
-                  <input required inputMode="tel" value={recovery.phone} placeholder="01XXXXXXXXX"
-                    onChange={event => setRecovery(current => ({...current, phone:event.target.value}))}
-                    className="w-full mt-2 rounded-xl border bg-white p-3"/>
-                </label>
-                <label className="text-sm font-semibold text-slate-700 sm:col-span-2">Private receipt key
-                  <input required autoComplete="off" value={recovery.key} placeholder="Key printed in your private receipt"
-                    onChange={event => setRecovery(current => ({...current, key:event.target.value}))}
-                    className="w-full mt-2 rounded-xl border bg-white p-3"/>
-                </label>
-                <button type="submit" disabled={busy}
-                  className="sm:col-span-2 rounded-xl bg-[#174b3b] text-white font-bold p-3 disabled:opacity-50">
-                  {busy ? 'Verifying receipt…' : 'Recover my order'}
-                </button>
-              </form>
-              <p className="text-xs text-slate-500 flex gap-2"><CheckCircle2 size={16} className="shrink-0"/>
-                This restores only the exact receipt that matches your private key.
-              </p>
-            </section>
-          )}
+
         </main>
       </div>
     </div>
