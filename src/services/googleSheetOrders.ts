@@ -185,7 +185,7 @@ export function storePendingSheetOrderAttempt(attempt: SheetOrderAttempt): boole
   } catch { return false; }
 }
 function loadableAttempt(value: unknown): value is SheetOrderAttempt {
-  if (!isObject(value) || ![value.endpoint,value.fingerprint,value.request_id,value.body].every(isText)) return false;
+  if (!isObject(value) || typeof value.endpoint!=='string' || typeof value.fingerprint!=='string' || typeof value.request_id!=='string' || typeof value.body!=='string') return false;
   if (value.body.length > 75000 || value.fingerprint.length > 75000 ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.request_id)) return false;
   try {
