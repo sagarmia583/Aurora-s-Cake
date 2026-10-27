@@ -2,6 +2,10 @@ import { variantPrice as resolveVariantPrice } from './productPricing';
 import type { CartItem, Order } from '../types';
 import type { PublicSiteData } from '../types/siteContent';
 
+/** Do not delete saved orders/cakes using bundled placeholder catalog data. */
+export const isAuthoritativeCartCatalog=(source:'google_sheets'|'saved_snapshot'|'bundled_preview'):boolean=>
+  source==='google_sheets'||source==='saved_snapshot';
+
 export interface ReconciledPublicCart {
   items: CartItem[];
   changed: boolean;
