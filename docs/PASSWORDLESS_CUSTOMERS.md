@@ -26,7 +26,7 @@
 1. Backup the owner's actual Google Sheets `orders`, `order_items`, customer and staff tables.
 2. Copy all of `apps-script/Code.AllInOne.gs` from branch `feat/passwordless-customer-order-panel` to the current Apps Script project's single `Code.gs`. Do not leave duplicate old modules alongside it.
 3. **Deploy > Manage deployments > Edit > New version > Deploy**, retain the existing `/exec` URL.
-4. The backend release must be `aurora-2026-10-27-cash-cost-coupons-r5`; visit the preview's `/api/backend-health` to confirm `up_to_date:true`.
+4. The backend release must be `aurora-2026-10-27-staff-access-manager-r6`; visit the preview's `/api/backend-health` to confirm `up_to_date:true`.
 5. Test a safe staging COD order from checkout through Owner Confirm > Kitchen Preparing > Ready > Assign Rider > Pickup > Start delivery > Rider handover + Cash collection > Delivered. Validate the buyer sees order details by phone after refresh, and neither rider nor customer needs an OTP.
 6. The previous deployed backend version still requires OTP and will reject the new rider request; **do not roll out the OTP-free interface into production without upgrading the Apps Script endpoint first**.
 
@@ -47,7 +47,7 @@ This workflow retains free-tier Google Apps Script/Vercel limits. Browser/real-S
 
 ## Migration verification
 
-1. Confirm updated `/api/backend-health` reports release `aurora-2026-10-27-cash-cost-coupons-r5`.
+1. Confirm updated `/api/backend-health` reports release `aurora-2026-10-27-staff-access-manager-r6`.
 2. With test COD orders, mark one Delivered by the assigned rider and verify credit; record one cash deposit and ensure Remaining decreases by EXACTLY the amount. Replay the same request and confirm only one deposit row.
 3. Enter one test ingredient cost, retry once, check only one cost entry; archive it, check the revised cost.
 4. Create a product with base price and sale price, verify the storefront badge, size checkout estimate and server-confirmed actual price match.
@@ -55,3 +55,24 @@ This workflow retains free-tier Google Apps Script/Vercel limits. Browser/real-S
 6. Verify a previous order opens independently and that no private full address or order access key appears through phone-only search.
 
 Do not merge/deploy production web changes before backend R5 is live and test workflow passes on a backed-up staging/test Sheet.
+
+## Owner-Controlled Staff Access (R6)
+
+- The owner opens **Staff & access → Create new employee** and chooses Manager / another role. Role defaults are preselected as editable checkboxes for: order view/confirm/cancel; kitchen; rider assignment, pickup/start/completion; custom cakes; customer lookup; catalog view/edit/archive; finance read/write.
+- A new Manager has every *operational* capability, including COD delivery, kitchen, public catalog, finance, customer lookup, and quote management. **Owner-only staff account/password/permission administration remains protected.**
+- Existing username/password staff accounts show **Edit access**. The owner can grant or remove each capability. All changes are validated and saved to the private Google Sheets `staff_accounts.permissions` column. Previous sessions are revoked so removed privileges do not persist.
+- Backend enforces every allowed action; hiding a button is never security. The authenticated manager may be included in the rider list and can assign a delivery to themselves; **pickup/start/deliver require that exact order to be assigned to the actor**. Handover confirmation and COD cash collection remain mandatory, no OTP.
+- Staff with no customer lookup access cannot read customer phone/address from unrelated orders. An assigned rider retains essential delivery contact details.
+- For compatibility, previously created staff accounts with an empty `permissions` cell keep their original role defaults. New staff have explicit grants. `manager` always has full operational permissions.
+- A Google-allowlisted owner's role remains controlled by Apps Script Script Properties, not the staff editor.
+
+### Required safe migration
+
+1. Back up the private Google Sheet.
+2. Replace the old Apps Script deployment code with `apps-script/Code.AllInOne.gs` R6, removing other duplicate legacy modules in that editor.
+3. **Run `setupSheetDatabase()` in the Apps Script editor while signed in as the owner.** It adds the `permissions` header to existing `staff_accounts`, preserving saved employee rows and credentials; creates missing finance tables. Verify the returned report.
+4. **Deploy > Manage deployments > Edit > New version > Deploy**.
+5. Open backend health and confirm `up_to_date:true` on R6; test a kitchen employee denied from assigning delivery, owner granting it and old session revocation, and a manager assigned to their own test COD order completing the full workflow.
+6. Deploy the corresponding web/mobile version once backend R6 is confirmed. A preview or GitHub merge alone never deploys Apps Script.
+
+Do not give untrusted staff Manager role: it includes cash accounting and catalog management. Only the Owner can manage staff accounts and access grants.
