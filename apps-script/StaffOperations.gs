@@ -337,6 +337,18 @@ function auroraOperationsPost_(input) {
     delete safeOrder.delivery_otp;
     delete safeOrder.otp_failed_attempts;
     delete safeOrder.otp_locked_until;
+    // Match staff_orders response minimization: a successful mutation must
+    // not silently disclose customer contact info denied on the order list.
+    var isOwnDelivery=String(order.rider_id||'').toLowerCase()===actor.email;
+    if(!auroraStaffHas_(actor,'customers_lookup')&&!isOwnDelivery){
+      delete safeOrder.customer_phone;
+      delete safeOrder.delivery_address;
+    }
+    if(actor.role==='accountant'){
+      delete safeOrder.customer_phone;
+      delete safeOrder.delivery_address;
+      delete safeOrder.items;
+    }
     return {ok:true,order:safeOrder};
   } finally {lock.releaseLock();}
 }
