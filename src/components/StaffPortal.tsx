@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, RefreshCw, ShieldCheck, Truck, PackageCheck, LayoutDashboard, ShoppingBag, UsersRound, CakeSlice, Store, Search, ChevronDown, ChevronUp, LogOut, Clock3, BadgeCheck, ArrowRight, AlertCircle, CreditCard, MapPin } from 'lucide-react';
-import { checkStaffSession, getStaffOrders, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword, lookupStaffCustomer } from '../services/sheetStaffApi';
+import { checkStaffSession, getStaffOrders, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword, lookupStaffCustomer, backfillFirebaseOrders } from '../services/sheetStaffApi';
 import type { StaffCustomerMatch, StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
 import { getBrowserWorkspaceStorage, loadStaffCredential, saveStaffCredential, clearStaffCredential, loadStaffTab, saveStaffTab } from '../services/staffWorkspaceSession';
@@ -138,6 +138,9 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [viewingSavedOrders,setViewingSavedOrders]=useState(false);
   const [orderUpdateMessage,setOrderUpdateMessage]=useState('');
   const [backendWarning,setBackendWarning]=useState('');
+  const [firebaseBackfillBusy,setFirebaseBackfillBusy]=useState(false);
+  const [firebaseBackfillOffset,setFirebaseBackfillOffset]=useState(0);
+  const [firebaseBackfillMessage,setFirebaseBackfillMessage]=useState('');
   useEffect(()=>{
     if(!isOpen||typeof window==='undefined'||!window.location.hostname.endsWith('.vercel.app'))return;
     const controller=new AbortController();
@@ -152,6 +155,28 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       .catch(()=>{});
     return()=>controller.abort();
   },[isOpen,endpoint]);
+  const syncHistoricalFirebaseOrders=async()=>{
+    if(!identity||identity.role!=='super_admin'||firebaseBackfillBusy)return;
+    if(!window.confirm('Sync private, confirmed Google Sheets order records to your server-only Firebase Firestore mirror? This will not modify any Google Sheets orders.'))return;
+    setFirebaseBackfillBusy(true);
+    setFirebaseBackfillMessage('');
+    try{
+      let offset=firebaseBackfillOffset,total=0,saved=0,unchanged=0,failed=0,skipped=0;
+      for(let batch=0;batch<5;batch++){
+        const result=await backfillFirebaseOrders(endpoint,identity.token,offset);
+        if(!result.configured)throw new Error('Firebase mirror is not configured on the Vercel server. Set FIREBASE_MIRROR_ENABLED and the server-only service account.');
+        saved+=result.saved;unchanged+=result.unchanged;failed+=result.failed;skipped+=result.skipped;
+        total=result.total;
+        if(result.next_offset<=offset || result.next_offset>=total){offset=result.next_offset;break;}
+        offset=result.next_offset;
+      }
+      setFirebaseBackfillOffset(offset);
+      setFirebaseBackfillMessage('Firestore sync: '+offset+' of '+total+' checked; '+saved+
+        ' saved, '+unchanged+' already current, '+skipped+' skipped, '+failed+
+        ' failed.'+(offset<total?' Click Sync again to continue.':' Backfill complete.'));
+    }catch(err){setFirebaseBackfillMessage(err instanceof Error?err.message:'Firebase backfill failed.');}
+    finally{setFirebaseBackfillBusy(false);}
+  };
   const [legacyKey,setLegacyKey]=useState<{orderId:string;key:string}|null>(null);
   const lookupCustomer=async(event:React.FormEvent)=>{
     event.preventDefault();if(!identity||customerLookupBusy)return;
@@ -757,6 +782,19 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                     {activeTab==='overview'&&<button type="button" className="rounded-xl px-4 py-3 bg-[#1b493d] text-white text-sm font-bold flex items-center gap-2"
                       onClick={()=>{setActiveTab('orders');setOrderFilter('all');}}>View all orders <ArrowRight size={15}/></button>}
                   </div>
+                  {identity.role==='super_admin'&&activeTab==='orders'&&(
+                    <section aria-label="Firebase order backfill" className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div><p className="font-bold text-[#173b32]">Firebase order backup</p>
+                          <p className="text-slate-500 text-xs">Safely sync earlier confirmed Sheets orders to private Firestore. New orders sync automatically after server configuration.</p></div>
+                        <button type="button" onClick={()=>void syncHistoricalFirebaseOrders()} disabled={firebaseBackfillBusy}
+                          className="rounded-lg bg-[#173b32] px-4 py-2.5 font-bold text-white disabled:opacity-50">
+                          {firebaseBackfillBusy?'Syncing…':firebaseBackfillOffset?'Continue Firebase sync':'Sync existing orders'}
+                        </button>
+                      </div>
+                      {firebaseBackfillMessage&&<p role="status" className="mt-2 text-slate-700">{firebaseBackfillMessage}</p>}
+                    </section>
+                  )}
                   <div className="rounded-2xl bg-white border border-slate-200 p-3 sm:p-4 space-y-3">
                     <div className="flex flex-wrap gap-2" aria-label="Filter orders">
                       {([{value:'actionable',label:'Needs my action'},{value:'active',label:'In progress'},{value:'completed',label:'Finished'},{value:'all',label:'All orders'}] as const).map(option=>(

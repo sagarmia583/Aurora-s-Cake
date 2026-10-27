@@ -7,6 +7,7 @@
  * Set VITE_SHEETS_POST_PROXY=/api/operations for the Vite frontend.
  */
 import relay from '../netlify/functions/operations.mjs';
+import { mirrorAuthoritativeReply, mirrorVerifiedAdminOrderPage } from './lib/firestoreOrderMirror.js';
 
 const MAX_REQUEST_BYTES = 950000;
 const fail=(res, status, message)=>{
@@ -55,7 +56,35 @@ export default async function handler(req,res) {
       const value=reply.headers.get(key);
       if(value)res.setHeader(key,value);
     }
-    res.end(await reply.text());
+    const responseBody=await reply.text();
+    // Only backend-confirmed receipts are eligible for the private Firebase
+    // mirror. Never trust browser order totals, role claims or status values.
+    let clientResponse=responseBody;
+    if(reply.ok) {
+      try {
+        const backendReply=JSON.parse(responseBody);
+        const payload=JSON.parse(body);
+        if(payload && typeof payload==='object' && backendReply && typeof backendReply==='object') {
+          if(payload.action==='create_order'||payload.action==='staff_mutate') {
+            const mirror=await mirrorAuthoritativeReply(payload,backendReply);
+            res.setHeader('X-Aurora-Firebase-Mirror',mirror.status);
+          } else if(payload.action==='staff_orders'&&payload.firebase_mirror_backfill===true) {
+            const batch=await mirrorVerifiedAdminOrderPage(payload,backendReply);
+            if(batch) {
+              clientResponse=JSON.stringify({...backendReply,firebase_backfill:batch});
+              res.setHeader('X-Aurora-Firebase-Mirror',
+                batch.configured?(batch.failed?'partial':'processed'):'not_configured');
+            }
+          }
+        }
+      } catch (error) {
+        // Never mask a confirmed Sheets commit with a secondary-system issue.
+        console.error('Firebase projection handling failed:',
+          error instanceof Error?error.message:'unknown');
+        res.setHeader('X-Aurora-Firebase-Mirror','failed');
+      }
+    }
+    res.end(clientResponse);
   }catch{
     return fail(res,502,'Bakery operations are unavailable. Retry the same request reference.');
   }

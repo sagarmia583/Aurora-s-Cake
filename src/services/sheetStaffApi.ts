@@ -234,3 +234,35 @@ export async function lookupStaffCustomer(endpoint:string,token:string,phone:str
     throw new Error('Customer directory returned an invalid response. Update the Apps Script Code.gs.');
   return record as unknown as StaffCustomerMatch;
 }
+
+/**
+ * Intentionally invoked only by a super admin. Apps Script verifies the staff
+ * credential and role *before* Vercel mirrors a paged batch. Ordinary staff
+ * polling never triggers Firestore writes.
+ */
+export interface FirebaseOrderBackfill {
+  offset:number;
+  total:number;
+  next_offset:number;
+  saved:number;
+  unchanged:number;
+  skipped:number;
+  failed:number;
+  configured:boolean;
+}
+export async function backfillFirebaseOrders(
+  endpoint:string,token:string,offset:number
+):Promise<FirebaseOrderBackfill>{
+  if(!Number.isSafeInteger(offset)||offset<0)throw new Error('Invalid Firebase backfill offset.');
+  const result=await privatePost(endpoint,{
+    action:'staff_orders',...staffCredential(token),
+    firebase_mirror_backfill:true,firebase_mirror_offset:offset,
+  });
+  const value=result.firebase_backfill;
+  if(!objectValue(value))throw new Error(
+    'Firebase backfill requires the latest Vercel backend and a verified Super Admin session.');
+  const numbers=['offset','total','next_offset','saved','unchanged','skipped','failed'] as const;
+  if(!numbers.every(key=>Number.isSafeInteger(value[key])&&Number(value[key])>=0) ||
+     typeof value.configured!=='boolean')throw new Error('Invalid Firebase backfill result.');
+  return value as unknown as FirebaseOrderBackfill;
+}
