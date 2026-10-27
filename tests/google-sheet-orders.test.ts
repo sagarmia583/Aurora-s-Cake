@@ -1142,3 +1142,89 @@ test('product base-price markdown is honored by authoritative sheet checkout whe
   assert.equal(reply.order.discount_amount,120);
   assert.equal(reply.order.total_amount,1580);
 });
+
+test('owner can set individual staff access and changes revoke previous sessions',()=>{
+  const h=harness({singleFile:true});
+  const make={action:'staff_account_create',id_token:ADMIN_TOKEN,name:'Kitchen Employee',
+    username:'chef01',role:'kitchen_manager',password:'TestKitchenPassword123!',
+    permissions:['orders_view','kitchen_start']};
+  assert.equal(h.post(make).created,true);
+  const signIn=()=>h.post({action:'staff_password_login',username:'chef01',password:make.password});
+  const login=signIn();
+  assert.equal(login.ok,true);
+  const perm=h.post({action:'staff_session',auth_token:login.auth_token});
+  assert.equal(perm.role,'kitchen_manager');
+  assert.deepEqual(Array.from(perm.permissions),['orders_view','kitchen_start']);
+  const placed=h.post(request());assert.equal(placed.persisted,true);
+  const id=placed.order.id;
+  const act=(token:string,operation:string,extra:Record<string,unknown>={})=>
+    h.post({action:'staff_mutate',auth_token:token,order_id:id,operation,...extra});
+  assert.equal(act(login.auth_token,'confirm').code,'forbidden');
+  assert.equal(h.post({action:'staff_mutate',id_token:ADMIN_TOKEN,order_id:id,operation:'confirm'}).ok,true);
+  assert.equal(act(login.auth_token,'start_baking').ok,true);
+  assert.equal(act(login.auth_token,'mark_ready').code,'forbidden');
+  assert.equal(h.post({action:'staff_account_update_permissions',auth_token:login.auth_token,
+    username:'chef01',permissions:['orders_view','kitchen_start','kitchen_ready']}).code,'forbidden');
+  assert.equal(h.post({action:'staff_account_update_permissions',id_token:ADMIN_TOKEN,
+    username:'chef01',permissions:['orders_view','kitchen_start','kitchen_ready']}).updated,true);
+  assert.equal(h.post({action:'staff_session',auth_token:login.auth_token}).code,'unauthorized');
+  const renewed=signIn();
+  assert.equal(renewed.ok,true);
+  assert.equal(act(renewed.auth_token,'mark_ready').ok,true);
+  assert.equal(h.post({action:'staff_account_update_permissions',id_token:ADMIN_TOKEN,
+    username:'chef01',permissions:['orders_view','unrecognized_admin_override']}).code,'invalid_permissions');
+  const directory=h.post({action:'staff_session',id_token:ADMIN_TOKEN}).staff_profiles;
+  const chef=directory.find((p:{username?:string})=>p.username==='chef01');
+  assert.deepEqual(Array.from(chef.permissions),['orders_view','kitchen_start','kitchen_ready']);
+});
+
+test('manager performs kitchen, assignment, own delivery and COD without staff admin permission',()=>{
+  const h=harness({singleFile:true});h.context.setupSheetDatabase();
+  const make={action:'staff_account_create',id_token:ADMIN_TOKEN,name:'Store Manager',
+    username:'manager01',role:'manager',password:'FullManagerPassword123!'};
+  assert.equal(h.post(make).created,true);
+  const login=h.post({action:'staff_password_login',username:'manager01',password:make.password});
+  const token=login.auth_token;
+  const manager=h.post({action:'staff_session',auth_token:token});
+  assert.equal(manager.role,'manager');
+  assert.ok(manager.riders.some((r:{email:string})=>r.email==='manager01'));
+  assert.ok(manager.permissions.includes('delivery_complete'));
+  assert.ok(manager.permissions.includes('finance_edit'));
+  assert.equal(h.post({action:'staff_account_create',auth_token:token,name:'Fake Admin',
+    username:'fakeadm',password:'SomethingStrong555!',role:'admin'}).code,'forbidden');
+  assert.equal(h.post({action:'staff_account_update_permissions',id_token:ADMIN_TOKEN,
+    username:'manager01',permissions:['orders_view']}).code,'protected');
+  const order=h.post(request());
+  assert.equal(order.persisted,true);
+  const id=order.order.id;
+  const mutate=(operation:string,extra:Record<string,unknown>={})=>
+    h.post({action:'staff_mutate',auth_token:token,order_id:id,operation,...extra});
+  for(const operation of ['confirm','start_baking','mark_ready'])assert.equal(mutate(operation).ok,true);
+  assert.equal(mutate('assign',{rider_email:'manager01'}).ok,true);
+  assert.equal(mutate('pick_up').ok,true);
+  assert.equal(mutate('start_delivery').ok,true);
+  assert.equal(mutate('deliver',{package_handed_over:true,cash_collected:false}).code,'cash_unconfirmed');
+  assert.equal(mutate('deliver',{package_handed_over:true,cash_collected:true}).order.status,'delivered');
+  const finance=h.post({action:'staff_finance_summary',auth_token:token});
+  assert.equal(finance.ok,true);
+  assert.equal(finance.riders[0].remaining,1680);
+  assert.equal(h.post({action:'staff_cash_deposit',auth_token:token,request_id:'a2222222-3333-4333-8333-444444444444',
+    date:'2026-10-27',rider_id:'manager01',amount:200,notes:'Manager delivered COD'}).snapshot.riders[0].remaining,1480);
+  assert.equal(h.post({action:'staff_customer_lookup',auth_token:token,phone:'01700000000'}).found,true);
+});
+
+test('staff accounts permissions header can be added without rewriting existing staff',()=>{
+  const h=harness({singleFile:true});
+  const manager=h.post({action:'staff_account_create',id_token:ADMIN_TOKEN,name:'Shift Manager',
+    username:'shiftman',role:'manager',password:'ShiftManagerStrong777!'});
+  assert.equal(manager.created,true);
+  const oldRows=structuredClone(h.tables.staff_accounts.slice(1));
+  const oldHeader=h.tables.staff_accounts[0];
+  assert.equal(oldHeader.pop(),'permissions');
+  for(const row of h.tables.staff_accounts.slice(1))row.pop();
+  const msg=h.context.setupSheetDatabase();
+  assert.match(msg,/permissions header added/);
+  assert.equal(h.tables.staff_accounts[0].at(-1),'permissions');
+  assert.deepEqual(h.tables.staff_accounts.slice(1).map(r=>r.slice(0,-1)),oldRows.map(r=>r.slice(0,-1)));
+  assert.equal(h.post({action:'staff_password_login',username:'shiftman',password:'ShiftManagerStrong777!'}).ok,true);
+});
