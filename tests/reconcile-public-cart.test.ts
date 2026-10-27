@@ -152,8 +152,8 @@ test('reorder ignores invalid zero Sheet sale price and removes unavailable add-
   variant.sale_price=0;
   data.addons=[];
   const result=reorderFromPublicOrder(order,data);
-  assert.equal(result.items[0].unit_price,0);
-  assert.equal(result.items[0].total_price,0);
+  assert.equal(result.items[0].unit_price,variantPrice(data.products[0],variant));
+  assert.equal(result.items[0].total_price,variantPrice(data.products[0],variant)*2);
   assert.deepEqual(result.items[0].selected_addons,[]);
   assert.equal(result.changed,true);
   assert.equal(result.removedCount,0);
