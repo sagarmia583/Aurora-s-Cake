@@ -1,0 +1,18 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Safe, non-sensitive connectivity probe. No document data is needed.
+    match /public/health {
+      allow get: if true;
+      allow list, create, update, delete: if false;
+    }
+
+    // No customer, staff, order, cash, inventory or recipe access yet.
+    // Add narrowly scoped rules only after verified Firebase Auth roles,
+    // data migration, and emulator acceptance tests are complete.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
