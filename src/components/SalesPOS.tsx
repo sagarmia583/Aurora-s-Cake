@@ -204,7 +204,7 @@ export default function SalesPOS({endpoint,token,canSell,canDiscount,canHistory}
     </div>}
     <style>{`@media screen { .aurora-pos-paper { display:none; } }
       @media print {
-        @page { size: ${paper}mm auto; margin:0; }
+        @page { size:auto; margin:0; }
         body * { visibility:hidden !important; }
         #aurora-pos-paper, #aurora-pos-paper * { visibility:visible !important; }
         #aurora-pos-paper { display:block !important; position:absolute !important;top:0;left:0;
