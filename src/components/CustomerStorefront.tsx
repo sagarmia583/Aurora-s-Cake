@@ -1,3 +1,4 @@
+import { variantPrice, variantDiscount } from '../services/productPricing';
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, ArrowUpRight, CakeSlice, Check, ChevronDown, Flower2, Heart, Leaf, Truck, Facebook, Phone, Mail, Plus } from 'lucide-react';
 import { Product, Category, ShopSettings, Flavor, Banner, Review } from '../types';
@@ -26,7 +27,7 @@ const safeLink = (value?: string) => value && /^(https?:\/\/|mailto:|tel:|#)/i.t
 const safeImage = (value?: string) => value && /^(https?:\/\/|\/[^/])/i.test(value.trim()) ? value.trim() : '';
 
 function startingPrice(product: Product) {
-  const prices = product.variants.filter(v => v.is_active).map(v => v.sale_price ?? v.price);
+  const prices = product.variants.filter(v => v.is_active).map(v => variantPrice(product,v));
   return prices.length ? Math.min(...prices) : product.sale_price ?? product.base_price;
 }
 
@@ -126,14 +127,14 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
       </div>
       <div className="ac-results-line" aria-live="polite">{searchQuery ? `“${searchQuery}” · ` : ''}{filtered.length} {text('catalog_results_label')}</div>
       <div className="ac-product-grid">{filtered.map(product => {
-        const firstVariant = product.variants.filter(variant => variant.is_active).sort((a, b) => (a.sale_price ?? a.price) - (b.sale_price ?? b.price))[0];
+        const firstVariant = product.variants.filter(variant => variant.is_active).sort((a, b) => variantPrice(product,a) - variantPrice(product,b))[0];
         return <article className="ac-product" key={product.id}>
           <button className="ac-product-image-button" onClick={() => onSelectProduct(product)} aria-label={`Choose ${product.name}`}>
             {safeImage(product.image_url) && <img src={safeImage(product.image_url)} alt={product.name} loading="lazy" width="800" height="800" />}
-            {product.is_featured && text('catalog_featured_badge') && <span className="ac-product-tag">{text('catalog_featured_badge')}</span>}
+            {firstVariant && variantDiscount(product,firstVariant)>0 ? <span className="ac-product-tag" style={{background:'#b91c1c',color:'white'}}>-{variantDiscount(product,firstVariant)}% OFF</span> : product.is_featured && text('catalog_featured_badge') && <span className="ac-product-tag">{text('catalog_featured_badge')}</span>}
             <span className="ac-product-hover">{text('catalog_customize_label')} <ArrowUpRight size={15} /></span>
           </button>
-          <div className="ac-product-info"><div><span className="ac-product-category">{categories.find(item => item.id === product.category_id)?.name ?? product.category_name}</span><h3><button onClick={() => onSelectProduct(product)}>{product.name}</button></h3><p className="ac-product-description">{product.description}</p><p>{text('catalog_from_label')} <strong>{money(startingPrice(product))}</strong>{firstVariant && <span> / {firstVariant.name.split(' (')[0]}</span>}</p></div><button className="ac-add-cake" onClick={() => onSelectProduct(product)} aria-label={`${text('catalog_customize_label')} ${product.name}`}><span>{text('catalog_customize_label')}</span><ArrowUpRight size={16} strokeWidth={1.8} /></button></div>
+          <div className="ac-product-info"><div><span className="ac-product-category">{categories.find(item => item.id === product.category_id)?.name ?? product.category_name}</span><h3><button onClick={() => onSelectProduct(product)}>{product.name}</button></h3><p className="ac-product-description">{product.description}</p><p>{text('catalog_from_label')} <strong>{money(startingPrice(product))}</strong>{firstVariant && variantDiscount(product,firstVariant)>0 && <del style={{marginLeft:8,color:'#8a8a8a'}}>{money(firstVariant.price)}</del>}{firstVariant && <span> / {firstVariant.name.split(' (')[0]}</span>}</p></div><button className="ac-add-cake" onClick={() => onSelectProduct(product)} aria-label={`${text('catalog_customize_label')} ${product.name}`}><span>{text('catalog_customize_label')}</span><ArrowUpRight size={16} strokeWidth={1.8} /></button></div>
         </article>;
       })}</div>
       {!filtered.length && <div className="ac-empty"><CakeSlice size={42} strokeWidth={1} /><h3>{text('catalog_empty_title')}</h3><p>{text('catalog_empty_description')}</p><button className="ac-text-button" onClick={() => setCategory('all')}>{text('catalog_reset_label')} <ArrowRight size={15} /></button></div>}
