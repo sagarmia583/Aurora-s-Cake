@@ -26,7 +26,7 @@
 1. Backup the owner's actual Google Sheets `orders`, `order_items`, customer and staff tables.
 2. Copy all of `apps-script/Code.AllInOne.gs` from branch `feat/passwordless-customer-order-panel` to the current Apps Script project's single `Code.gs`. Do not leave duplicate old modules alongside it.
 3. **Deploy > Manage deployments > Edit > New version > Deploy**, retain the existing `/exec` URL.
-4. The backend release must be `aurora-2026-10-27-staff-access-manager-r6`; visit the preview's `/api/backend-health` to confirm `up_to_date:true`.
+4. The backend release must be `aurora-2026-10-27-audit-hardening-r7`; visit the preview's `/api/backend-health` to confirm `up_to_date:true`.
 5. Test a safe staging COD order from checkout through Owner Confirm > Kitchen Preparing > Ready > Assign Rider > Pickup > Start delivery > Rider handover + Cash collection > Delivered. Validate the buyer sees order details by phone after refresh, and neither rider nor customer needs an OTP.
 6. The previous deployed backend version still requires OTP and will reject the new rider request; **do not roll out the OTP-free interface into production without upgrading the Apps Script endpoint first**.
 
@@ -47,7 +47,7 @@ This workflow retains free-tier Google Apps Script/Vercel limits. Browser/real-S
 
 ## Migration verification
 
-1. Confirm updated `/api/backend-health` reports release `aurora-2026-10-27-staff-access-manager-r6`.
+1. Confirm updated `/api/backend-health` reports release `aurora-2026-10-27-audit-hardening-r7`.
 2. With test COD orders, mark one Delivered by the assigned rider and verify credit; record one cash deposit and ensure Remaining decreases by EXACTLY the amount. Replay the same request and confirm only one deposit row.
 3. Enter one test ingredient cost, retry once, check only one cost entry; archive it, check the revised cost.
 4. Create a product with base price and sale price, verify the storefront badge, size checkout estimate and server-confirmed actual price match.
@@ -76,3 +76,25 @@ Do not merge/deploy production web changes before backend R5 is live and test wo
 6. Deploy the corresponding web/mobile version once backend R6 is confirmed. A preview or GitHub merge alone never deploys Apps Script.
 
 Do not give untrusted staff Manager role: it includes cash accounting and catalog management. Only the Owner can manage staff accounts and access grants.
+
+## R7 deep-audit corrections
+
+1. **Pricing**: invalid free/zero-price size-sale values and base-price markdowns exceeding a cake size now fail at checkout. Live CMS rejects active products without positive prices and zero/negative sale prices. Storefront ignores an invalid sale rather than advertising a free cake. A real eligible coupon may still reduce the **total** to a delivery fee only.
+2. **Production-safe checkout**: a published site no longer substitutes a device-only demonstration order when Google Sheets ordering is unavailable. Cart, navbar, coupon and mobile routes use a connected live checkout guard. In development, mock orders are still available and are explicitly labeled as such.
+3. **Historical tracking**: phone-only history is paginated with `next_cursor` and Load earlier orders; it no longer stops permanently at ten. The client validates cursor shape. Refreshed selection uses masked reference plus creation timestamp instead of list position. Phone-number lookup is intentionally NOT identity verification; item/price/date visibility to anyone knowing the phone number remains a **user-requested privacy tradeoff**.
+4. **Coupon integrity**: `usage_count` is reconciled from committed, noncancelled coupon-bearing orders under the order lock, including after retries and cancellation. With older sheets missing the column it skips reconciliation, preserving existing data. Checkout clears applied coupon if edited or no longer eligible. Homepage can expand beyond six coupons.
+5. **Staff privacy**: employees without `customers_lookup` cannot view name, phone, address, or private delivery notes in unassigned order list or mutation responses; assigned riders retain delivery contact details needed for service. View-only CMS screens now disable Create/Save/Image Upload inputs.
+6. **Delivery slot**: conventional 12h/24h delivery ranges that have already ended in `Asia/Dhaka` on today's date are rejected. Unstructured, non-time-parsable slot labels still require manual shop policy/capacity rules.
+7. **Cash correction**: admin with `finance_edit` can void a mistaken deposit with a mandatory 8–300 character reason. The old row is retained with `voided_at`, `voided_by`, `void_reason`, and no longer reduces rider outstanding cash. Repeated voids return `already_voided`. This is an accounting **correction**, not a reversal of a real bank transfer.
+8. **Migration**: backup and run `setupSheetDatabase()` to add 3 cash-deposit audit columns to an existing `rider_cash_deposits` tab before enabling corrections. No existing cash row is deleted. Publish a new Apps Script Web App version and check R7 `/api/backend-health` before web rollout.
+
+### Not yet production-verified or fully implemented
+
+- Any actual Apps Script / Google Sheets live checkout, customer privacy pen-test, slow network or mobile-device end-to-end acceptance test.
+- Real-time rider GPS, delivery-slot capacity booking / staff shifts, refund and return accounting, per-order historical cost snapshot, stock inventory, independent two-person cash settlement approval, reconciliation to bank statements or a full double-entry accounting system.
+- Phone-only tracking cannot securely disclose full private receipt/address to a device that merely knows the phone number without additional ownership verification. Do not weaken this.
+- Public tracking still reads several entire Google Sheets columns per lookup; large-scale indexing, performance and Google Apps Script quotas require real load testing.
+- Old Google Sheet orders without full receipt JSON may have limited historical item details. Existing saved rows are not rewritten automatically.
+- Existing `customer_phone_signup/login/password` legacy routes remain for backwards compatibility, even though the current no-password customer interface does not use them. Removing these and migrating any real accounts requires a separate verified data migration.
+
+Do not merge PR #4 into Production before R7 deployment to a backed-up/staging Sheet and controlled live acceptance tests.
