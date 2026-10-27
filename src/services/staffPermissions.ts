@@ -50,6 +50,13 @@ export const staffOperationPermission:Record<StaffOperation,StaffCapability>={
 };
 export const canStaffOperation=(role:StaffRoleName,permissions:readonly StaffCapability[]|undefined,operation:StaffOperation):boolean=>
  hasStaffPermission(role,permissions,staffOperationPermission[operation]);
+/** UI guard mirrors backend's assigned-rider requirement; backend still checks it. */
+export const canStaffOperateAssignedOrder=(role:StaffRoleName,permissions:readonly StaffCapability[]|undefined,
+  operation:StaffOperation,staffEmail:string|undefined,assignedRider:string|undefined):boolean=>{
+  if(!canStaffOperation(role,permissions,operation))return false;
+  if(!['pick_up','start_delivery','deliver'].includes(operation))return true;
+  return !!staffEmail&&!!assignedRider&&staffEmail.toLowerCase()===assignedRider.toLowerCase();
+};
 export const normalizedStaffPermissions=(value:unknown):StaffCapability[]|undefined=>{
  if(!Array.isArray(value)||value.length>STAFF_CAPABILITIES.length||
     !value.every(p=>typeof p==='string'&&(STAFF_CAPABILITIES as readonly string[]).includes(p)))return undefined;
