@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, CheckCircle2, Circle, Phone, RotateCcw, Search, ShieldCheck, Truck } from 'lucide-react';
 import {
   getPhoneOrderStatuses, normalizeTrackingPhone, type PhoneTrackingStatus
@@ -58,24 +58,29 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
   const [backendWarning, setBackendWarning] = useState('');
   const [expandedOrderKey, setExpandedOrderKey] = useState<string | null>(null);
   const [checkedAt, setCheckedAt] = useState('');
+  const activeSearchId=useRef(0);
 
   const search = async (candidate: string, signal?: { cancelled: boolean }) => {
     if (!endpoint || !candidate || signal?.cancelled) return;
+    const requestId=++activeSearchId.current;
+    const current=()=>requestId===activeSearchId.current&&!signal?.cancelled;
     setLoading(true); setError('');
     try {
       const result = await getPhoneOrderStatuses(endpoint, candidate);
-      if (signal?.cancelled) return;
+      // A previous phone's request can finish after a new phone is entered.
+      // Never render or save results for a phone that is no longer selected.
+      if (!current()) return;
       setOrders(result);
       onResults?.(result);
       setSearched(true);
       setCheckedAt(formatCheckedTime());
       try { localStorage.setItem(PHONE_STORAGE_KEY, normalizeTrackingPhone(candidate)); } catch { /* Private storage is optional. */ }
     } catch (cause) {
-      if (signal?.cancelled) return;
+      if (!current()) return;
       // A temporary network error must not erase already found orders.
       setError(cause instanceof Error ? cause.message : 'Could not check your order.');
     } finally {
-      if (!signal?.cancelled) setLoading(false);
+      if (current()) setLoading(false);
     }
   };
 
@@ -85,7 +90,7 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
     const signal = {cancelled:false};
     setPhone(last);
     void search(last, signal);
-    return () => { signal.cancelled=true; };
+    return () => { signal.cancelled=true; activeSearchId.current++; };
     // Automatically load only when opened, not on every keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [endpoint]);
@@ -125,6 +130,8 @@ export const PhoneOrderTracking: React.FC<Props> = ({ endpoint, initialPhone = '
           <input type="tel" inputMode="tel" autoComplete="tel" required
             value={phone}
             onChange={event => {
+              activeSearchId.current++;
+              setLoading(false);
               setPhone(event.target.value);setSearched(false);setOrders([]);
               setExpandedOrderKey(null);setCheckedAt('');onResults?.([]);setError('');
             }}
