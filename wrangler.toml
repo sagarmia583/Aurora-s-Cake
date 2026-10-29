@@ -1,6 +1,12 @@
-# Cloudflare Pages project created from GitHub: sagarmia583/Aurora-s-Cake
-name = "auroras-cake-pages"
-pages_build_output_dir = "./dist"
+# Cloudflare Workers + Static Assets deploy target.
+# This is the existing aurora-s-cake.sagarmia583.workers.dev project,
+# NOT a Cloudflare Pages project. Keep JSON secrets in the Workers dashboard.
+name = "aurora-s-cake"
+main = "./cloudflare/worker.js"
 compatibility_date = "2026-10-29"
-# Node compatibility is enabled by default for compatibility dates >= 2026-08-04.
-# Cloudflare Pages environment secrets are added in the Dashboard, NOT here.
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
