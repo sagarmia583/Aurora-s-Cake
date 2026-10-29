@@ -211,6 +211,69 @@ async function internalOrder(db,staff,body){
   }
 }
 
+async function createCategory(db,staff,body){
+  if(!limited(staff.role,ADMIN))return forbidden();
+  const name=txt(body.name,120),slug=txt(body.slug,120).toLowerCase();
+  if(!name||!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug))return normalizeError();
+  const categoryId=id();
+  try{
+    await db.batch([
+      db.prepare('INSERT INTO categories(id,name,slug,active) VALUES (?,?,?,0)')
+        .bind(categoryId,name,slug),
+      db.prepare(`INSERT INTO audit_events(id,actor_id,action,target_type,target_id)
+        VALUES (?,?,'category.create','category',?)`).bind(id(),staff.id,categoryId)
+    ]);
+    return json(201,{ok:true,id:categoryId,published:false});
+  }catch{return normalizeError();}
+}
+
+async function createInventoryItem(db,staff,body){
+  if(!limited(staff.role,INVENTORY))return forbidden();
+  const name=txt(body.name,150),unit=txt(body.unit,20);
+  const reorder=body.reorder_at_milli??0;
+  if(!name||!new Set(['g','kg','ml','l','pcs','box']).has(unit)||
+     !integer(reorder,0,100000000))return normalizeError();
+  const itemId=id();
+  try{
+    await db.batch([
+      db.prepare(`INSERT INTO inventory_items(id,name,unit,reorder_at_milli)
+        VALUES (?,?,?,?)`).bind(itemId,name,unit,reorder),
+      db.prepare(`INSERT INTO audit_events(id,actor_id,action,target_type,target_id)
+        VALUES (?,?,'inventory.item_create','inventory_item',?)`)
+        .bind(id(),staff.id,itemId)
+    ]);
+    return json(201,{ok:true,id:itemId});
+  }catch{return normalizeError();}
+}
+
+async function openPosRegister(db,staff,body){
+  if(!limited(staff.role,POS))return forbidden();
+  const opening=body.opening_paisa??0;
+  if(!integer(opening,0,100000000))return normalizeError();
+  const registerId=id();
+  try{
+    await db.prepare(`INSERT INTO cash_registers(id,opened_by,opening_paisa)
+      VALUES (?,?,?)`).bind(registerId,staff.id,opening).run();
+    return json(201,{ok:true,id:registerId});
+  }catch{return normalizeError();}
+}
+
+async function setProductVisibility(db,staff,body){
+  if(!limited(staff.role,ADMIN))return forbidden();
+  const productId=txt(body.product_id,120);
+  if(!productId||typeof body.active!=='boolean')return normalizeError();
+  try{
+    const batch=await db.batch([
+      db.prepare('UPDATE products SET active=?,updated_at=datetime(\'now\') WHERE id=?')
+        .bind(body.active?1:0,productId),
+      db.prepare(`INSERT INTO audit_events(id,actor_id,action,target_type,target_id)
+        VALUES (?,?,'product.visibility','product',?)`).bind(id(),staff.id,productId)
+    ]);
+    if(!batch[0]?.meta?.changes)return normalizeError();
+    return json(200,{ok:true,id:productId,active:body.active});
+  }catch{return normalizeError();}
+}
+
 export async function d1ApiHandler({request,env},{staffVerifier=authorizedD1Staff}={}){
   const path=new URL(request.url).pathname;
   if(request.method==='OPTIONS')return json(405,{ok:false,code:'method_not_allowed'});
@@ -244,6 +307,9 @@ export async function d1ApiHandler({request,env},{staffVerifier=authorizedD1Staf
   if(!staff)return json(401,{ok:false,code:'cloudflare_access_required'});
   if(request.method==='GET'){
     try{
+      if(path==='/api/d1/admin/products'&&limited(staff.role,ADMIN))
+        return json(200,{ok:true,products:await readSql(db,
+          'SELECT id,name,category_id,active,updated_at FROM products ORDER BY updated_at DESC LIMIT 200')});
       if(path==='/api/d1/admin/session')
         return json(200,{ok:true,staff:{id:staff.id,email:staff.email,role:staff.role}});
       if(path==='/api/d1/admin/orders'&&limited(staff.role,ORDER_VIEW))
@@ -271,6 +337,10 @@ export async function d1ApiHandler({request,env},{staffVerifier=authorizedD1Staf
   try{body=await readBody(request);}catch{return normalizeError();}
   try{
     if(path==='/api/d1/admin/products')return await createProduct(db,staff,body);
+    if(path==='/api/d1/admin/categories')return await createCategory(db,staff,body);
+    if(path==='/api/d1/admin/inventory/items')return await createInventoryItem(db,staff,body);
+    if(path==='/api/d1/admin/pos/register')return await openPosRegister(db,staff,body);
+    if(path==='/api/d1/admin/products/visibility')return await setProductVisibility(db,staff,body);
     if(path==='/api/d1/admin/inventory')return await inventoryMovement(db,staff,body);
     if(path==='/api/d1/admin/pos')return await createPosSale(db,staff,body);
     if(path==='/api/d1/admin/accounting')return await recordExpense(db,staff,body);
