@@ -47,7 +47,7 @@ New read-only routes:
 - `GET /api/firebase-primary/staff/session`
 - `GET /api/firebase-primary/staff/orders` (currently limited to first 25 Firestore order docs)
 
-The caller must send `Authorization: Bearer <FirebaseAuth-ID-token>`. The server verifies Google's Firebase signing key (RS256), project ID, issuer, token expiry, auth_time, email verification and private staff role document. Unprovisioned, inactive or spoofed roles receive HTTP 403. Unknown/expired tokens receive HTTP 401. POST/write operations are denied (405). Results have `Cache-Control: no-store`.
+The caller must send `Authorization: Bearer <FirebaseAuth-ID-token>`. The server verifies Google's Firebase signing key (RS256), project ID, issuer, token expiry, auth_time, email verification and private staff role document. Unprovisioned, inactive or spoofed roles receive HTTP 403. Until assignment-based access is implemented, only **super_admin** and **admin** can list the customer order records; other staff may verify their session but cannot read all customer information. Unknown/expired tokens receive HTTP 401. POST/write operations are denied (405). Results have `Cache-Control: no-store`.
 
 **DO NOT** paste a Firebase Auth ID token into public URLs or another person's messages. The new preview acquires it directly from Firebase Auth SDK and sends it only to the same-origin API.
 
@@ -60,7 +60,7 @@ https://aurora-s-cake.sagarmia583.workers.dev/?firebase_staff_preview=1
 1. Sign in with the provisioned Firebase Email/Password account.
 2. Verify your email when prompted, refresh verification state.
 3. Click **Verify staff & load orders**.
-4. Expected: actual role from Firestore, and a read-only list of up to 25 documents already in private `orders`. Empty results are possible, because Firebase migration/backfill isn't complete; this does not mean original Sheets orders are deleted.
+4. Expected: actual role from Firestore, and a read-only list of up to 25 documents already in private `orders` (only **super_admin** and **admin** roles). Empty results are possible, because Firebase migration/backfill isn't complete; this does not mean original Sheets orders are deleted.
 5. Confirm a non-provisioned test user is denied. Confirm no customer receipt tokens, delivery OTPs or passwords appear in the list.
 6. Keep normal public shop checkout and legacy Staff Portal unchanged until an authoritative Firestore checkout and transactional POS/ledger are ready and tested.
 
