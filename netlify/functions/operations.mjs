@@ -6,7 +6,7 @@
  * Netlify Functions consume Free plan credits; usage is NOT unlimited.
  */
 const SCRIPT_RE=/^\/macros\/s\/[A-Za-z0-9_-]+\/exec$/;
-export default async function operations(request) {
+export default async function operations(request, { scriptUrl = process.env.AURORA_SCRIPT_POST_URL, fetcher = globalThis.fetch } = {}) {
   const response=(status,message)=>new Response(JSON.stringify({ok:false,success:false,code:'proxy_error',error:message}),{
     status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}
   });
@@ -30,7 +30,7 @@ export default async function operations(request) {
   if(raw.length>50000&&payload.action!=='staff_image_upload')
     return response(413,'Large requests are only allowed for staff image uploads.');
   let target;
-  try {target=new URL(process.env.AURORA_SCRIPT_POST_URL||'');}
+  try {target=new URL(scriptUrl||'');}
   catch {return response(503,'Bakery backend URL has not been configured.');}
   if(target.protocol!=='https:'||target.hostname!=='script.google.com'||!SCRIPT_RE.test(target.pathname)
     ||target.username||target.password||target.search||target.hash)
@@ -39,7 +39,7 @@ export default async function operations(request) {
     const controller=new AbortController();
     const timeout=setTimeout(()=>controller.abort(),24000);
     let upstream;
-    try {upstream=await fetch(target.href,{method:'POST',redirect:'follow',credentials:'omit',
+    try {upstream=await fetcher(target.href,{method:'POST',redirect:'follow',credentials:'omit',
       headers:{'Content-Type':'text/plain;charset=utf-8'},body:raw,signal:controller.signal});}
     finally {clearTimeout(timeout);}
     const finalHost=new URL(upstream.url).hostname;

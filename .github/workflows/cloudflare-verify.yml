@@ -1,0 +1,34 @@
+name: Verify Cloudflare Pages Functions
+
+on:
+  pull_request:
+    paths:
+      - 'functions/**'
+      - 'cloudflare/**'
+      - 'netlify/functions/operations.mjs'
+      - 'api/lib/firestoreOrderMirror.js'
+      - 'public/_routes.json'
+      - 'public/_redirects'
+      - 'wrangler.toml'
+      - 'tests/cloudflare-pages.test.ts'
+      - '.github/workflows/cloudflare-verify.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  cloudflare-bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Validate Pages Functions Worker bundle with Wrangler
+        run: npx --yes wrangler@4.45.0 pages functions build functions --outdir .cf-ci-build --compatibility-date 2026-10-29
+      - name: Confirm routed Functions and static paths
+        run: |
+          node -e "const a=require('./public/_routes.json');if(a.version!==1||JSON.stringify(a.include)!=='[\"/api/*\"]')process.exit(1)"

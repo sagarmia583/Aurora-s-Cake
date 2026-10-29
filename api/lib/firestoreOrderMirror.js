@@ -18,12 +18,13 @@ const statuses = new Set(['pending','confirmed','preparing','ready','assigned','
 const payments = new Set(['pending','paid','failed']);
 let cachedToken = null;
 let cachedExpiry = 0;
+let cachedKey = null;
 
-export function firebaseMirrorConfiguration() {
-  if (process.env.FIREBASE_MIRROR_ENABLED !== 'true') {
+export function firebaseMirrorConfiguration(env = process.env) {
+  if (env.FIREBASE_MIRROR_ENABLED !== 'true') {
     return { enabled: false, configured: false, reason: 'disabled' };
   }
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '';
+  const raw = env.FIREBASE_SERVICE_ACCOUNT_JSON || '';
   if (!raw) return { enabled: true, configured: false, reason: 'missing_service_account' };
   try {
     const credentials = JSON.parse(raw);
@@ -107,11 +108,12 @@ function toFirestoreField(value) {
   return { mapValue: { fields } };
 }
 
-async function getGoogleAccessToken(fetcher) {
-  if (cachedToken && Date.now() < cachedExpiry) return cachedToken;
-  const config = firebaseMirrorConfiguration();
+async function getGoogleAccessToken(fetcher, env = process.env) {
+  const credentialKey = env.FIREBASE_SERVICE_ACCOUNT_JSON || '';
+  if (cachedToken && cachedKey === credentialKey && Date.now() < cachedExpiry) return cachedToken;
+  const config = firebaseMirrorConfiguration(env);
   if (!config.configured) throw new Error('firebase_mirror_not_configured');
-  const credentials = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const credentials = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
   const now = Math.floor(Date.now()/1000);
   const header = Buffer.from(JSON.stringify({ alg:'RS256',typ:'JWT' })).toString('base64url');
   const claim = Buffer.from(JSON.stringify({
@@ -134,15 +136,16 @@ async function getGoogleAccessToken(fetcher) {
   if(typeof data.access_token !== 'string' || !data.access_token ||
      typeof data.expires_in !== 'number') throw new Error('firebase_oauth_invalid_response');
   cachedToken=data.access_token;
+  cachedKey=credentialKey;
   cachedExpiry=Date.now()+Math.max(0,data.expires_in-120)*1000;
   return cachedToken;
 }
 
-export async function mirrorCommittedOrder(order,{fetcher=globalThis.fetch}={}) {
+export async function mirrorCommittedOrder(order,{fetcher=globalThis.fetch,env=process.env}={}) {
   const projected=projectCommittedOrder(order);
   if (!projected) return { status:'skipped_invalid_receipt' };
-  if (!firebaseMirrorConfiguration().configured) return { status:'not_configured' };
-  const token=await getGoogleAccessToken(fetcher);
+  if (!firebaseMirrorConfiguration(env).configured) return { status:'not_configured' };
+  const token=await getGoogleAccessToken(fetcher,env);
   const documentUrl='https://firestore.googleapis.com/v1/projects/'+PROJECT_ID+
     '/databases/(default)/documents/orders/'+encodeURIComponent(projected.id);
   const headers={Authorization:'Bearer '+token,'Content-Type':'application/json'};
@@ -176,16 +179,16 @@ export async function mirrorCommittedOrder(order,{fetcher=globalThis.fetch}={}) 
  * Mirror only a successful, backend-verified response. Never mirror raw
  * browser-submitted order, payment amount or status.
  */
-export async function mirrorAuthoritativeReply(payload,reply,{fetcher=globalThis.fetch}={}) {
+export async function mirrorAuthoritativeReply(payload,reply,{fetcher=globalThis.fetch,env=process.env}={}) {
   const action=payload?.action;
   if(action!=='create_order' && action!=='staff_mutate') return {status:'not_applicable'};
   if(action==='create_order' && !(reply?.success===true && reply?.persisted===true)) {
     return {status:'not_applicable'};
   }
   if(action==='staff_mutate' && reply?.ok!==true) return {status:'not_applicable'};
-  if (!firebaseMirrorConfiguration().configured) return {status:'not_configured'};
+  if (!firebaseMirrorConfiguration(env).configured) return {status:'not_configured'};
   try {
-    return await mirrorCommittedOrder(reply.order,{fetcher});
+    return await mirrorCommittedOrder(reply.order,{fetcher,env});
   }catch(error) {
     // Do NOT fail a successfully committed customer order or staff transition
     // because a secondary Firebase mirror is unavailable.
@@ -199,7 +202,7 @@ export async function mirrorAuthoritativeReply(payload,reply,{fetcher=globalThis
  * Script backend verifies staff_orders credentials and returns super_admin.
  * Avoid mirroring on routine polling / refreshing of the staff order list.
  */
-export async function mirrorVerifiedAdminOrderPage(payload,reply,{fetcher=globalThis.fetch}={}) {
+export async function mirrorVerifiedAdminOrderPage(payload,reply,{fetcher=globalThis.fetch,env=process.env}={}) {
   if(payload?.action!=='staff_orders' || payload.firebase_mirror_backfill!==true ||
      reply?.ok!==true || reply.role!=='super_admin' || reply.snapshot_complete!==true ||
      !Array.isArray(reply.orders)) return null;
@@ -208,11 +211,11 @@ export async function mirrorVerifiedAdminOrderPage(payload,reply,{fetcher=global
   const orders=reply.orders;
   const slice=orders.slice(offset,offset+5);
   const result={offset,total:orders.length,next_offset:Math.min(orders.length,offset+5),
-    saved:0,unchanged:0,skipped:0,failed:0,configured:firebaseMirrorConfiguration().configured};
+    saved:0,unchanged:0,skipped:0,failed:0,configured:firebaseMirrorConfiguration(env).configured};
   if(!result.configured) return result;
   for (const order of slice) {
     try {
-      const state=await mirrorCommittedOrder(order,{fetcher});
+      const state=await mirrorCommittedOrder(order,{fetcher,env});
       if(state.status==='saved')result.saved++;
       else if(state.status==='unchanged')result.unchanged++;
       else result.skipped++;
