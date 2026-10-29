@@ -1,0 +1,4 @@
+# Optional: Cloudflare Pages settings, for a separately created Pages project.
+name = "auroras-cake-pages"
+pages_build_output_dir = "./dist"
+compatibility_date = "2026-10-29"
