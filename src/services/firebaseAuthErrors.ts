@@ -47,6 +47,9 @@ export function firebaseStaffLoginError(error: unknown): string {
 }
 export function firebaseStaffPasswordResetError(error: unknown): string {
   const code=firebaseAuthErrorCode(error);
+  if(code==='auth/user-not-found' || code==='auth/invalid-credential' ||
+     code==='auth/invalid-login-credentials')
+    return 'If the Firebase Email/Password account exists, password reset instructions have been requested. Check your inbox and spam folder.';
   if(code==='auth/operation-not-allowed')
     return 'Enable Email/Password in Firebase Console → Authentication → Sign-in method before resetting passwords.';
   if(code==='auth/network-request-failed'||code==='auth/timeout')
