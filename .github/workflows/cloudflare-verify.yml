@@ -18,6 +18,7 @@ on:
       - 'cloudflare/firebaseStaffAuth.js'
       - 'src/components/FirebaseStaffPreview.tsx'
       - 'src/services/firebaseAuthErrors.ts'
+      - 'src/services/firebaseClient.ts'
       - 'tests/firebase-auth-error-ui.test.ts'
       - 'src/main.tsx'
       - 'src/services/firebasePreviewRouting.ts'
