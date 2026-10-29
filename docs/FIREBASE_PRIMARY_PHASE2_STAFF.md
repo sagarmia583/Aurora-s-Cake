@@ -77,6 +77,23 @@ The **old bakery Staff Panel password is not automatically a Firebase Authentica
 
 **Do not recreate the `staff_roles` document or change Firestore security rules just to solve a sign-in error.** Staff role authorization occurs *after* successful Firebase Authentication.
 
+## Diagnosing `AUTH_REQUEST_REJECTED` on Cloudflare REST login
+
+An `AUTH_REQUEST_REJECTED` banner on build `da8c1b3` means the browser **reached Google Firebase** and received an error that the old parser did not recognize. It does **not** prove the Firebase password, Firestore role, service-account JSON or Google Sheets were at fault.
+
+The updated public preview now reports a **sanitized Google error code, HTTP status and failed step** (`signInWithPassword`, `lookup`, `refreshToken`, or `sendOobCode`). It does **not** include the raw Google error message, API key, credential, token, private query URL or account existence.
+
+After deploying the new Cloudflare Build, refresh `/firebase-staff-preview` and sign in **once**, not repeatedly. Depending on the code:
+
+- `firebase/api-key-referrer-blocked`: open Google Cloud Console → APIs & Services → Credentials → the **Firebase Web API key for project aurorascake-213a0**, then check *Application restrictions*. If restricted to websites, allow `https://aurora-s-cake.sagarmia583.workers.dev/*`. Do not expose admin keys or set secrets in client code.
+- `firebase/identity-toolkit-api-blocked`: verify the Web API key's **API restrictions** permit **Identity Toolkit API**; the token refresh also requires **Token Service API**. Ensure both are enabled for the same Firebase project. See https://firebase.google.com/docs/projects/api-keys
+- `firebase/configuration`: verify that Firebase Project Settings → **Your apps → Web API Key** matches the key in the deployed web app. Google Cloud Service Account JSON is not the Firebase Web API key.
+- `auth/invalid-credential`: use the password assigned to the existing Firebase Authentication Email/Password user, or its verified password-reset flow. Firestore role is checked only **after** login.
+- `firebase/challenge-required`: a configured captcha/recaptcha challenge is required. Do **not** bypass Google security settings; use a verified Firebase SDK flow that meets the challenge.
+- `AUTH_HTTP_4xx` or `PERMISSION_DENIED`: the exact HTTP status and failed step identify where the Google request failed. Share **only those sanitized codes** for additional analysis.
+
+Avoid changes to existing `staff_roles/{uid}`, user password or service-account key unless diagnostics actually show they are required. Do not enable Vercel or Netlify.
+
 ## Firebase Staff Preview: REST Authentication transport
 
 A confirmed Cloudflare Build `daa97df0` with `Firebase SDK: Ready` still failed with `sdk/unclassified-sign-in` on mobile iOS. This is **not** evidence of missing Firebase Users, roles, Email/Password provider, or server credentials.
