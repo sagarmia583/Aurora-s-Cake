@@ -12,8 +12,17 @@ const FirebaseDiagnosticPanel = React.lazy(
 );
 const showFirebaseDiagnostic =
   new URLSearchParams(window.location.search).get('firebase-check') === '1';
+const FirebaseStaffPreview = React.lazy(
+  () => import('./components/FirebaseStaffPreview').then(module=>({
+    default:module.FirebaseStaffPreview
+  }))
+);
+const showFirebaseStaffPreview =
+  /(?:^|\\.)(?:workers|pages)\\.dev$/i.test(window.location.hostname) &&
+  new URLSearchParams(window.location.search).get('firebase_staff_preview')==='1';
 
 createRoot(document.getElementById('root')!).render(
+  showFirebaseStaffPreview ? <Suspense fallback={<p>Loading secure Firebase Staff Preview…</p>}><FirebaseStaffPreview /></Suspense> :
   <>
     <App />
     {showFirebaseDiagnostic && (

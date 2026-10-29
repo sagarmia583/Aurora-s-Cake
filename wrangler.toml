@@ -17,6 +17,9 @@ FIREBASE_MIRROR_ENABLED = "true"
 # Phase 1: isolated public catalog read-only API. The live storefront still
 # uses its previous backend until catalog import and checkout migration.
 FIREBASE_PRIMARY_CATALOG_ENABLED = "true"
+# Phase 2: independent Firebase Auth + private staff_roles, GET-only APIs.
+# Does NOT replace the production legacy staff portal until tested.
+FIREBASE_PRIMARY_STAFF_ENABLED = "true"
 
 [assets]
 directory = "./dist"

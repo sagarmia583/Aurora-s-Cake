@@ -1,0 +1,133 @@
+import React, {useCallback,useEffect,useState} from 'react';
+import {ShieldCheck, LockKeyhole, RefreshCw, LogOut, MailCheck, ShoppingBag} from 'lucide-react';
+import {getFirebaseAuth} from '../services/firebaseClient';
+import type {User} from 'firebase/auth';
+
+type StaffSession={uid:string;email:string;name:string;role:string};
+type StaffOrder={id:string;order_number:string;status:string;customer_name:string;customer_phone:string;total_amount:number;created_at:string;payment_status:string};
+type StaffApi={ok:boolean;code?:string;session?:StaffSession;orders?:StaffOrder[];read_only?:boolean;has_more?:boolean};
+const api=async(path:string,user:User):Promise<StaffApi>=>{
+  const jwt=await user.getIdToken();
+  const response=await fetch('/api/firebase-primary/staff/'+path,{
+    method:'GET',credentials:'same-origin',cache:'no-store',
+    headers:{Authorization:'Bearer '+jwt}
+  });
+  const body=await response.json().catch(()=>null) as StaffApi|null;
+  if(!body||body.ok!==true)throw new Error(body?.code||'firebase_staff_unavailable');
+  return body;
+};
+
+/** Standalone Phase 2 preview, never falls back to the Sheets staff portal. */
+export function FirebaseStaffPreview(){
+  const [user,setUser]=useState<User|null>(null);
+  const [email,setEmail]=useState('');
+  const [password,setPassword]=useState('');
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  const [session,setSession]=useState<StaffSession|null>(null);
+  const [orders,setOrders]=useState<StaffOrder[]>([]);
+  const [hasMore,setHasMore]=useState(false);
+  const [verified,setVerified]=useState(false);
+  useEffect(()=>{
+    let alive=true;let unsubscribe=()=>{};
+    getFirebaseAuth().then(async auth=>{
+      const {onAuthStateChanged}=await import('firebase/auth');
+      if(!alive)return;
+      unsubscribe=onAuthStateChanged(auth,next=>{
+        if(!alive)return;
+        setUser(next);
+        setVerified(next?.emailVerified===true);
+        setSession(null);setOrders([]);setError('');
+      },()=>{if(alive)setError('Firebase Authentication is not available.');});
+    }).catch(()=>{if(alive)setError('Firebase could not initialize.');});
+    return ()=>{alive=false;unsubscribe();};
+  },[]);
+  const refresh=useCallback(async()=>{
+    if(!user||!user.emailVerified)return;
+    setBusy(true);setError('');
+    try{
+      const identity=await api('session',user);
+      if(!identity.session)throw new Error('firebase_staff_invalid_session');
+      setSession(identity.session);
+      const orderData=await api('orders',user);
+      setOrders(Array.isArray(orderData.orders)?orderData.orders:[]);
+      setHasMore(orderData.has_more===true);
+    }catch(e){
+      setSession(null);setOrders([]);
+      setError(e instanceof Error?e.message:'Could not read your private Firebase staff role.');
+    }finally{setBusy(false);}
+  },[user]);
+  const login=async(event:React.FormEvent)=>{
+    event.preventDefault();
+    if(busy)return;
+    setBusy(true);setError('');
+    try{
+      const auth=await getFirebaseAuth();
+      const {signInWithEmailAndPassword}=await import('firebase/auth');
+      await signInWithEmailAndPassword(auth,email.trim(),password);
+      setPassword('');
+    }catch{setError('Sign-in failed. Check your credentials and whether Email/Password sign-in is enabled.');}
+    finally{setBusy(false);}
+  };
+  const logout=async()=>{
+    setBusy(true);
+    try{
+      const {signOut}=await import('firebase/auth');
+      await signOut(await getFirebaseAuth());
+      setSession(null);setOrders([]);
+    }catch{setError('Could not sign out.');}
+    finally{setBusy(false);}
+  };
+  const verifyEmail=async()=>{
+    if(!user)return;
+    setBusy(true);setError('');
+    try{
+      const {sendEmailVerification}=await import('firebase/auth');
+      await sendEmailVerification(user);
+      setError('Verification email sent. Open your inbox, verify, and then refresh this page.');
+    }catch{setError('Verification email could not be sent. Check Firebase Auth provider settings.');}
+    finally{setBusy(false);}
+  };
+  const reloadVerified=async()=>{
+    if(!user)return;
+    setBusy(true);
+    try{await user.reload();await user.getIdToken(true);setVerified(user.emailVerified);if(!user.emailVerified)setError('Email is not verified yet.');}
+    catch{setError('Could not refresh authentication status.');}
+    finally{setBusy(false);}
+  };
+  return <main className="min-h-screen bg-[#f4f5f0] p-4 sm:p-8 text-slate-900">
+    <div className="max-w-5xl mx-auto space-y-5">
+      <header className="rounded-3xl bg-[#173e31] text-white p-6 sm:p-8">
+        <div className="flex gap-3 items-center"><ShieldCheck className="h-7 w-7"/><div><h1 className="text-2xl font-black">Aurora’s Cake · Firebase Staff Preview</h1><p className="text-white/70 text-sm">Cloudflare Worker + Firestore · Independent of Google Sheets</p></div></div>
+        <p className="mt-3 text-sm text-white/80">Read-only test workspace. Production orders and checkout have not been moved to Firebase yet.</p>
+      </header>
+      {error&&<p role="alert" className="p-4 rounded-2xl border border-amber-300 bg-amber-50 text-sm break-words">{error}</p>}
+      {!user?<section className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-8 max-w-lg mx-auto">
+        <div className="flex items-center gap-2 mb-5"><LockKeyhole className="w-5 h-5"/><h2 className="font-extrabold text-xl">Staff sign in</h2></div>
+        <p className="text-sm text-slate-600 mb-5">Sign in with a Firebase Authentication staff account. Public signup is not available. A verified, approved Firestore staff role is required.</p>
+        <form onSubmit={login} className="space-y-4">
+          <label className="block text-sm font-medium">Email<input required type="email" autoComplete="username" value={email} onChange={e=>setEmail(e.target.value)} className="block w-full rounded-xl border border-slate-300 p-3 mt-1"/></label>
+          <label className="block text-sm font-medium">Password<input required minLength={6} type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} className="block w-full rounded-xl border border-slate-300 p-3 mt-1"/></label>
+          <button type="submit" disabled={busy} className="w-full rounded-xl p-3 bg-[#173e31] text-white font-bold disabled:opacity-60">Sign in securely</button>
+        </form>
+      </section>:<section className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-7 space-y-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap"><div><h2 className="font-bold text-lg">{user.email}</h2><p className="text-slate-500 text-xs">Firebase Auth UID: {user.uid}</p></div><button onClick={()=>void logout()} className="rounded-xl border border-slate-300 px-4 py-2 flex gap-2 items-center" disabled={busy}><LogOut className="h-4 w-4"/>Sign out</button></div>
+        {!verified?<div className="space-y-3 rounded-xl bg-amber-50 border border-amber-200 p-4"><p className="text-sm">Email verification required before accessing private bakery records.</p><div className="flex flex-wrap gap-2"><button onClick={()=>void verifyEmail()} disabled={busy} className="rounded-lg bg-[#173e31] text-white px-3 py-2 flex items-center gap-2"><MailCheck className="w-4 h-4"/>Send verification email</button><button onClick={()=>void reloadVerified()} disabled={busy} className="rounded-lg border border-slate-300 px-3 py-2">I have verified</button></div></div>
+        :<><div className="flex flex-wrap items-center gap-3">
+          <button onClick={()=>void refresh()} disabled={busy} className="rounded-xl bg-[#173e31] text-white px-4 py-2 flex items-center gap-2 disabled:opacity-60"><RefreshCw className="w-4 h-4"/>Verify staff & load orders</button>
+          {session&&<span className="text-sm">Verified role: <strong>{session.role.replaceAll('_',' ')}</strong></span>}
+        </div>
+        {!session&&<p className="text-xs text-slate-500">No automatic admin access: your UID must exist as an active private staff_roles document.</p>}
+        {session&&<div className="space-y-3">
+          <h3 className="font-extrabold flex items-center gap-2"><ShoppingBag className="h-5 w-5"/>Firestore orders ({orders.length})</h3>
+          <p className="text-xs text-slate-500">Up to 25 orders shown · Read only · {hasMore?'More records exist':'No further page reported'}</p>
+          {orders.length===0?<p className="text-sm p-4 rounded-xl bg-slate-50">No mirrored Firestore order documents found in this page. Historical Sheets orders are not migrated automatically.</p>:<div className="space-y-2">{orders.map(order=><article key={order.id} className="border rounded-xl p-3 flex flex-col sm:flex-row sm:justify-between gap-2">
+            <div><strong>{order.order_number}</strong><p className="text-sm">{order.customer_name} · {order.customer_phone}</p><p className="text-xs text-slate-500">{order.created_at}</p></div><div className="text-sm sm:text-right"><strong>৳{order.total_amount}</strong><p>{order.status} · {order.payment_status}</p></div>
+          </article>)}</div>}
+        </div>}
+        </>}
+      </section>}
+      <footer className="text-center text-xs text-slate-500">Migration preview only. Do not use this screen for real orders, payments, refunds or delivery updates.</footer>
+    </div>
+  </main>;
+}
