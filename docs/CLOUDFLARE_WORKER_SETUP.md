@@ -30,6 +30,12 @@ Save build settings and **Retry build** or deploy the latest `main` commit. The 
 
 Cloudflare docs: https://developers.cloudflare.com/workers/ci-cd/builds/configuration/ and https://developers.cloudflare.com/workers/static-assets/routing/single-page-application/
 
+### Why the endpoint can still say `configuration_code:"disabled"`
+
+Cloudflare's `wrangler deploy` normally reconciles Dashboard text variables with the project's `wrangler.toml`. If a text variable was added in the Dashboard but omitted from Wrangler config, a later GitHub deployment could remove it. To avoid this, `wrangler.toml` now has `keep_vars = true` and explicitly declares **non-secret** `FIREBASE_MIRROR_ENABLED = "true"` in `[vars]`. **Do not commit the Firebase JSON private key:** it remains a Cloudflare Worker runtime **Secret**.
+
+After deploying the latest `main`, `GET /api/firebase-sync-status` should no longer say `disabled`; it may say `missing_service_account` until the private JSON secret is correctly added to the same Production Worker. Enabling this flag only turns on the **Google Sheets → Firestore order mirror**, not a Firebase-only primary database. Until Orders/Staff/Products/Accounting APIs are separately migrated, do not disable the Google Apps Script backend on a live shop and expect orders to work.
+
 ### 2. Set runtime bindings (NOT build variables)
 
 Open **Workers & Pages → aurora-s-cake → Settings → Variables and Secrets** (sometimes called *Bindings → Variables and Secrets*). These variables must be **runtime**, not Git/build-time values.
