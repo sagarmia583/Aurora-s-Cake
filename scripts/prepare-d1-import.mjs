@@ -32,7 +32,7 @@ const q=(s)=>"CAST(X'"+Buffer.from(s,'utf8').toString('hex')+"' AS TEXT)";
 const isObject=(x)=>!!x&&typeof x==='object'&&!Array.isArray(x);
 const numeric=(value)=>{
   if(typeof value!=='number'||!Number.isFinite(value)||value<0||value>1e7||
-     Math.round(value*100)!==Number((value*100).toFixed(0)))
+     Math.abs(value*100-Math.round(value*100))>1e-7)
     throw Error('Order total must be a valid nonnegative two-decimal BDT number');
   return Math.round(value*100);
 };
