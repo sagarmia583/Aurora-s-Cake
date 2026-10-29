@@ -13,6 +13,7 @@ import { onRequest as firebaseStatus } from '../functions/api/firebase-sync-stat
 import { json } from './shared.js';
 import { firebasePrimaryCatalogHandler } from './firebasePrimaryCatalog.js';
 import { handleFirebaseStaffApi } from './firebaseStaffApi.js';
+import {firebaseWebConfigHandler} from './firebaseWebConfig.js';
 
 const routes = new Map([
   ['/api/operations', operations],
@@ -21,6 +22,7 @@ const routes = new Map([
   ['/api/backend-health', backendHealth],
   ['/api/firebase-sync-status', firebaseStatus],
   ['/api/firebase-primary/catalog', firebasePrimaryCatalogHandler],
+  ['/api/firebase-primary/web-config', firebaseWebConfigHandler],
   ['/api/firebase-primary/staff/session', handleFirebaseStaffApi],
   ['/api/firebase-primary/staff/orders', handleFirebaseStaffApi],
 ]);
