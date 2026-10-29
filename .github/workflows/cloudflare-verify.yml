@@ -12,6 +12,10 @@ on:
       - 'wrangler.toml'
       - 'tests/cloudflare-pages.test.ts'
       - 'tests/cloudflare-worker.test.ts'
+      - 'tests/firebase-primary-catalog.test.ts'
+      - 'src/services/firebasePrimaryCatalog.ts'
+      - 'src/hooks/useGoogleSheetContent.ts'
+      - 'scripts/import-firestore-catalog.mjs'
       - 'wrangler.pages.toml'
       - '.github/workflows/cloudflare-verify.yml'
 

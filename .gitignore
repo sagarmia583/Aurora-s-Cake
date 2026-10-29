@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Never commit private Firebase Admin/service-account credentials or local
+# one-time catalog exports to source control.
+*firebase-adminsdk*.json
+*service-account*.json
+catalog-export*.json
