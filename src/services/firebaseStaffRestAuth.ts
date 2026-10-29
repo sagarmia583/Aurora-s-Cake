@@ -10,7 +10,6 @@
  * The Cloudflare Worker verifies Firebase-signed ID tokens and requires an
  * explicitly provisioned private Firestore staff_roles/{uid} document.
  */
-import {firebaseConfig} from './firebaseWebConfig';
 
 const IDENTITY_BASE='https://identitytoolkit.googleapis.com/v1/accounts:';
 const TOKEN_BASE='https://securetoken.googleapis.com/v1/token';
@@ -62,12 +61,54 @@ type GenericObject=Record<string,unknown>;
 const object=(v:unknown):v is GenericObject=>
   typeof v==='object'&&v!==null&&!Array.isArray(v);
 const str=(v:unknown):string=>typeof v==='string'?v:'';
-const credentialsKey=(options:RequestOptions):string=>{
-  const key=options.apiKey||firebaseConfig.apiKey||'';
-  if(typeof key!=='string'||!/^AIza[A-Za-z0-9_-]{20,}$/.test(key))
-    throw new FirebaseRestAuthError('FIREBASE_API_KEY_UNAVAILABLE');
+// Resolve the actual Firebase Web key from the Cloudflare Worker runtime.
+ // The historical hardcoded key is intentionally NOT used as a fallback.
+let runtimeKeyPromise:Promise<string>|null=null;
+async function fetchRuntimeApiKey(options:RequestOptions):Promise<string>{
+  let response:Response;
+  try{
+    response=await (options.fetcher||fetch)('/api/firebase-primary/web-config',{
+      method:'GET',cache:'no-store',credentials:'same-origin',
+      signal:AbortSignal.timeout(6000)
+    });
+  }catch{
+    throw new FirebaseRestAuthError('FIREBASE_RUNTIME_KEY_UNAVAILABLE');
+  }
+  let result:unknown;
+  try{result=await response.json();}catch{
+    throw new FirebaseRestAuthError('FIREBASE_RUNTIME_KEY_UNAVAILABLE');
+  }
+  const record=object(result)?result:null;
+  const code=record&&typeof record.code==='string'?record.code:'';
+  if(!response.ok||record?.ok!==true){
+    if(code==='firebase_web_api_key_missing')
+      throw new FirebaseRestAuthError('FIREBASE_RUNTIME_KEY_MISSING');
+    if(code==='firebase_web_api_key_invalid_format')
+      throw new FirebaseRestAuthError('FIREBASE_RUNTIME_KEY_INVALID_FORMAT');
+    throw new FirebaseRestAuthError('FIREBASE_RUNTIME_KEY_UNAVAILABLE');
+  }
+  if(record?.project_id!=='aurorascake-213a0')
+    throw new FirebaseRestAuthError('FIREBASE_RUNTIME_KEY_PROJECT_MISMATCH');
+  const key=str(record.apiKey).trim();
+  if(!/^AIza[A-Za-z0-9_-]{20,}$/.test(key))
+    throw new FirebaseRestAuthError('FIREBASE_RUNTIME_KEY_INVALID_FORMAT');
   return key;
-};
+}
+async function credentialsKey(options:RequestOptions):Promise<string>{
+  if(options.apiKey!==undefined){
+    const key=options.apiKey;
+    if(!/^AIza[A-Za-z0-9_-]{20,}$/.test(key))
+      throw new FirebaseRestAuthError('FIREBASE_API_KEY_UNAVAILABLE');
+    return key;
+  }
+  if(!runtimeKeyPromise){
+    runtimeKeyPromise=fetchRuntimeApiKey(options).catch(error=>{
+      runtimeKeyPromise=null;
+      throw error;
+    });
+  }
+  return runtimeKeyPromise;
+}
 const sessionToken=(v:unknown)=>typeof v==='string'&&v.length>=40&&v.length<=8192;
 /** Extract only a non-sensitive Google error identifier, never text/URLs.
  * Google APIs can respond with either UPPERCASE_CODE: details, a prose
@@ -108,8 +149,9 @@ async function postGoogle(
   kind:string,payload:GenericObject,options:RequestOptions,
   tokenService=false
 ):Promise<GenericObject>{
-  const url=tokenService?TOKEN_BASE+'?key='+encodeURIComponent(credentialsKey(options))
-    :IDENTITY_BASE+kind+'?key='+encodeURIComponent(credentialsKey(options));
+  const key=await credentialsKey(options);
+  const url=tokenService?TOKEN_BASE+'?key='+encodeURIComponent(key)
+    :IDENTITY_BASE+kind+'?key='+encodeURIComponent(key);
   let response:Response;
   try{
     response=await (options.fetcher||fetch)(url,{
@@ -243,6 +285,14 @@ export function describeFirebaseRestAuthError(error:unknown):string{
     case 'API_KEY_SERVICE_BLOCKED':
     case 'SERVICE_DISABLED':
       return 'The Firebase Web API key is not permitted to call Google Identity Toolkit API (or the API is disabled). Check Google Cloud API restrictions and Enabled APIs. (firebase/identity-toolkit-api-blocked)'+httpInfo;
+    case 'FIREBASE_RUNTIME_KEY_MISSING':
+      return 'Cloudflare → aurora-s-cake → Settings → Runtime variables and secrets-এ FIREBASE_WEB_API_KEY নামের Variable যোগ করুন। Firebase Console → Project settings → Your apps → Web App-এর apiKey বসান। (firebase/web-api-key-missing)';
+    case 'FIREBASE_RUNTIME_KEY_INVALID_FORMAT':
+      return 'Cloudflare FIREBASE_WEB_API_KEY একটি সঠিক Firebase Web API key নয়। Service Account JSON নয়, Firebase Web App apiKey বসান। (firebase/web-api-key-format)';
+    case 'FIREBASE_RUNTIME_KEY_PROJECT_MISMATCH':
+      return 'Cloudflare Firebase Web configuration অন্য Project-এর। aurorascake-213a0 Web App-এর config ব্যবহার করুন। (firebase/web-project-mismatch)';
+    case 'FIREBASE_RUNTIME_KEY_UNAVAILABLE':
+      return 'Cloudflare Firebase Web configuration endpoint অনুপলব্ধ। Worker deployment ও /api/firebase-primary/web-config পরীক্ষা করুন। (firebase/web-config-unavailable)';
     case 'API_KEY_INVALID':
     case 'INVALID_API_KEY':
     case 'API_KEY_NOT_FOUND':
