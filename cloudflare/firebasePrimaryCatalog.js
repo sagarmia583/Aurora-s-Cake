@@ -29,7 +29,9 @@ const isObject=(value)=>value!==null&&typeof value==='object'&&!Array.isArray(va
  * This protects against accidentally publishing private staff/order fields.
  */
 export function validatePublicCatalog(input) {
-  const body=isObject(input)&&isObject(input.data)?input.data:input;
+  const body=isObject(input)&&isObject(input.data)
+    ? {...input.data,schema_version:input.data.schema_version??input.schema_version}
+    : input;
   if(!isObject(body)||body.schema_version!==1) throw new Error('invalid_catalog_schema');
   if(!isObject(body.settings)||!isObject(body.content))throw new Error('invalid_catalog_shape');
   for(const field of REQUIRED_COLLECTIONS){
