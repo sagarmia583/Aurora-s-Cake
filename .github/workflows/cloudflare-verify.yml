@@ -18,6 +18,8 @@ on:
       - 'cloudflare/firebaseStaffAuth.js'
       - 'src/components/FirebaseStaffPreview.tsx'
       - 'src/main.tsx'
+      - 'src/services/firebasePreviewRouting.ts'
+      - 'tests/firebase-preview-routing.test.ts'
       - 'scripts/bootstrap-firebase-staff.mjs'
       - 'src/services/firebasePrimaryCatalog.ts'
       - 'src/hooks/useGoogleSheetContent.ts'
