@@ -12,8 +12,21 @@ export function firebaseAuthErrorCode(error: unknown): string {
     ? code : 'unknown';
 }
 
-export function firebaseStaffLoginError(error: unknown): string {
+export function firebaseStaffLoginError(
+  error: unknown,
+  stage: 'sdk_initialization' | 'credential_sign_in' = 'credential_sign_in'
+): string {
   const code=firebaseAuthErrorCode(error);
+  if(code==='unknown'){
+    // Only match known Firebase registration failures. Never copy a raw
+    // error.message or stack, which could contain a request or user data.
+    const message=error instanceof Error?error.message:'';
+    if(/Component (?:auth|firestore) has not been registered|Service (?:auth|firestore) is not available/i.test(message))
+      return 'Firebase SDK registration failed before sign-in (sdk/component-registration). Refresh the latest Cloudflare build. Do not reset your account password to fix an SDK error.';
+    if(stage==='sdk_initialization')
+      return 'Firebase Authentication SDK could not initialize (sdk/initialization-failed). Your account settings may be correct; this is a website initialization error.';
+    return 'Firebase sign-in failed before a Firebase error code was returned (sdk/unclassified-sign-in). Check the Cloudflare app and SDK initialization; your account does not need to be recreated.';
+  }
   switch(code){
     case 'auth/invalid-credential':
     case 'auth/invalid-login-credentials':
@@ -40,9 +53,7 @@ export function firebaseStaffLoginError(error: unknown): string {
     case 'auth/operation-not-supported-in-this-environment':
       return 'Firebase login needs a compatible browser with cookies/web storage available. ('+code+')';
     default:
-      return code === 'unknown'
-        ? 'Firebase Authentication failed without a recognized error code. Check Firebase Console → Authentication → Sign-in method and Users.'
-        : 'Firebase Authentication could not sign in. Error code: '+code;
+      return 'Firebase Authentication could not sign in. Error code: '+code;
   }
 }
 export function firebaseStaffPasswordResetError(error: unknown): string {
