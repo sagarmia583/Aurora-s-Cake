@@ -11,6 +11,7 @@ import { onRequest as image } from '../functions/api/image.js';
 import { onRequest as backendHealth } from '../functions/api/backend-health.js';
 import { onRequest as firebaseStatus } from '../functions/api/firebase-sync-status.js';
 import { json } from './shared.js';
+import { firebasePrimaryCatalogHandler } from './firebasePrimaryCatalog.js';
 
 const routes = new Map([
   ['/api/operations', operations],
@@ -18,6 +19,7 @@ const routes = new Map([
   ['/api/image', image],
   ['/api/backend-health', backendHealth],
   ['/api/firebase-sync-status', firebaseStatus],
+  ['/api/firebase-primary/catalog', firebasePrimaryCatalogHandler],
 ]);
 
 export default {
