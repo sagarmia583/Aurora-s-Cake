@@ -32,3 +32,20 @@ test('Password reset error response does not expose whether an account exists',(
   assert.equal(firebaseStaffPasswordResetError(err('auth/user-not-found')).includes('user-not-found'),false);
   assert.equal(firebaseStaffPasswordResetError(err('auth/user-not-found')).includes('DO_NOT_EXPOSE'),false);
 });
+
+test('SDK component registration errors are distinguished from invalid passwords',()=>{
+  const error=new Error('Component auth has not been registered yet');
+  const message=firebaseStaffLoginError(error,'sdk_initialization');
+  assert.match(message,/sdk\/component-registration/);
+  assert.match(message,/Do not reset your account password/);
+  assert.doesNotMatch(message,/Incorrect Firebase email\/password/);
+});
+test('Unknown initialization and credential errors give distinct safe diagnostics',()=>{
+  const hidden={message:'PRIVATE-STACK-DO-NOT-SHOW'};
+  const initialization=firebaseStaffLoginError(hidden,'sdk_initialization');
+  const signIn=firebaseStaffLoginError(hidden,'credential_sign_in');
+  assert.match(initialization,/sdk\/initialization-failed/);
+  assert.match(signIn,/sdk\/unclassified-sign-in/);
+  assert.equal(initialization.includes('PRIVATE-STACK'),false);
+  assert.equal(signIn.includes('PRIVATE-STACK'),false);
+});

@@ -51,6 +51,20 @@ The caller must send `Authorization: Bearer <FirebaseAuth-ID-token>`. The server
 
 **DO NOT** paste a Firebase Auth ID token into public URLs or another person's messages. The new preview acquires it directly from Firebase Auth SDK and sends it only to the same-origin API.
 
+### When Firebase Auth providers and the account already exist
+
+If **Email/Password is Enabled** and the same user appears in Firebase Authentication → Users, do **not** create another user or another `staff_roles` document. The role is checked only **after** Firebase Auth succeeds.
+
+On `?firebase_staff_preview=1`, note **Firebase SDK: Ready** vs **Initialization error**. The preview now initializes Auth independently of Firestore and distinguishes:
+
+- `sdk/component-registration`: client Firebase module registration failure; not a password error.
+- `sdk/initialization-failed`: Firebase Auth bootstrap failed before credentials were sent.
+- `auth/invalid-credential`: password or Email/Password sign-in method for this account did not match.
+- `auth/network-request-failed`: browser/network restriction.
+- `sdk/unclassified-sign-in`: an unrecognized runtime failure during sign-in; share the **code**, not a password or token.
+
+The login screen never displays the exception stack or raw Firebase error message. Keep the staff Role UID tied to the existing Authentication UID.
+
 ### If the Firebase Staff Preview says "Sign-in failed"
 
 The **old bakery Staff Panel password is not automatically a Firebase Authentication password**. Creating a Firestore `staff_roles/{uid}` document does **not** create a login account.
