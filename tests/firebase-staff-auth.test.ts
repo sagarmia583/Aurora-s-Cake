@@ -139,3 +139,26 @@ test('Worker routing does not accept unauthenticated staff read or any writes',a
   const post=await worker.fetch(req('/api/firebase-primary/staff/orders',undefined,'POST'),runtime);
   assert.equal(post.status,405);
 });
+
+test('A scoped staff role can read its session but cannot list all private customer orders',async()=>{
+  let orderRequests=0;
+  const fetcher=async(url:RequestInfo|URL)=>{
+    if(String(url).includes('oauth2.googleapis.com'))
+      return new Response(JSON.stringify({access_token:'test_access',expires_in:3600}),{status:200});
+    if(String(url).includes('/staff_roles/'))
+      return new Response(JSON.stringify(roleDoc('order_manager')),{status:200});
+    orderRequests++;throw new Error('Scoped role should never fetch all orders');
+  };
+  const verifier=async()=>({uid:'owner_firebase_uid',email:'owner@example.com',authTime:now});
+  const session=await handleFirebaseStaffApi({
+    request:req('/api/firebase-primary/staff/session',makeToken()),env
+  },{verifier,fetcher});
+  assert.equal(session.status,200);
+  assert.equal((await session.json() as any).session.role,'order_manager');
+  const orders=await handleFirebaseStaffApi({
+    request:req('/api/firebase-primary/staff/orders',makeToken()),env
+  },{verifier,fetcher});
+  assert.equal(orders.status,403);
+  assert.equal((await orders.json() as any).code,'order_list_permission_denied');
+  assert.equal(orderRequests,0);
+});
