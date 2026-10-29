@@ -14,6 +14,9 @@ DEPLOYMENT_PLATFORM = "cloudflare_worker"
 # No order is mirrored until authoritative backend confirms it and
 # FIREBASE_SERVICE_ACCOUNT_JSON is configured as an encrypted Worker Secret.
 FIREBASE_MIRROR_ENABLED = "true"
+# Phase 1: isolated public catalog read-only API. The live storefront still
+# uses its previous backend until catalog import and checkout migration.
+FIREBASE_PRIMARY_CATALOG_ENABLED = "true"
 
 [assets]
 directory = "./dist"
