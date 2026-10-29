@@ -73,7 +73,7 @@ async function postGoogle(
       headers:{'Content-Type':tokenService?'application/x-www-form-urlencoded':'application/json'},
       body:tokenService?new URLSearchParams(payload as Record<string,string>).toString()
         :JSON.stringify(payload),
-      cache:'no-store',referrerPolicy:'no-referrer',
+      cache:'no-store',
       signal:AbortSignal.timeout(12000)
     });
   }catch{
@@ -136,6 +136,24 @@ export async function refreshFirebaseStaffRest(
   return {...session,idToken,refreshToken,
     emailVerified:profile.emailVerified,
     expiresAt:(options.now||Date.now)()+seconds*1000};
+}
+
+/** Email-enumeration-resistant reset; never return whether an account exists. */
+export async function requestFirebaseStaffPasswordReset(
+  email:string, options:RequestOptions={}
+):Promise<void>{
+  if(!email.trim())throw new FirebaseRestAuthError('AUTH_CREDENTIALS_MISSING');
+  try {
+    await postGoogle('sendOobCode',{
+      requestType:'PASSWORD_RESET',email:email.trim()
+    },options);
+  } catch(error) {
+    // Do not reveal whether a given email exists.
+    if(error instanceof FirebaseRestAuthError &&
+       (error.code==='EMAIL_NOT_FOUND'||error.code==='INVALID_LOGIN_CREDENTIALS'))
+      return;
+    throw error;
+  }
 }
 
 export async function sendFirebaseStaffVerification(
