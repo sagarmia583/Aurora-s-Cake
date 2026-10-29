@@ -1,141 +1,130 @@
-import React, {useCallback,useEffect,useState} from 'react';
+import React, {useCallback,useState} from 'react';
 import {ShieldCheck, LockKeyhole, RefreshCw, LogOut, MailCheck, ShoppingBag} from 'lucide-react';
-import {getFirebaseAuth} from '../services/firebaseClient';
-import {firebaseStaffLoginError,firebaseStaffPasswordResetError} from '../services/firebaseAuthErrors';
-import type {User} from 'firebase/auth';
+import {
+  type RestStaffAuthSession,
+  signInFirebaseStaffRest,refreshFirebaseStaffRest,
+  sendFirebaseStaffVerification,requestFirebaseStaffPasswordReset,
+  describeFirebaseRestAuthError
+} from '../services/firebaseStaffRestAuth';
 
-/** Injected by Vite at build time, never a token or private credential. */
+/** Injected public Git revision; never a Firebase token. */
 declare const __AURORA_BUILD_ID__: string;
-
 type StaffSession={uid:string;email:string;name:string;role:string};
 type StaffOrder={id:string;order_number:string;status:string;customer_name:string;customer_phone:string;total_amount:number;created_at:string;payment_status:string};
 type StaffApi={ok:boolean;code?:string;session?:StaffSession;orders?:StaffOrder[];read_only?:boolean;has_more?:boolean};
-const api=async(path:string,user:User):Promise<StaffApi>=>{
-  const jwt=await user.getIdToken();
+
+const api=async(path:string,idToken:string):Promise<StaffApi>=>{
+  // Firebase's signed ID token is sent only to our same-origin Worker.
+  // No credentials or tokens are ever added to a URL.
   const response=await fetch('/api/firebase-primary/staff/'+path,{
     method:'GET',credentials:'same-origin',cache:'no-store',
-    headers:{Authorization:'Bearer '+jwt}
+    headers:{Authorization:'Bearer '+idToken}
   });
   const body=await response.json().catch(()=>null) as StaffApi|null;
   if(!body||body.ok!==true)throw new Error(body?.code||'firebase_staff_unavailable');
   return body;
 };
 
-/** Standalone Phase 2 preview, never falls back to the Sheets staff portal. */
+/** Cloudflare-only, in-memory REST login. Never uses legacy Sheets login. */
 export function FirebaseStaffPreview(){
-  const [user,setUser]=useState<User|null>(null);
+  const [user,setUser]=useState<RestStaffAuthSession|null>(null);
   const [email,setEmail]=useState('');
   const [password,setPassword]=useState('');
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
-  const [authStatus,setAuthStatus]=useState<'loading'|'ready'|'error'>('loading');
   const [session,setSession]=useState<StaffSession|null>(null);
   const [orders,setOrders]=useState<StaffOrder[]>([]);
   const [hasMore,setHasMore]=useState(false);
-  const [verified,setVerified]=useState(false);
-  useEffect(()=>{
-    let alive=true;let unsubscribe=()=>{};
-    getFirebaseAuth().then(async auth=>{
-      const {onAuthStateChanged}=await import('firebase/auth');
-      if(!alive)return;
-      setAuthStatus('ready');
-      unsubscribe=onAuthStateChanged(auth,next=>{
-        if(!alive)return;
-        setUser(next);
-        setVerified(next?.emailVerified===true);
-        setSession(null);setOrders([]);setError('');
-      },error=>{if(alive){setAuthStatus('error');setError(firebaseStaffLoginError(error,'sdk_initialization'));}});
-    }).catch(error=>{if(alive){setAuthStatus('error');setError(firebaseStaffLoginError(error,'sdk_initialization'));}});
-    return ()=>{alive=false;unsubscribe();};
-  },[]);
+  const verified=user?.emailVerified===true;
+
   const refresh=useCallback(async()=>{
     if(!user||!user.emailVerified)return;
     setBusy(true);setError('');
     try{
-      const identity=await api('session',user);
+      const active=user.expiresAt<Date.now()+120000
+        ?await refreshFirebaseStaffRest(user):user;
+      if(active!==user)setUser(active);
+      const identity=await api('session',active.idToken);
       if(!identity.session)throw new Error('firebase_staff_invalid_session');
       setSession(identity.session);
-      const orderData=await api('orders',user);
+      const orderData=await api('orders',active.idToken);
       setOrders(Array.isArray(orderData.orders)?orderData.orders:[]);
       setHasMore(orderData.has_more===true);
     }catch(e){
-      setSession(null);setOrders([]);
-      setError(e instanceof Error?e.message:'Could not read your private Firebase staff role.');
+      setOrders([]);
+      setError(e instanceof Error?e.message:'Could not verify your Firebase staff role.');
     }finally{setBusy(false);}
   },[user]);
   const login=async(event:React.FormEvent)=>{
     event.preventDefault();
     if(busy)return;
     setBusy(true);setError('');setNotice('');
-    let stage:'sdk_initialization'|'credential_sign_in'='sdk_initialization';
     try{
-      const auth=await getFirebaseAuth();
-      const {signInWithEmailAndPassword}=await import('firebase/auth');
-      stage='credential_sign_in';
-      await signInWithEmailAndPassword(auth,email.trim(),password);
+      const authenticated=await signInFirebaseStaffRest(email.trim(),password);
+      setUser(authenticated);
       setPassword('');
-    }catch(error){setError(firebaseStaffLoginError(error,stage));}
-    finally{setBusy(false);}
+      setSession(null);setOrders([]);
+    }catch(error){
+      setPassword('');
+      setError(describeFirebaseRestAuthError(error));
+    }finally{setBusy(false);}
   };
   const resetPassword=async()=>{
     if(busy)return;
-    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())){
-      setError('Enter your Firebase Authentication email address before requesting a password reset.');
+    if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email.trim())){
+      setError('Enter a valid Firebase Authentication email to request password reset.');
       return;
     }
     setBusy(true);setError('');setNotice('');
     try{
-      const auth=await getFirebaseAuth();
-      const {sendPasswordResetEmail}=await import('firebase/auth');
-      await sendPasswordResetEmail(auth,email.trim());
-      // Keep the response the same whether a user record exists or not.
-      setNotice('If a Firebase Email/Password account exists for this address, a password-reset message has been requested. Check your inbox and spam folder.');
-    }catch(error){setError(firebaseStaffPasswordResetError(error));}
+      await requestFirebaseStaffPasswordReset(email.trim());
+      setNotice('If a Firebase Email/Password account exists for this address, password-reset instructions have been requested. Check inbox and spam.');
+    }catch(e){setError(describeFirebaseRestAuthError(e));}
     finally{setBusy(false);}
   };
-  const logout=async()=>{
-    setBusy(true);
-    try{
-      const {signOut}=await import('firebase/auth');
-      await signOut(await getFirebaseAuth());
-      setSession(null);setOrders([]);
-    }catch{setError('Could not sign out.');}
-    finally{setBusy(false);}
+  const logout=()=>{
+    // No persistence: forget ID and refresh token as soon as user signs out.
+    setUser(null);setPassword('');setSession(null);setOrders([]);
+    setHasMore(false);setError('');setNotice('');
   };
   const verifyEmail=async()=>{
     if(!user)return;
-    setBusy(true);setError('');
+    setBusy(true);setError('');setNotice('');
     try{
-      const {sendEmailVerification}=await import('firebase/auth');
-      await sendEmailVerification(user);
-      setError('Verification email sent. Open your inbox, verify, and then refresh this page.');
-    }catch{setError('Verification email could not be sent. Check Firebase Auth provider settings.');}
+      await sendFirebaseStaffVerification(user);
+      setNotice('Verification email requested. Follow the verification link, then return here and choose "I have verified".');
+    }catch(e){setError(describeFirebaseRestAuthError(e));}
     finally{setBusy(false);}
   };
   const reloadVerified=async()=>{
     if(!user)return;
-    setBusy(true);
-    try{await user.reload();await user.getIdToken(true);setVerified(user.emailVerified);if(!user.emailVerified)setError('Email is not verified yet.');}
-    catch{setError('Could not refresh authentication status.');}
+    setBusy(true);setError('');setNotice('');
+    try{
+      // Fetch a fresh, signed ID token so the Worker sees email_verified=true.
+      const active=await refreshFirebaseStaffRest(user);
+      setUser(active);
+      if(!active.emailVerified)setNotice('Email is not verified yet. Use the verification link and retry.');
+      else setNotice('Email verified. You can now load the protected staff session.');
+    }catch(e){setError(describeFirebaseRestAuthError(e));}
     finally{setBusy(false);}
   };
   return <main className="min-h-screen bg-[#f4f5f0] p-4 sm:p-8 text-slate-900">
     <div className="max-w-5xl mx-auto space-y-5">
       <header className="rounded-3xl bg-[#173e31] text-white p-6 sm:p-8">
         <div className="flex gap-3 items-center"><ShieldCheck className="h-7 w-7"/><div><h1 className="text-2xl font-black">Aurora’s Cake · Firebase Staff Preview</h1><p className="text-white/70 text-sm">Cloudflare Worker + Firestore · Independent of Google Sheets</p></div></div>
-        <p className="mt-3 text-sm text-white/80">Read-only test workspace. Production orders and checkout have not been moved to Firebase yet.</p>
+        <p className="mt-3 text-sm text-white/80">Read-only test workspace. Authentication goes directly to Google Firebase; production checkout has not been migrated.</p>
       </header>
       {error&&<p role="alert" className="p-4 rounded-2xl border border-amber-300 bg-amber-50 text-sm break-words">{error}</p>}
       {notice&&<p role="status" className="p-4 rounded-2xl border border-emerald-300 bg-emerald-50 text-sm break-words">{notice}</p>}
-      <p className="text-xs text-slate-600" data-testid="firebase-auth-sdk-status">Cloudflare Build: {__AURORA_BUILD_ID__} · Firebase SDK: {authStatus==='ready'?'Ready':authStatus==='loading'?'Initializing…':'Initialization error'}</p>
+      <p className="text-xs text-slate-600" data-testid="firebase-auth-sdk-status">Cloudflare Build: {__AURORA_BUILD_ID__} · Auth transport: Google Firebase REST · SDK-independent</p>
       {!user?<section className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-8 max-w-lg mx-auto">
         <div className="flex items-center gap-2 mb-5"><LockKeyhole className="w-5 h-5"/><h2 className="font-extrabold text-xl">Staff sign in</h2></div>
         <p className="text-sm text-slate-600 mb-5">Sign in with a Firebase Authentication staff account. Public signup is not available. A verified, approved Firestore staff role is required.</p>
         <form onSubmit={login} className="space-y-4">
           <label className="block text-sm font-medium">Email<input required type="email" autoComplete="username" value={email} onChange={e=>setEmail(e.target.value)} className="block w-full rounded-xl border border-slate-300 p-3 mt-1"/></label>
           <label className="block text-sm font-medium">Password<input required minLength={6} type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} className="block w-full rounded-xl border border-slate-300 p-3 mt-1"/></label>
-          <button type="submit" disabled={busy || authStatus!=='ready'} className="w-full rounded-xl p-3 bg-[#173e31] text-white font-bold disabled:opacity-60">Sign in securely</button>
+          <button type="submit" disabled={busy} className="w-full rounded-xl p-3 bg-[#173e31] text-white font-bold disabled:opacity-60">Sign in securely</button>
           <button type="button" disabled={busy} onClick={()=>void resetPassword()} className="text-sm text-[#173e31] underline disabled:opacity-60">Forgot Firebase password? Request reset email</button>
         </form>
         <div className="text-xs text-slate-600 mt-5 space-y-2">
