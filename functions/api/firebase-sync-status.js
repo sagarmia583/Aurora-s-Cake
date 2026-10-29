@@ -6,7 +6,7 @@ export function onRequest({request,env}){
   const state=firebaseMirrorConfiguration(env);
   return json(200,{ok:true,provider:'firestore',project_id:'aurorascake-213a0',
     enabled:state.enabled,configured:state.configured,configuration_code:state.reason,
-    deployment_platform:'cloudflare_pages',
+    deployment_platform:env.DEPLOYMENT_PLATFORM==='cloudflare_worker'?'cloudflare_worker':'cloudflare_pages',
     mode:'one_way_server_verified_order_mirror',legacy_primary:'google_sheets',
     live_write_tested:false});
 }
