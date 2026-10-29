@@ -29,6 +29,6 @@ test('Noncredential failure codes are shown but raw error messages are never cop
 });
 test('Password reset error response does not expose whether an account exists',()=>{
   assert.match(firebaseStaffPasswordResetError(err('auth/operation-not-allowed')),/Enable Email\/Password/);
-  assert.equal(firebaseStaffPasswordResetError(err('auth/user-not-found')).includes('user-not-found'),true);
+  assert.equal(firebaseStaffPasswordResetError(err('auth/user-not-found')).includes('user-not-found'),false);
   assert.equal(firebaseStaffPasswordResetError(err('auth/user-not-found')).includes('DO_NOT_EXPOSE'),false);
 });
