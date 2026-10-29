@@ -14,6 +14,17 @@
 
 **Important:** This is the **foundation and isolated API**, not yet a finished customer app. New D1 API mutating operations are gated off; no D1 database/R2 bucket binding has been added because the owner's Cloudflare resource IDs have not been provided, and no real historical records have been copied. Live staff UI and customer checkout still rely on the older backend.
 
+## Current D1 binding status
+
+The owner supplied the real existing D1 database ID on October 29, 2026:
+`71790429-c38a-483e-a0db-3fa7cfc4ba40`.
+
+It is already set in `wrangler.toml` as `AURORA_DB` with database name `aurora-cake-db` and migration directory `cloudflare/d1/migrations`. **Do not create a second D1 database just because the generic setup steps below mention creation.**
+
+The binding alone **does not run migrations or import data**, and no R2 bucket has been confirmed or bound. Both `D1_PREVIEW_ENABLED` and `D1_MUTATIONS_ENABLED` remain `false`, preventing premature production access. The active legacy backend remains untouched.
+
+Next required steps are: (1) verify existing database ID in Cloudflare D1; (2) make a private backup of the legacy source; (3) apply the D1 migration using `npx wrangler d1 migrations apply aurora-cake-db --remote` with the correct Cloudflare account; (4) verify D1 schema; (5) confirm/create the `aurora-cake-media` R2 bucket before adding its binding. Never set D1 mutations on while there is unverified historical data.
+
 ## Resource setup (only after verifying Cloudflare account and backing up old data)
 
 1. From a local checkout of this GitHub repository, `npx wrangler login` and confirm it uses the owner's Cloudflare account. Back up the old Google Sheets / Supabase / Firebase data **before any cutover**; export orders, staff records, products, customers and accounting ledgers separately. Never publish these files or keys.

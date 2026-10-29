@@ -67,6 +67,10 @@ jobs:
           grep -q '^FIREBASE_MIRROR_ENABLED = "false"' wrangler.toml
           grep -q '^D1_PREVIEW_ENABLED = "false"' wrangler.toml
           grep -q '^D1_MUTATIONS_ENABLED = "false"' wrangler.toml
+          grep -q '^binding = "AURORA_DB"' wrangler.toml
+          grep -q '^database_name = "aurora-cake-db"' wrangler.toml
+          grep -q '^database_id = "71790429-c38a-483e-a0db-3fa7cfc4ba40"' wrangler.toml
+          grep -q '^migrations_dir = "cloudflare/d1/migrations"' wrangler.toml
       - name: Validate D1 SQLite schema, foreign keys and immutable ledgers
         run: python3 scripts/verify-d1-schema.py
       - name: Validate Cloudflare Worker static-assets deployment bundle (no real deploy)
