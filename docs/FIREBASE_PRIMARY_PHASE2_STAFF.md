@@ -77,6 +77,20 @@ The **old bakery Staff Panel password is not automatically a Firebase Authentica
 
 **Do not recreate the `staff_roles` document or change Firestore security rules just to solve a sign-in error.** Staff role authorization occurs *after* successful Firebase Authentication.
 
+## Diagnosing stale JavaScript after a successful Cloudflare deployment
+
+If a screenshot displays the **old** banner `Firebase Authentication failed without a recognized error code`, then the browser is **not executing the newest code**. The latest UI has a distinct `Firebase SDK: Ready` or `Initialization error` status and no longer contains that sentence. Do not recreate the Firebase user, role, provider, key or project to solve stale client code.
+
+Use the new **separate URL**:
+
+https://aurora-s-cake.sagarmia583.workers.dev/firebase-staff-preview
+
+It renders exactly the same Cloudflare Firebase Staff Preview without relying on a query flag at the cached homepage URL. It also displays a public **Cloudflare Build: <git-sha>** marker next to SDK readiness. HTML navigation for `/`, `/index.html` and `/firebase-staff-preview` is served with `Cache-Control: no-store`; Vite-hashed JS bundles continue to use normal caching.
+
+Check the displayed build hash against Cloudflare → aurora-s-cake → Deployments → latest production GitHub commit. If the Build marker is absent, the old JS is still running. Refresh with `Ctrl+Shift+R`, close old tabs for the same website, and open the separate URL directly. A Cloudflare successful build is not proof that a particular browser tab refreshed or that its active rollout has changed.
+
+No live order backend is affected and Vercel / Netlify remain disabled.
+
 ## 4. Test the isolated new Staff Panel
 
 Open:
