@@ -1,4 +1,4 @@
-name: Verify Cloudflare Pages Functions
+name: Verify Cloudflare Workers and Pages
 
 on:
   pull_request:
@@ -11,6 +11,8 @@ on:
       - 'public/_redirects'
       - 'wrangler.toml'
       - 'tests/cloudflare-pages.test.ts'
+      - 'tests/cloudflare-worker.test.ts'
+      - 'wrangler.pages.toml'
       - '.github/workflows/cloudflare-verify.yml'
 
 permissions:
@@ -29,6 +31,8 @@ jobs:
       - run: npm ci
       - name: Build Cloudflare Vite storefront with Pages environment
         run: CF_PAGES=1 npm run build
+      - name: Validate Cloudflare Worker static-assets deployment bundle (no real deploy)
+        run: npx --yes wrangler@4.45.0 deploy --dry-run --outdir .cf-worker-build
       - name: Validate Pages Functions Worker bundle with Wrangler
         run: npx --yes wrangler@4.45.0 pages functions build functions --outdir .cf-ci-build --compatibility-date 2026-10-29
       - name: Confirm routed Functions and static paths

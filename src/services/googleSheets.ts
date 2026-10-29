@@ -245,10 +245,18 @@ export function sheetsPostCredentials(resolvedUrl: string): RequestCredentials {
   return resolvedUrl === '/api/operations' ? 'same-origin' : 'omit';
 }
 
+export function usesSameOriginBakeryApi(): boolean {
+  const configured=(import.meta.env?.VITE_SHEETS_POST_PROXY as string|undefined)?.trim()==='/api/operations';
+  // Workers Builds does not set CF_PAGES; the actual Cloudflare application
+  // hostname is a reliable way to keep checkout behind its secure API relay.
+  const cloudflareHost=typeof window!=='undefined' &&
+    /(?:^|\.)(?:workers|pages)\.dev$/i.test(window.location.hostname);
+  return configured || cloudflareHost;
+}
+
 export function resolveSheetsPostEndpoint(endpoint: string): string {
   const direct=validateGoogleSheetsEndpoint(endpoint).href;
-  const relay=(import.meta.env?.VITE_SHEETS_POST_PROXY as string|undefined)?.trim();
-  return relay==='/api/operations' ? relay : direct;
+  return usesSameOriginBakeryApi()?'/api/operations':direct;
 }
 export function validateGoogleSheetsEndpoint(endpoint: string): URL {
   let url: URL;
@@ -287,10 +295,10 @@ function loadJsonp(endpoint: URL, signal?: AbortSignal): Promise<unknown> {
 export async function loadGoogleSheetData(endpoint=DEFAULT_SHEETS_ENDPOINT, signal?: AbortSignal): Promise<PublicSiteData> {
   const url=validateGoogleSheetsEndpoint(endpoint);
   url.searchParams.set('action','public');
-  // Same-origin Vercel GET avoids browser CORS/redirects and JSONP timeout.
-  // Local Vite development continues to use the Google public endpoint.
-  const viaVercel=(import.meta as ImportMeta & {env?:Record<string,string>}).env?.VITE_SHEETS_POST_PROXY==='/api/operations'
-    && typeof window!=='undefined' && window.location.protocol==='https:';
+  // Same-origin Vercel or Cloudflare proxy avoids browser CORS redirects.
+  // Local Vite development continues to use the public Apps Script endpoint.
+  const viaVercel=usesSameOriginBakeryApi() &&
+    typeof window!=='undefined' && window.location.protocol==='https:';
   const readUrl=viaVercel?'/api/public':url.href;
   const controller=new AbortController();
   const onAbort=()=>controller.abort();
