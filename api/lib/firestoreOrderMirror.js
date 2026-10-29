@@ -114,7 +114,7 @@ function toFirestoreField(value) {
   return { mapValue: { fields } };
 }
 
-async function getGoogleAccessToken(fetcher, env = process.env) {
+export async function getGoogleAccessToken(fetcher, env = process.env) {
   const credentialKey = env.FIREBASE_SERVICE_ACCOUNT_JSON || '';
   if (cachedToken && cachedKey === credentialKey && Date.now() < cachedExpiry) return cachedToken;
   const config = firebaseMirrorConfiguration(env);
