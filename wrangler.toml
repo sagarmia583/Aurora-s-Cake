@@ -4,9 +4,16 @@
 name = "aurora-s-cake"
 main = "./cloudflare/worker.js"
 compatibility_date = "2026-10-29"
+# Preserve text runtime variables entered in Cloudflare Dashboard across
+# GitHub Workers Builds deployments. Encrypted secrets are still dashboard-only.
+keep_vars = true
 
 [vars]
 DEPLOYMENT_PLATFORM = "cloudflare_worker"
+# Enables server-only *secondary order mirroring*, not Firebase-primary.
+# No order is mirrored until authoritative backend confirms it and
+# FIREBASE_SERVICE_ACCOUNT_JSON is configured as an encrypted Worker Secret.
+FIREBASE_MIRROR_ENABLED = "true"
 
 [assets]
 directory = "./dist"
