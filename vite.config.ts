@@ -4,6 +4,13 @@ import path from 'path';
 import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
+  // Cloudflare Pages must route *all* order/staff POSTs through its same-origin
+  // API so the server can mirror backend-verified commits to Firestore.
+  // Without this default a missing build variable would silently send orders
+  // straight to Apps Script and bypass the Firebase mirror.
+  if (process.env.CF_PAGES === '1') {
+    process.env.VITE_SHEETS_POST_PROXY = '/api/operations';
+  }
   return {
     plugins: [react(), tailwindcss()],
     resolve: {
