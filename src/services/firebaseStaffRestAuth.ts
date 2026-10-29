@@ -76,7 +76,7 @@ const sessionToken=(v:unknown)=>typeof v==='string'&&v.length>=40&&v.length<=819
 export function googleAuthFailureCode(data:unknown,status:number):string{
   const googleError=object(data)&&object(data.error)?data.error:null;
   const message=googleError?str(googleError.message):'';
-  const token=/^([A-Z][A-Z0-9_]{2,80})(?=\\s*(?::|$))/u.exec(message.trim())?.[1]||'';
+  const token=/^([A-Z][A-Z0-9_]{2,80})(?=\s*(?::|$))/u.exec(message.trim())?.[1]||'';
   if(KNOWN_GOOGLE_AUTH_ERRORS.has(token))return token;
   if(/(?:API[_ ]KEY).*?(?:HTTP[_ ]REFERRER|REFERER).*?BLOCKED|requests? from referer .*? blocked/i.test(message))
     return 'API_KEY_HTTP_REFERRER_BLOCKED';
