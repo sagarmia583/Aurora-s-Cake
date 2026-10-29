@@ -77,6 +77,29 @@ The **old bakery Staff Panel password is not automatically a Firebase Authentica
 
 **Do not recreate the `staff_roles` document or change Firestore security rules just to solve a sign-in error.** Staff role authorization occurs *after* successful Firebase Authentication.
 
+## Fix Firebase Web API Key HTTP 400 on Cloudflare
+
+When Firebase Staff Preview returns `firebase/configuration · HTTP 400`, the **public Firebase Web API key** bundled with the app is not accepted for Firebase Authentication (or its project/config has changed). The repository had an old hardcoded Web API key which cannot be verified from the live Firebase Console.
+
+**Now this preview gets the key from Cloudflare Worker Runtime**, not the old source-code fallback. The new **GET** endpoint is:
+
+`https://aurora-s-cake.sagarmia583.workers.dev/api/firebase-primary/web-config`
+
+It returns `503 {ok:false,code:"firebase_web_api_key_missing"}` until the variable is set. Do not type an account email, password or private key into this URL. When configured, it returns the Firebase **public** Web API key; this is expected for a Firebase browser app.
+
+One-time owner setup:
+
+1. Open [Firebase Project Settings](https://console.firebase.google.com/project/aurorascake-213a0/settings/general), scroll to **Your apps → aurorascake (Web)**, choose **SDK setup and configuration → Config**.
+2. Copy only `firebaseConfig.apiKey` associated with the same Project ID `aurorascake-213a0`. Do not use `FIREBASE_SERVICE_ACCOUNT_JSON`, OAuth Client ID, Service Account private key or Cloud Messaging server key.
+3. Cloudflare Dashboard → **Workers & Pages → aurora-s-cake → Settings → Runtime variables and secrets → Production → Add variable**. Enter name **`FIREBASE_WEB_API_KEY`**, Type **Variable**, Value = the exact `apiKey` (starts with `AIza`). **Runtime** section, not **Builds**.
+4. Save/deploy the Worker variables change. Refresh the API endpoint above: it should report `ok:true,project_id:"aurorascake-213a0",configured:true`. The Web API Key is public by design; do not paste it in chat.
+5. Open `/firebase-staff-preview`, refresh it, and try signing in with the existing Firebase Auth email/password once. Existing Firestore `staff_roles/{uid}`, Email/Password provider and Service Account need no changes.
+6. If the new key still returns a configuration error, verify the same key exists and is active under [Google Cloud API Credentials for this project](https://console.cloud.google.com/apis/credentials?project=aurorascake-213a0) and that allowed APIs include **Identity Toolkit API** and **Token Service API**. Restrict keys appropriately; do not remove all restrictions.
+
+**Security:** Firebase Web API keys are public app identifiers. They are **not admin credentials** and cannot override Firestore Rules. The Worker only releases this public identifier, not private service account JSON or Cloudflare secrets. No API key value should be included in error messages or screenshots.
+
+No live checkout, products, staff permissions, production orders or accounting changes are made by this Firebase Staff Preview improvement. Vercel and Netlify remain intentionally disabled.
+
 ## Diagnosing `AUTH_REQUEST_REJECTED` on Cloudflare REST login
 
 An `AUTH_REQUEST_REJECTED` banner on build `da8c1b3` means the browser **reached Google Firebase** and received an error that the old parser did not recognize. It does **not** prove the Firebase password, Firestore role, service-account JSON or Google Sheets were at fault.
