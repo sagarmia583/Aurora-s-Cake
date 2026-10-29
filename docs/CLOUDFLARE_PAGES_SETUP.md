@@ -49,6 +49,42 @@ Cloudflare secrets are **not copied automatically from Vercel**. Add values to *
 
 For testing, start with `FIREBASE_MIRROR_ENABLED=false` and do not configure a production Firestore credential on an unreviewed preview branch.
 
+## 3. Enable and verify Firebase writing (Cloudflare, not Vercel)
+
+1. Go to **Cloudflare Dashboard → Workers & Pages → your Pages project → Settings → Variables and Secrets → Production**. Variables from Vercel are **NOT** transferred automatically.
+2. Confirm the following runtime bindings exist:
+   - `AURORA_SCRIPT_POST_URL`: encrypted secret; the original deployed Apps Script `https://script.google.com/macros/s/.../exec` endpoint.
+   - `FIREBASE_MIRROR_ENABLED`: plain text value `true`.
+   - `FIREBASE_SERVICE_ACCOUNT_JSON`: **encrypted** secret containing the complete service account JSON for project `aurorascake-213a0`. It must be a Google **service account** credential, not Firebase web config / API key.
+3. The service account needs **Cloud Datastore User** IAM permission for the Firestore database. Do not modify the private deny-by-default Firestore browser rules. The server-to-server API uses Google IAM.
+4. Deploy the latest GitHub `main` commit to **Production**. Previously built deployments do not automatically pick up changed secrets. Read https://developers.cloudflare.com/pages/functions/bindings/ for current Pages secrets instructions.
+5. Visit `https://<your-project>.pages.dev/api/firebase-sync-status`. It should show:
+   ```json
+   {"ok":true,"provider":"firestore","enabled":true,"configured":true,
+    "configuration_code":"configured","deployment_platform":"cloudflare_pages"}
+   ```
+   The response has additional fields. `configured:true` is a **format check only**.
+6. If configured is false, inspect `configuration_code`:
+   - `disabled` → `FIREBASE_MIRROR_ENABLED` isn't exactly `true`.
+   - `missing_service_account` → JSON secret not bound to this Pages environment.
+   - `invalid_json` → full JSON object not pasted correctly; do not add extra outside quotes.
+   - `not_service_account` → entered web config or another credential, not service account JSON.
+   - `wrong_project_id` → credential belongs to a different Firebase/Google Cloud project.
+   - `invalid_client_email` → service account email missing/invalid.
+   - `missing_private_key` or `invalid_private_key` → key missing, malformed, or escaped incorrectly.
+   Don't paste credentials into browser tools, a GitHub issue or chat.
+7. Sign in to **Staff Panel as Super Admin → Orders & delivery → Firebase order backup → Test Firebase write**. This button is authorized by the existing Apps Script staff session and writes only a benign `integration_checks/cloudflare_pages` document.
+   - `write_verified` means Google OAuth and Firestore IAM write both worked.
+   - `firebase_oauth_failed_400/401` can indicate an invalid/revoked key, JWT signing or account problem.
+   - `firestore_write_403` indicates insufficient IAM access / incorrect project or Firestore permissions.
+   - `firebase_server_connectivity_failed` indicates timeout or server runtime/network problem.
+8. Only after that, place **one real test COD order** in the Cloudflare-hosted storefront, and verify the returned `X-Aurora-Firebase-Mirror: saved` header and one private `orders/{order.id}` Firestore document. A Vercel-created order won't necessarily pass through the Cloudflare mirror.
+9. To sync existing orders, Super Admin → Orders & delivery → **Sync existing orders**; repeat until the backfill is complete. Cross-check counts and totals with original Google Sheets. This copies records; it never deletes or updates Sheets.
+
+Cloudflare Pages automatically uses the same-origin `/api/operations` proxy when built by Cloudflare, even if `VITE_SHEETS_POST_PROXY` was accidentally omitted. Don't bypass it with direct browser Apps Script calls.
+
+**Limitations:** This mirror currently stores confirmed order summaries and status updates only. Independent POS sales, cash ledger, inventory, recipes, staff accounts and CMS remain in their existing storage until separately migrated. Cloudflare deployment and actual credentials cannot be verified from GitHub build success alone.
+
 ## 3. Verify each API before switching traffic
 
 1. `https://<project>.pages.dev/api/backend-health` → JSON with `ok:true` and `up_to_date` (if false, Apps Script itself is older; Cloudflare cannot fix it).
