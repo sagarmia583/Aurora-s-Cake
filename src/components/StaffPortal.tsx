@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, RefreshCw, ShieldCheck, Truck, PackageCheck, LayoutDashboard, ShoppingBag, UsersRound, CakeSlice, Store, Search, ChevronDown, ChevronUp, LogOut, Clock3, BadgeCheck, ArrowRight, AlertCircle, CreditCard, MapPin } from 'lucide-react';
-import { checkStaffSession, getStaffOrders, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword, lookupStaffCustomer, backfillFirebaseOrders } from '../services/sheetStaffApi';
+import { checkStaffSession, getStaffOrders, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword, lookupStaffCustomer, backfillFirebaseOrders, verifyFirebaseMirrorFromStaff } from '../services/sheetStaffApi';
 import type { StaffCustomerMatch, StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
 import { getBrowserWorkspaceStorage, loadStaffCredential, saveStaffCredential, clearStaffCredential, loadStaffTab, saveStaffTab } from '../services/staffWorkspaceSession';
@@ -141,6 +141,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [firebaseBackfillBusy,setFirebaseBackfillBusy]=useState(false);
   const [firebaseBackfillOffset,setFirebaseBackfillOffset]=useState(0);
   const [firebaseBackfillMessage,setFirebaseBackfillMessage]=useState('');
+  const [firebaseProbeBusy,setFirebaseProbeBusy]=useState(false);
+  const [firebaseProbeMessage,setFirebaseProbeMessage]=useState('');
   useEffect(()=>{
     if(!isOpen||typeof window==='undefined'||!window.location.hostname.endsWith('.vercel.app'))return;
     const controller=new AbortController();
@@ -155,6 +157,19 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       .catch(()=>{});
     return()=>controller.abort();
   },[isOpen,endpoint]);
+  const testFirestoreWrite=async()=>{
+    if(!identity||identity.role!=='super_admin'||firebaseProbeBusy)return;
+    setFirebaseProbeBusy(true);
+    setFirebaseProbeMessage('');
+    try{
+      const result=await verifyFirebaseMirrorFromStaff(endpoint,identity.token);
+      setFirebaseProbeMessage(result.ok
+        ? 'Firestore write verified. Private integration_checks/cloudflare_pages document saved successfully.'
+        : 'Firebase connection failed: '+result.code+'. Check the Cloudflare server-only secrets and service-account permissions.');
+    }catch(error){
+      setFirebaseProbeMessage(error instanceof Error?error.message:'Firebase write test failed.');
+    }finally{setFirebaseProbeBusy(false);}
+  };
   const syncHistoricalFirebaseOrders=async()=>{
     if(!identity||identity.role!=='super_admin'||firebaseBackfillBusy)return;
     if(!window.confirm('Sync private, confirmed Google Sheets order records to your server-only Firebase Firestore mirror? This will not modify any Google Sheets orders.'))return;
@@ -792,6 +807,14 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                           {firebaseBackfillBusy?'Syncing…':firebaseBackfillOffset?'Continue Firebase sync':'Sync existing orders'}
                         </button>
                       </div>
+                      <div className="mt-3 flex flex-wrap items-center gap-3">
+                        <button type="button" onClick={()=>void testFirestoreWrite()} disabled={firebaseProbeBusy}
+                          className="rounded-lg border border-emerald-800 px-4 py-2.5 font-bold text-emerald-950 disabled:opacity-50">
+                          {firebaseProbeBusy?'Testing Firebase…':'Test Firebase write'}
+                        </button>
+                        <span className="text-xs text-slate-600">Super Admin only · writes a harmless test document</span>
+                      </div>
+                      {firebaseProbeMessage&&<p role="status" className="mt-2 text-slate-700">{firebaseProbeMessage}</p>}
                       {firebaseBackfillMessage&&<p role="status" className="mt-2 text-slate-700">{firebaseBackfillMessage}</p>}
                     </section>
                   )}

@@ -1,5 +1,5 @@
 import relay from '../../netlify/functions/operations.mjs';
-import { mirrorAuthoritativeReply, mirrorVerifiedAdminOrderPage } from '../../api/lib/firestoreOrderMirror.js';
+import { mirrorAuthoritativeReply, mirrorVerifiedAdminOrderPage, verifyFirebaseMirrorWrite } from '../../api/lib/firestoreOrderMirror.js';
 
 // Cloudflare Pages runtime: secrets live on context.env, never in import.meta.env.
 export async function onRequest({ request, env }) {
@@ -24,6 +24,15 @@ export async function onRequest({ request, env }) {
       const outcome = await mirrorAuthoritativeReply(payload, backend, { env });
       mirrored = new Response(upstreamResponse.body, upstreamResponse);
       mirrored.headers.set('X-Aurora-Firebase-Mirror', outcome.status);
+    } else if (payload.action === 'staff_orders' && payload.firebase_mirror_probe === true) {
+      // Staff identity, token and role MUST be verified by Apps Script first.
+      // A browser-provided role string is never authoritative.
+      if (backend?.ok === true && backend?.role === 'super_admin') {
+        const probe = await verifyFirebaseMirrorWrite({ env });
+        mirrored = new Response(JSON.stringify({ ...backend, firebase_probe: probe }), {
+          status: 200, headers: upstreamResponse.headers,
+        });
+      }
     } else if (payload.action === 'staff_orders' && payload.firebase_mirror_backfill === true) {
       const backfill = await mirrorVerifiedAdminOrderPage(payload, backend, { env });
       if (backfill) {

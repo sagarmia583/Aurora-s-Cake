@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from 'node:crypto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { onRequest as operations } from '../functions/api/operations.js';
@@ -104,4 +105,66 @@ test('Cloudflare Firestore readiness never discloses secrets',async()=>{
   assert.equal(JSON.parse(body).configured,false);
   assert.equal(body.includes('PRIVATE123'),false);
   assert.equal(JSON.parse(body).project_id,'aurorascake-213a0');
+});
+
+test('Cloudflare Firebase status identifies credential problems without leaking secrets',async()=>{
+  const wrongProject={type:'service_account',project_id:'unrelated-project',
+    client_email:'mirror@unrelated-project.iam.gserviceaccount.com',
+    private_key:'-----BEGIN PRIVATE KEY-----\\nINVALID\\n-----END PRIVATE KEY-----'};
+  const cases=[
+    {value:'not-json',reason:'invalid_json'},
+    {value:JSON.stringify(wrongProject),reason:'wrong_project_id'},
+    {value:JSON.stringify({...wrongProject,project_id:'aurorascake-213a0'}),reason:'invalid_private_key'},
+  ];
+  for(const item of cases){
+    const r=await mirrorStatus({request:request('/api/firebase-sync-status'),
+      env:{...env,FIREBASE_MIRROR_ENABLED:'true',FIREBASE_SERVICE_ACCOUNT_JSON:item.value}});
+    const body=await r.text();
+    assert.equal(JSON.parse(body).configuration_code,item.reason);
+    assert.equal(JSON.parse(body).deployment_platform,'cloudflare_pages');
+    assert.ok(!body.includes('BEGIN PRIVATE KEY'));
+  }
+});
+
+test('Cloudflare Firestore probe does not trust client-supplied role or raw access tokens',async()=>{
+  const {privateKey}=generateKeyPairSync('rsa',{modulusLength:2048,
+    privateKeyEncoding:{type:'pkcs8',format:'pem'},
+    publicKeyEncoding:{type:'spki',format:'pem'}});
+  const probeEnv={...env,FIREBASE_MIRROR_ENABLED:'true',
+    FIREBASE_SERVICE_ACCOUNT_JSON:JSON.stringify({
+      type:'service_account',project_id:'aurorascake-213a0',
+      client_email:'mirror@aurorascake-213a0.iam.gserviceaccount.com',
+      private_key:privateKey,
+    })};
+  const previous=globalThis.fetch;
+  let role='delivery_man';
+  const requests:string[]=[];
+  globalThis.fetch=(async(url:RequestInfo|URL,options?:RequestInit)=>{
+    const target=String(url); requests.push(target);
+    if(target===endpoint) return {
+      ok:true,status:200,url:'https://script.googleusercontent.com/macros/echo',
+      text:async()=>JSON.stringify({ok:true,role,orders:[],snapshot_complete:true}),
+    } as Response;
+    if(target.includes('oauth2.googleapis.com/token'))return new Response(
+      JSON.stringify({access_token:'fake_access_token',expires_in:3600}),{status:200});
+    if(target.includes('firestore.googleapis.com')) {
+      assert.equal(options?.method,'PATCH');
+      assert.match(String(options?.body),/server_side_mirror_permission_test/);
+      return new Response(JSON.stringify({name:'integration_checks/cloudflare_pages'}),{status:200});
+    }
+    throw new Error('Unexpected outgoing request '+target);
+  }) as typeof fetch;
+  try{
+    const payload={action:'staff_orders',id_token:'fake-staff-token',firebase_mirror_probe:true,
+      role:'super_admin'};
+    let r=await operations({request:request('/api/operations','POST',payload),env:probeEnv});
+    assert.equal(r.status,200);
+    assert.equal((await jsonOf(r)).firebase_probe,undefined);
+    assert.equal(requests.filter(x=>x.includes('firestore.googleapis.com')).length,0);
+    role='super_admin';
+    r=await operations({request:request('/api/operations','POST',payload),env:probeEnv});
+    assert.equal(r.status,200);
+    assert.deepEqual((await jsonOf(r)).firebase_probe,{ok:true,code:'write_verified'});
+    assert.equal(requests.filter(x=>x.includes('firestore.googleapis.com')).length,1);
+  }finally{globalThis.fetch=previous;}
 });

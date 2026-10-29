@@ -266,3 +266,21 @@ export async function backfillFirebaseOrders(
      typeof value.configured!=='boolean')throw new Error('Invalid Firebase backfill result.');
   return value as unknown as FirebaseOrderBackfill;
 }
+
+/**
+ * Readiness test for a verified super_admin session. The Cloudflare Pages
+ * proxy first asks Apps Script to authenticate this session as staff_orders.
+ * Only the server can then write a benign test document to Firestore.
+ */
+export async function verifyFirebaseMirrorFromStaff(endpoint:string,token:string):
+  Promise<{ok:boolean;code:string}> {
+  const result=await privatePost(endpoint,{
+    action:'staff_orders',
+    ...staffCredential(token),
+    firebase_mirror_probe:true,
+  });
+  const value=result.firebase_probe;
+  if(!objectValue(value)||typeof value.ok!=='boolean'||typeof value.code!=='string')
+    throw new Error('Cloudflare Firebase write test is not available; check your Pages deployment.');
+  return {ok:value.ok,code:value.code};
+}

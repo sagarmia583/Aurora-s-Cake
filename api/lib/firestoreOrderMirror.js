@@ -9,7 +9,7 @@
  * IMPORTANT: To enable, set FIREBASE_MIRROR_ENABLED=true and configure the
  * server-only FIREBASE_SERVICE_ACCOUNT_JSON in Vercel. Never use VITE_ here.
  */
-import { createSign } from 'node:crypto';
+import { createSign, createPrivateKey } from 'node:crypto';
 
 const PROJECT_ID = 'aurorascake-213a0';
 const TOKEN_URI = 'https://oauth2.googleapis.com/token';
@@ -21,24 +21,30 @@ let cachedExpiry = 0;
 let cachedKey = null;
 
 export function firebaseMirrorConfiguration(env = process.env) {
+  // Return only a non-sensitive code. Never disclose the credential or
+  // individual token material to API clients.
   if (env.FIREBASE_MIRROR_ENABLED !== 'true') {
     return { enabled: false, configured: false, reason: 'disabled' };
   }
   const raw = env.FIREBASE_SERVICE_ACCOUNT_JSON || '';
   if (!raw) return { enabled: true, configured: false, reason: 'missing_service_account' };
-  try {
-    const credentials = JSON.parse(raw);
-    if (credentials.type !== 'service_account' || credentials.project_id !== PROJECT_ID ||
-        typeof credentials.client_email !== 'string' ||
-        !credentials.client_email.endsWith('.iam.gserviceaccount.com') ||
-        typeof credentials.private_key !== 'string' ||
-        !credentials.private_key.includes('-----BEGIN PRIVATE KEY-----')) {
-      return { enabled: true, configured: false, reason: 'invalid_service_account' };
-    }
-    return { enabled: true, configured: true, reason: 'configured' };
-  } catch {
-    return { enabled: true, configured: false, reason: 'invalid_json' };
-  }
+  let credentials;
+  try { credentials=JSON.parse(raw); }
+  catch { return { enabled:true, configured:false, reason:'invalid_json' }; }
+  if (!credentials || typeof credentials !== 'object' || Array.isArray(credentials) ||
+      credentials.type !== 'service_account')
+    return { enabled:true, configured:false, reason:'not_service_account' };
+  if (credentials.project_id !== PROJECT_ID)
+    return { enabled:true, configured:false, reason:'wrong_project_id' };
+  if (typeof credentials.client_email !== 'string' ||
+      !credentials.client_email.endsWith('.iam.gserviceaccount.com'))
+    return { enabled:true, configured:false, reason:'invalid_client_email' };
+  if (typeof credentials.private_key !== 'string' ||
+      !credentials.private_key.includes('-----BEGIN PRIVATE KEY-----'))
+    return { enabled:true, configured:false, reason:'missing_private_key' };
+  try { createPrivateKey(credentials.private_key); }
+  catch { return { enabled:true, configured:false, reason:'invalid_private_key' }; }
+  return { enabled: true, configured: true, reason: 'configured' };
 }
 
 const safeText = (value, max) => typeof value === 'string' ? value.slice(0,max) : '';
@@ -225,4 +231,38 @@ export async function mirrorVerifiedAdminOrderPage(payload,reply,{fetcher=global
     }
   }
   return result;
+}
+
+/**
+ * Benign Firestore write probe. Never call this directly from a public route:
+ * the caller MUST first receive a verified super_admin role from Apps Script
+ * through the existing authenticated staff_orders action.
+ * Writes only non-personal readiness data in a fixed private document.
+ */
+export async function verifyFirebaseMirrorWrite({ env=process.env, fetcher=globalThis.fetch }={}) {
+  const state=firebaseMirrorConfiguration(env);
+  if (!state.configured) return { ok:false, code:state.reason };
+  try {
+    const token=await getGoogleAccessToken(fetcher,env);
+    const url='https://firestore.googleapis.com/v1/projects/'+PROJECT_ID+
+      '/databases/(default)/documents/integration_checks/cloudflare_pages';
+    const response=await fetcher(url,{
+      method:'PATCH',
+      headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({fields:{
+        last_checked_at:{timestampValue:new Date().toISOString()},
+        application:{stringValue:'auroras_cake'},
+        purpose:{stringValue:'server_side_mirror_permission_test'},
+      }}),
+      signal:AbortSignal.timeout(6000),
+    });
+    if(response.ok)return {ok:true,code:'write_verified'};
+    // Expose status only; never echo arbitrary OAuth/Firestore error bodies.
+    return {ok:false,code:'firestore_write_'+response.status};
+  } catch(error) {
+    const code=error instanceof Error ? error.message : '';
+    if(/^firebase_oauth_failed_\d{3}$/.test(code)||code==='firebase_oauth_invalid_response')
+      return {ok:false,code};
+    return {ok:false,code:'firebase_server_connectivity_failed'};
+  }
 }
