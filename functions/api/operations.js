@@ -5,7 +5,14 @@ import { mirrorAuthoritativeReply, mirrorVerifiedAdminOrderPage } from '../../ap
 export async function onRequest({ request, env }) {
   // Reuse the same strict action list, origin check, request-size limits,
   // pinned Apps Script target and authorization source as the Vercel relay.
-  const original = request.method === 'POST' ? await request.clone().text() : '';
+  // Skip buffering bodies that the upstream relay would reject anyway.
+  const suppliedLength = Number(request.headers.get('content-length') || '0');
+  if (request.method !== 'POST' ||
+      (Number.isFinite(suppliedLength) && suppliedLength > 950000))
+    return relay(request, {scriptUrl: env.AURORA_SCRIPT_POST_URL});
+  const original = await request.clone().text();
+  if (original.length > 950000)
+    return relay(request, {scriptUrl: env.AURORA_SCRIPT_POST_URL});
   const upstreamResponse = await relay(request, { scriptUrl: env.AURORA_SCRIPT_POST_URL });
   if (!upstreamResponse.ok) return upstreamResponse;
 
