@@ -6,7 +6,10 @@ export function isCloudflarePreviewHostname(hostname: string): boolean {
   const host=hostname.toLowerCase();
   return host.endsWith('.workers.dev') || host.endsWith('.pages.dev');
 }
-export function isFirebaseStaffPreviewRoute(hostname: string, search: string): boolean {
+export function isFirebaseStaffPreviewRoute(
+  hostname: string, search: string, pathname: string = '/'
+): boolean {
   return isCloudflarePreviewHostname(hostname)
-    && new URLSearchParams(search).get('firebase_staff_preview')==='1';
+    && (pathname === '/firebase-staff-preview'
+      || new URLSearchParams(search).get('firebase_staff_preview')==='1');
 }
