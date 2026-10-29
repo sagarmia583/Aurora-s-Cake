@@ -19,7 +19,7 @@ const FirebaseStaffPreview = React.lazy(
   }))
 );
 const showFirebaseStaffPreview =
-  isFirebaseStaffPreviewRoute(window.location.hostname,window.location.search);
+  isFirebaseStaffPreviewRoute(window.location.hostname,window.location.search,window.location.pathname);
 
 createRoot(document.getElementById('root')!).render(
   showFirebaseStaffPreview ? <Suspense fallback={<p>Loading secure Firebase Staff Preview…</p>}><FirebaseStaffPreview /></Suspense> :
