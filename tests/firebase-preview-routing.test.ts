@@ -21,3 +21,13 @@ test('Host suffix matching cannot be spoofed using misleading hostnames',()=>{
   }
   assert.equal(isFirebaseStaffPreviewRoute('AURORA-S-CAKE.SAGARMIA583.WORKERS.DEV','?firebase_staff_preview=1'),true);
 });
+
+test('Dedicated Firebase login path works without a query flag, unlike the normal storefront',()=>{
+  const host='aurora-s-cake.sagarmia583.workers.dev';
+  assert.equal(isFirebaseStaffPreviewRoute(host,'','/firebase-staff-preview'),true);
+  assert.equal(isFirebaseStaffPreviewRoute(host,'?utm_source=chatgpt','/firebase-staff-preview'),true);
+  assert.equal(isFirebaseStaffPreviewRoute(host,'','/'),false);
+  assert.equal(isFirebaseStaffPreviewRoute('aurora.vercel.app','','/firebase-staff-preview'),false);
+  assert.equal(isFirebaseStaffPreviewRoute('aurora.netlify.app','','/firebase-staff-preview'),false);
+  assert.equal(isFirebaseStaffPreviewRoute('workers.dev.evil.example','','/firebase-staff-preview'),false);
+});
