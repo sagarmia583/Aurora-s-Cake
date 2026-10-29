@@ -2,6 +2,7 @@ import React, { Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+import {isFirebaseStaffPreviewRoute} from './services/firebasePreviewRouting';
 
 // Load Firebase SDK on demand; ordinary visitors don't download it unless
 // a future feature explicitly uses Firebase.
@@ -18,8 +19,7 @@ const FirebaseStaffPreview = React.lazy(
   }))
 );
 const showFirebaseStaffPreview =
-  /(?:^|\\.)(?:workers|pages)\\.dev$/i.test(window.location.hostname) &&
-  new URLSearchParams(window.location.search).get('firebase_staff_preview')==='1';
+  isFirebaseStaffPreviewRoute(window.location.hostname,window.location.search);
 
 createRoot(document.getElementById('root')!).render(
   showFirebaseStaffPreview ? <Suspense fallback={<p>Loading secure Firebase Staff Preview…</p>}><FirebaseStaffPreview /></Suspense> :
