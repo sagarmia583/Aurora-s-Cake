@@ -26,6 +26,7 @@ export function FirebaseStaffPreview(){
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
+  const [authStatus,setAuthStatus]=useState<'loading'|'ready'|'error'>('loading');
   const [session,setSession]=useState<StaffSession|null>(null);
   const [orders,setOrders]=useState<StaffOrder[]>([]);
   const [hasMore,setHasMore]=useState(false);
@@ -35,13 +36,14 @@ export function FirebaseStaffPreview(){
     getFirebaseAuth().then(async auth=>{
       const {onAuthStateChanged}=await import('firebase/auth');
       if(!alive)return;
+      setAuthStatus('ready');
       unsubscribe=onAuthStateChanged(auth,next=>{
         if(!alive)return;
         setUser(next);
         setVerified(next?.emailVerified===true);
         setSession(null);setOrders([]);setError('');
-      },()=>{if(alive)setError('Firebase Authentication is not available.');});
-    }).catch(()=>{if(alive)setError('Firebase could not initialize.');});
+      },error=>{if(alive){setAuthStatus('error');setError(firebaseStaffLoginError(error,'sdk_initialization'));}});
+    }).catch(error=>{if(alive){setAuthStatus('error');setError(firebaseStaffLoginError(error,'sdk_initialization'));}});
     return ()=>{alive=false;unsubscribe();};
   },[]);
   const refresh=useCallback(async()=>{
@@ -63,12 +65,14 @@ export function FirebaseStaffPreview(){
     event.preventDefault();
     if(busy)return;
     setBusy(true);setError('');setNotice('');
+    let stage:'sdk_initialization'|'credential_sign_in'='sdk_initialization';
     try{
       const auth=await getFirebaseAuth();
       const {signInWithEmailAndPassword}=await import('firebase/auth');
+      stage='credential_sign_in';
       await signInWithEmailAndPassword(auth,email.trim(),password);
       setPassword('');
-    }catch(error){setError(firebaseStaffLoginError(error));}
+    }catch(error){setError(firebaseStaffLoginError(error,stage));}
     finally{setBusy(false);}
   };
   const resetPassword=async()=>{
@@ -121,13 +125,14 @@ export function FirebaseStaffPreview(){
       </header>
       {error&&<p role="alert" className="p-4 rounded-2xl border border-amber-300 bg-amber-50 text-sm break-words">{error}</p>}
       {notice&&<p role="status" className="p-4 rounded-2xl border border-emerald-300 bg-emerald-50 text-sm break-words">{notice}</p>}
+      <p className="text-xs text-slate-600" data-testid="firebase-auth-sdk-status">Firebase SDK: {authStatus==='ready'?'Ready':authStatus==='loading'?'Initializing…':'Initialization error'}</p>
       {!user?<section className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-8 max-w-lg mx-auto">
         <div className="flex items-center gap-2 mb-5"><LockKeyhole className="w-5 h-5"/><h2 className="font-extrabold text-xl">Staff sign in</h2></div>
         <p className="text-sm text-slate-600 mb-5">Sign in with a Firebase Authentication staff account. Public signup is not available. A verified, approved Firestore staff role is required.</p>
         <form onSubmit={login} className="space-y-4">
           <label className="block text-sm font-medium">Email<input required type="email" autoComplete="username" value={email} onChange={e=>setEmail(e.target.value)} className="block w-full rounded-xl border border-slate-300 p-3 mt-1"/></label>
           <label className="block text-sm font-medium">Password<input required minLength={6} type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} className="block w-full rounded-xl border border-slate-300 p-3 mt-1"/></label>
-          <button type="submit" disabled={busy} className="w-full rounded-xl p-3 bg-[#173e31] text-white font-bold disabled:opacity-60">Sign in securely</button>
+          <button type="submit" disabled={busy || authStatus!=='ready'} className="w-full rounded-xl p-3 bg-[#173e31] text-white font-bold disabled:opacity-60">Sign in securely</button>
           <button type="button" disabled={busy} onClick={()=>void resetPassword()} className="text-sm text-[#173e31] underline disabled:opacity-60">Forgot Firebase password? Request reset email</button>
         </form>
         <div className="text-xs text-slate-600 mt-5 space-y-2">
