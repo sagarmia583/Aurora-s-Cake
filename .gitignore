@@ -12,3 +12,11 @@ coverage/
 *firebase-adminsdk*.json
 *service-account*.json
 catalog-export*.json
+
+# Private legacy exports and generated D1 staging SQL may contain personal,
+# financial and order data. Never publish/commit them.
+*aurora*export*.json
+*aurora*stage*.sql
+*aurora*backup*.sql
+*aurora*backup*.json
+*.d1-backup.sql
