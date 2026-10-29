@@ -36,6 +36,8 @@ jobs:
           test ! -f public/_redirects
           test ! -f dist/_redirects
           grep -q 'not_found_handling = "single-page-application"' wrangler.toml
+          grep -q '^keep_vars = true' wrangler.toml
+          grep -q '^FIREBASE_MIRROR_ENABLED = "true"' wrangler.toml
       - name: Validate Cloudflare Worker static-assets deployment bundle (no real deploy)
         run: npx --yes wrangler@4.45.0 deploy --dry-run --outdir .cf-worker-build
       - name: Validate Pages Functions Worker bundle with Wrangler
