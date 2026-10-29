@@ -5,6 +5,9 @@ name = "aurora-s-cake"
 main = "./cloudflare/worker.js"
 compatibility_date = "2026-10-29"
 
+[vars]
+DEPLOYMENT_PLATFORM = "cloudflare_worker"
+
 [assets]
 directory = "./dist"
 binding = "ASSETS"
