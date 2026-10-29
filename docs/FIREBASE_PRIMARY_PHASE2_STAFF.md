@@ -77,6 +77,22 @@ The **old bakery Staff Panel password is not automatically a Firebase Authentica
 
 **Do not recreate the `staff_roles` document or change Firestore security rules just to solve a sign-in error.** Staff role authorization occurs *after* successful Firebase Authentication.
 
+## Firebase Staff Preview: REST Authentication transport
+
+A confirmed Cloudflare Build `daa97df0` with `Firebase SDK: Ready` still failed with `sdk/unclassified-sign-in` on mobile iOS. This is **not** evidence of missing Firebase Users, roles, Email/Password provider, or server credentials.
+
+The new isolated Firebase Staff Preview now signs in directly using **Google's official Identity Toolkit REST API** `accounts:signInWithPassword`, bypassing the browser's failing modular `signInWithEmailAndPassword` path. This is still real Firebase Authentication; no new account or alternate password is required.
+
+- Email/password are POSTed directly over HTTPS from the browser to Google's `identitytoolkit.googleapis.com` service. **No password is sent to the Cloudflare Worker or saved in Sheets/Firestore.**
+- Firebase ID token/refresh token exist only in the open React view's memory (no localStorage, cookies, URL query parameters, or persisted SDK session). Refreshing the tab or closing it logs out the preview.
+- Email-verification status is obtained from Google's `accounts:lookup`; `VERIFY_EMAIL` sends a verification email via Google; after confirmation a REST token refresh obtains a newly signed ID token with the updated claim.
+- The read-only staff endpoints `/api/firebase-primary/staff/session` and `/api/firebase-primary/staff/orders` still verify the signed Firebase ID token server-side and require `staff_roles/{uid}` with a matching verified email and role.
+- Error messages describe Firebase REST error classes, e.g. `auth/invalid-credential`, `auth/operation-not-allowed`, `firebase/network-unavailable`. Never share password, tokens, private keys or links received by email.
+
+**Browser test:** open `https://aurora-s-cake.sagarmia583.workers.dev/firebase-staff-preview` and verify it shows `Auth transport: Google Firebase REST · SDK-independent`, not `Firebase SDK: Ready`. Sign in with the existing Firebase Authentication Email/Password account. If still blocked, report the safe error code only. If sign-in succeeds, use `Verify staff & load orders` to check the Firestore role; this remains a read-only migration test.
+
+This does **not** migrate checkout/POS/inventory to Firebase, and Vercel/Netlify remain intentionally disabled.
+
 ## Diagnosing stale JavaScript after a successful Cloudflare deployment
 
 If a screenshot displays the **old** banner `Firebase Authentication failed without a recognized error code`, then the browser is **not executing the newest code**. The latest UI has a distinct `Firebase SDK: Ready` or `Initialization error` status and no longer contains that sentence. Do not recreate the Firebase user, role, provider, key or project to solve stale client code.
