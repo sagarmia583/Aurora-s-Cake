@@ -72,7 +72,7 @@ export function FirebaseStaffPreview(){
   };
   const resetPassword=async()=>{
     if(busy)return;
-    if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email.trim())){
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())){
       setError('Enter a valid Firebase Authentication email to request password reset.');
       return;
     }
