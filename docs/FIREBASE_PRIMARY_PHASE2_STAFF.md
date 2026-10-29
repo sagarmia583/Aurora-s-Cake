@@ -51,6 +51,18 @@ The caller must send `Authorization: Bearer <FirebaseAuth-ID-token>`. The server
 
 **DO NOT** paste a Firebase Auth ID token into public URLs or another person's messages. The new preview acquires it directly from Firebase Auth SDK and sends it only to the same-origin API.
 
+### If the Firebase Staff Preview says "Sign-in failed"
+
+The **old bakery Staff Panel password is not automatically a Firebase Authentication password**. Creating a Firestore `staff_roles/{uid}` document does **not** create a login account.
+
+1. Firebase Console → **Authentication → Sign-in method**: turn **Email/Password** on.
+2. Firebase Console → **Authentication → Users**: confirm the exact email is there and that it has an Email/Password sign-in method (not Google-only). The user's **Firebase Auth UID** must match the private `staff_roles/{uid}` document ID.
+3. Use the password originally set when the owner account was created in Firebase Authentication. If forgotten, the preview's **Forgot Firebase password?** link sends a reset email through Firebase Authentication. Check spam.
+4. New UI separates known errors: `auth/operation-not-allowed` = provider disabled, `auth/invalid-credential` = incorrect Firebase email/password or no password provider, `auth/too-many-requests` = temporary rate limit, `auth/network-request-failed` = connection issue.
+5. Do not send your password, private service-account JSON, Firebase ID token, or reset link to anyone. The URL may safely include `?firebase_staff_preview=1`; Auth credentials are never placed in it.
+
+**Do not recreate the `staff_roles` document or change Firestore security rules just to solve a sign-in error.** Staff role authorization occurs *after* successful Firebase Authentication.
+
 ## 4. Test the isolated new Staff Panel
 
 Open:

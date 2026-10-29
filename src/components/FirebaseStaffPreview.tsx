@@ -1,6 +1,7 @@
 import React, {useCallback,useEffect,useState} from 'react';
 import {ShieldCheck, LockKeyhole, RefreshCw, LogOut, MailCheck, ShoppingBag} from 'lucide-react';
 import {getFirebaseAuth} from '../services/firebaseClient';
+import {firebaseStaffLoginError,firebaseStaffPasswordResetError} from '../services/firebaseAuthErrors';
 import type {User} from 'firebase/auth';
 
 type StaffSession={uid:string;email:string;name:string;role:string};
@@ -24,6 +25,7 @@ export function FirebaseStaffPreview(){
   const [password,setPassword]=useState('');
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
+  const [notice,setNotice]=useState('');
   const [session,setSession]=useState<StaffSession|null>(null);
   const [orders,setOrders]=useState<StaffOrder[]>([]);
   const [hasMore,setHasMore]=useState(false);
@@ -60,13 +62,29 @@ export function FirebaseStaffPreview(){
   const login=async(event:React.FormEvent)=>{
     event.preventDefault();
     if(busy)return;
-    setBusy(true);setError('');
+    setBusy(true);setError('');setNotice('');
     try{
       const auth=await getFirebaseAuth();
       const {signInWithEmailAndPassword}=await import('firebase/auth');
       await signInWithEmailAndPassword(auth,email.trim(),password);
       setPassword('');
-    }catch{setError('Sign-in failed. Check your credentials and whether Email/Password sign-in is enabled.');}
+    }catch(error){setError(firebaseStaffLoginError(error));}
+    finally{setBusy(false);}
+  };
+  const resetPassword=async()=>{
+    if(busy)return;
+    if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email.trim())){
+      setError('Enter your Firebase Authentication email address before requesting a password reset.');
+      return;
+    }
+    setBusy(true);setError('');setNotice('');
+    try{
+      const auth=await getFirebaseAuth();
+      const {sendPasswordResetEmail}=await import('firebase/auth');
+      await sendPasswordResetEmail(auth,email.trim());
+      // Keep the response the same whether a user record exists or not.
+      setNotice('If a Firebase Email/Password account exists for this address, a password-reset message has been requested. Check your inbox and spam folder.');
+    }catch(error){setError(firebaseStaffPasswordResetError(error));}
     finally{setBusy(false);}
   };
   const logout=async()=>{
@@ -102,6 +120,7 @@ export function FirebaseStaffPreview(){
         <p className="mt-3 text-sm text-white/80">Read-only test workspace. Production orders and checkout have not been moved to Firebase yet.</p>
       </header>
       {error&&<p role="alert" className="p-4 rounded-2xl border border-amber-300 bg-amber-50 text-sm break-words">{error}</p>}
+      {notice&&<p role="status" className="p-4 rounded-2xl border border-emerald-300 bg-emerald-50 text-sm break-words">{notice}</p>}
       {!user?<section className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-8 max-w-lg mx-auto">
         <div className="flex items-center gap-2 mb-5"><LockKeyhole className="w-5 h-5"/><h2 className="font-extrabold text-xl">Staff sign in</h2></div>
         <p className="text-sm text-slate-600 mb-5">Sign in with a Firebase Authentication staff account. Public signup is not available. A verified, approved Firestore staff role is required.</p>
@@ -109,7 +128,12 @@ export function FirebaseStaffPreview(){
           <label className="block text-sm font-medium">Email<input required type="email" autoComplete="username" value={email} onChange={e=>setEmail(e.target.value)} className="block w-full rounded-xl border border-slate-300 p-3 mt-1"/></label>
           <label className="block text-sm font-medium">Password<input required minLength={6} type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} className="block w-full rounded-xl border border-slate-300 p-3 mt-1"/></label>
           <button type="submit" disabled={busy} className="w-full rounded-xl p-3 bg-[#173e31] text-white font-bold disabled:opacity-60">Sign in securely</button>
+          <button type="button" disabled={busy} onClick={()=>void resetPassword()} className="text-sm text-[#173e31] underline disabled:opacity-60">Forgot Firebase password? Request reset email</button>
         </form>
+        <div className="text-xs text-slate-600 mt-5 space-y-2">
+          <p>The password here must be for a <strong>Firebase Authentication → Users</strong> account, not the old bakery employee login. A Firestore staff_roles document alone is not a login.</p>
+          <p>Owner setup: <a className="underline" href="https://console.firebase.google.com/project/aurorascake-213a0/authentication/providers" target="_blank" rel="noopener noreferrer">Enable Email/Password provider</a> · <a className="underline" href="https://console.firebase.google.com/project/aurorascake-213a0/authentication/users" target="_blank" rel="noopener noreferrer">Check Authentication Users</a>.</p>
+        </div>
       </section>:<section className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-7 space-y-4">
         <div className="flex items-center justify-between gap-3 flex-wrap"><div><h2 className="font-bold text-lg">{user.email}</h2><p className="text-slate-500 text-xs">Firebase Auth UID: {user.uid}</p></div><button onClick={()=>void logout()} className="rounded-xl border border-slate-300 px-4 py-2 flex gap-2 items-center" disabled={busy}><LogOut className="h-4 w-4"/>Sign out</button></div>
         {!verified?<div className="space-y-3 rounded-xl bg-amber-50 border border-amber-200 p-4"><p className="text-sm">Email verification required before accessing private bakery records.</p><div className="flex flex-wrap gap-2"><button onClick={()=>void verifyEmail()} disabled={busy} className="rounded-lg bg-[#173e31] text-white px-3 py-2 flex items-center gap-2"><MailCheck className="w-4 h-4"/>Send verification email</button><button onClick={()=>void reloadVerified()} disabled={busy} className="rounded-lg border border-slate-300 px-3 py-2">I have verified</button></div></div>
