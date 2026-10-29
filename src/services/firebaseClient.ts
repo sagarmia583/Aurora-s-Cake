@@ -6,7 +6,9 @@
  * Firestore rules, order migration and dual-write correctness are verified.
  * Firebase config identifiers are public; never put an Admin SDK credential here.
  */
-import { getApps, initializeApp, type FirebaseApp, type FirebaseOptions } from 'firebase/app';
+import { getApps, initializeApp, type FirebaseApp } from 'firebase/app';
+import {firebaseConfig} from './firebaseWebConfig';
+export {firebaseConfig} from './firebaseWebConfig';
 import type { Auth } from 'firebase/auth';
 import { doc, getDocFromServer, getFirestore, type Firestore } from 'firebase/firestore';
 
@@ -27,16 +29,6 @@ const appName = 'auroras-cake';
  * Public web configuration transcribed from Firebase Console on 2026-10-27.
  * Environment values can override it to switch to another Firebase project.
  */
-export const firebaseConfig: FirebaseOptions = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyCNVQv0iH6fAvzG5WxAX6om5yQGizrgxug',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'aurorascake-213a0.firebaseapp.com',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'aurorascake-213a0',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'aurorascake-213a0.firebasestorage.app',
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '102515276771',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:102515276771:web:d06431a890c12808f8fed6',
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || 'G-WRX6GNLXK4',
-};
-
 export const isFirebaseEnabled = import.meta.env.VITE_FIREBASE_ENABLED !== 'false';
 
 export function getFirebaseConfigurationStatus(): {
