@@ -7,6 +7,7 @@ const origin='https://aurora-s-cake.sagarmia583.workers.dev';
 const env={
   AURORA_SCRIPT_POST_URL:script,
   FIREBASE_MIRROR_ENABLED:'false',
+  DEPLOYMENT_PLATFORM:'cloudflare_worker',
   FIREBASE_SERVICE_ACCOUNT_JSON:'',
   ASSETS:{fetch:async(request:Request)=>new Response('static:'+new URL(request.url).pathname,{status:200})},
 };
@@ -28,7 +29,7 @@ test('Worker exposes API Firebase status and keeps server secrets out of respons
   const body=await response.json() as Record<string,unknown>;
   assert.equal(body.provider,'firestore');
   assert.equal(body.enabled,false);
-  assert.equal(body.deployment_platform,'cloudflare_pages');
+  assert.equal(body.deployment_platform,'cloudflare_worker');
   assert.equal(JSON.stringify(body).includes(script),false);
 });
 test('Worker checkout endpoint rejects hostile origins, invalid actions and GET',async()=>{
