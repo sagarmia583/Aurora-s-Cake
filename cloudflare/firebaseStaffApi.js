@@ -10,6 +10,9 @@ import {verifyFirebaseIdToken,bearerFromRequest} from './firebaseStaffAuth.js';
 import {getGoogleAccessToken,firebaseMirrorConfiguration} from '../api/lib/firestoreOrderMirror.js';
 const BASE='https://firestore.googleapis.com/v1/projects/aurorascake-213a0/databases/(default)/documents';
 const ROLES=new Set(['super_admin','admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant']);
+// Until row-level assignment rules exist, do not send the complete customer
+// order list to riders, accountants, kitchen workers or other scoped roles.
+const PRIVATE_ORDER_READER_ROLES=new Set(['super_admin','admin']);
 const json=(status,value)=>new Response(JSON.stringify(value),{
   status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',
     'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'}
@@ -98,6 +101,8 @@ export async function handleFirebaseStaffApi({request,env}, {
   if(pathname==='/api/firebase-primary/staff/session')
     return json(200,{ok:true,provider:'firebase',session:role});
   if(pathname==='/api/firebase-primary/staff/orders'){
+    if(!PRIVATE_ORDER_READER_ROLES.has(role.role))
+      return json(403,{ok:false,code:'order_list_permission_denied'});
     // Staff with an active private Firestore role can read customer orders.
     // Only a limited read-only list in Phase 2; no status or payment writes.
     let response;
