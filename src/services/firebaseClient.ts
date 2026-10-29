@@ -50,6 +50,15 @@ export function getFirebaseConfigurationStatus(): {
 }
 
 let servicesPromise: Promise<FirebaseServices> | null = null;
+let authPromise: Promise<Auth> | null = null;
+
+function getOrCreateFirebaseApp(): FirebaseApp {
+  if (!isFirebaseEnabled) throw new Error('firebase_disabled');
+  const status = getFirebaseConfigurationStatus();
+  if (!status.configured) throw new Error('firebase_config_missing');
+  return getApps().find(item => item.name === appName)
+    || initializeApp(firebaseConfig, appName);
+}
 
 /**
  * Initializes the Firebase SDK, but does not change existing checkout,
@@ -65,8 +74,7 @@ export function getFirebaseServices(): Promise<FirebaseServices> {
   }
   if (!servicesPromise) {
     servicesPromise = Promise.resolve().then(() => {
-      const app = getApps().find(item => item.name === appName)
-        || initializeApp(firebaseConfig, appName);
+      const app = getOrCreateFirebaseApp();
       const db = getFirestore(app);
       return {
         app,
@@ -103,11 +111,23 @@ export function getFirebaseServices(): Promise<FirebaseServices> {
  * login flow, and calling getAuth during every health check can fail due to
  * Firebase Auth component registration before Firestore is even checked.
  *
- * When Firebase Auth roles are implemented, call this explicitly and test
- * the Auth registration/login lifecycle independently.
+ * Authentication now powers the independent Cloudflare Staff Preview.
+ * Keep its module initialization isolated from Firestore health checks so
+ * Firestore registration errors cannot prevent Firebase Auth sign-in.
  */
-export async function getFirebaseAuth(): Promise<Auth> {
-  const { app } = await getFirebaseServices();
-  const { getAuth } = await import('firebase/auth');
-  return getAuth(app);
+export function getFirebaseAuth(): Promise<Auth> {
+  // Staff sign-in must not initialize or depend on Firestore first.
+  // A Firestore component-registration error should never block Auth.
+  if (!authPromise) {
+    authPromise = import('firebase/auth').then(({ getAuth }) => {
+      // Importing firebase/auth first registers its component before the
+      // named app is handed to getAuth. This is separate from Firestore.
+      const app = getOrCreateFirebaseApp();
+      return getAuth(app);
+    }).catch(error => {
+      authPromise = null; // Permit recovery after transient SDK failure.
+      throw error;
+    });
+  }
+  return authPromise;
 }
