@@ -14,6 +14,8 @@ import { json } from './shared.js';
 import { firebasePrimaryCatalogHandler } from './firebasePrimaryCatalog.js';
 import { handleFirebaseStaffApi } from './firebaseStaffApi.js';
 import {firebaseWebConfigHandler} from './firebaseWebConfig.js';
+import {d1ApiHandler} from './d1/api.js';
+import {d1MediaHandler} from './d1/media.js';
 
 const routes = new Map([
   ['/api/operations', operations],
@@ -30,6 +32,11 @@ const routes = new Map([
 export default {
   async fetch(request, env) {
     const pathname = new URL(request.url).pathname;
+    // D1+R2 preview routes are isolated. No legacy checkout override.
+    if(pathname==='/api/d1/admin/media'||pathname.startsWith('/api/d1/media/'))
+      return d1MediaHandler({request,env});
+    if(pathname.startsWith('/api/d1/'))
+      return d1ApiHandler({request,env});
     const handler = routes.get(pathname);
     if (handler) return handler({request,env});
     // API requests must never receive the React index.html fallback.

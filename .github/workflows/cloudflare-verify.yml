@@ -5,6 +5,9 @@ on:
     paths:
       - 'functions/**'
       - 'cloudflare/**'
+      - 'scripts/prepare-d1-import.mjs'
+      - 'scripts/verify-d1-schema.py'
+      - 'tests/cloudflare-d1-r2.test.ts'
       - 'netlify/functions/operations.mjs'
       - 'api/lib/firestoreOrderMirror.js'
       - 'public/_routes.json'
@@ -61,7 +64,11 @@ jobs:
           grep -q 'Cache-Control: no-store' dist/_headers
           grep -q 'not_found_handling = "single-page-application"' wrangler.toml
           grep -q '^keep_vars = true' wrangler.toml
-          grep -q '^FIREBASE_MIRROR_ENABLED = "true"' wrangler.toml
+          grep -q '^FIREBASE_MIRROR_ENABLED = "false"' wrangler.toml
+          grep -q '^D1_PREVIEW_ENABLED = "false"' wrangler.toml
+          grep -q '^D1_MUTATIONS_ENABLED = "false"' wrangler.toml
+      - name: Validate D1 SQLite schema, foreign keys and immutable ledgers
+        run: python3 scripts/verify-d1-schema.py
       - name: Validate Cloudflare Worker static-assets deployment bundle (no real deploy)
         run: npx --yes wrangler@4.45.0 deploy --dry-run --outdir .cf-worker-build
       - name: Validate Pages Functions Worker bundle with Wrangler

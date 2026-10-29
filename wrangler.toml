@@ -13,13 +13,25 @@ DEPLOYMENT_PLATFORM = "cloudflare_worker"
 # Enables server-only *secondary order mirroring*, not Firebase-primary.
 # No order is mirrored until authoritative backend confirms it and
 # FIREBASE_SERVICE_ACCOUNT_JSON is configured as an encrypted Worker Secret.
-FIREBASE_MIRROR_ENABLED = "true"
+FIREBASE_MIRROR_ENABLED = "false"
 # Phase 1: isolated public catalog read-only API. The live storefront still
 # uses its previous backend until catalog import and checkout migration.
-FIREBASE_PRIMARY_CATALOG_ENABLED = "true"
+FIREBASE_PRIMARY_CATALOG_ENABLED = "false"
 # Phase 2: independent Firebase Auth + private staff_roles, GET-only APIs.
 # Does NOT replace the production legacy staff portal until tested.
-FIREBASE_PRIMARY_STAFF_ENABLED = "true"
+FIREBASE_PRIMARY_STAFF_ENABLED = "false"
+# New D1/R2 migration remains OFF until real bindings, migrations, backups,
+# Cloudflare Access and acceptance tests are verified. No dummy DB UUID.
+D1_PREVIEW_ENABLED = "false"
+D1_MUTATIONS_ENABLED = "false"
+
+# D1 and R2 bindings must be added AFTER creating real Cloudflare resources.
+# For D1: [[d1_databases]], binding="AURORA_DB",
+# database_name="aurora-cake-db", database_id="<real UUID>",
+# migrations_dir="cloudflare/d1/migrations"
+# For R2: [[r2_buckets]], binding="AURORA_MEDIA",
+# bucket_name="aurora-cake-media"
+
 
 [assets]
 directory = "./dist"
