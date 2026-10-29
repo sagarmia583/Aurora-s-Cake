@@ -10,7 +10,7 @@
  * The Cloudflare Worker verifies Firebase-signed ID tokens and requires an
  * explicitly provisioned private Firestore staff_roles/{uid} document.
  */
-import {firebaseConfig} from './firebaseClient';
+import {firebaseConfig} from './firebaseWebConfig';
 
 const IDENTITY_BASE='https://identitytoolkit.googleapis.com/v1/accounts:';
 const TOKEN_BASE='https://securetoken.googleapis.com/v1/token';
