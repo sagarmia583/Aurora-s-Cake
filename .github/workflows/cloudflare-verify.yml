@@ -9,6 +9,8 @@ on:
       - 'api/lib/firestoreOrderMirror.js'
       - 'public/_routes.json'
       - 'public/_redirects'
+      - 'public/_headers'
+      - 'vite.config.ts'
       - 'wrangler.toml'
       - 'tests/cloudflare-pages.test.ts'
       - 'tests/cloudflare-worker.test.ts'
@@ -50,6 +52,8 @@ jobs:
         run: |
           test ! -f public/_redirects
           test ! -f dist/_redirects
+          test -f dist/_headers
+          grep -q 'Cache-Control: no-store' dist/_headers
           grep -q 'not_found_handling = "single-page-application"' wrangler.toml
           grep -q '^keep_vars = true' wrangler.toml
           grep -q '^FIREBASE_MIRROR_ENABLED = "true"' wrangler.toml

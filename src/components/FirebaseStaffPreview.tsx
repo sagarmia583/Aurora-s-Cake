@@ -4,6 +4,9 @@ import {getFirebaseAuth} from '../services/firebaseClient';
 import {firebaseStaffLoginError,firebaseStaffPasswordResetError} from '../services/firebaseAuthErrors';
 import type {User} from 'firebase/auth';
 
+/** Injected by Vite at build time, never a token or private credential. */
+declare const __AURORA_BUILD_ID__: string;
+
 type StaffSession={uid:string;email:string;name:string;role:string};
 type StaffOrder={id:string;order_number:string;status:string;customer_name:string;customer_phone:string;total_amount:number;created_at:string;payment_status:string};
 type StaffApi={ok:boolean;code?:string;session?:StaffSession;orders?:StaffOrder[];read_only?:boolean;has_more?:boolean};
@@ -125,7 +128,7 @@ export function FirebaseStaffPreview(){
       </header>
       {error&&<p role="alert" className="p-4 rounded-2xl border border-amber-300 bg-amber-50 text-sm break-words">{error}</p>}
       {notice&&<p role="status" className="p-4 rounded-2xl border border-emerald-300 bg-emerald-50 text-sm break-words">{notice}</p>}
-      <p className="text-xs text-slate-600" data-testid="firebase-auth-sdk-status">Firebase SDK: {authStatus==='ready'?'Ready':authStatus==='loading'?'Initializing…':'Initialization error'}</p>
+      <p className="text-xs text-slate-600" data-testid="firebase-auth-sdk-status">Cloudflare Build: {__AURORA_BUILD_ID__} · Firebase SDK: {authStatus==='ready'?'Ready':authStatus==='loading'?'Initializing…':'Initialization error'}</p>
       {!user?<section className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-8 max-w-lg mx-auto">
         <div className="flex items-center gap-2 mb-5"><LockKeyhole className="w-5 h-5"/><h2 className="font-extrabold text-xl">Staff sign in</h2></div>
         <p className="text-sm text-slate-600 mb-5">Sign in with a Firebase Authentication staff account. Public signup is not available. A verified, approved Firestore staff role is required.</p>

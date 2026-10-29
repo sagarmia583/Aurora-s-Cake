@@ -1,0 +1,10 @@
+# Keep SPA HTML entrypoints fresh across Cloudflare releases.
+# Hashed /assets/* bundles retain Cloudflare's normal cache handling.
+/
+  Cache-Control: no-store
+
+/index.html
+  Cache-Control: no-store
+
+/firebase-staff-preview
+  Cache-Control: no-store
