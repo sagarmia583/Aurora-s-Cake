@@ -1,0 +1,4 @@
+# Not needed in Cloudflare Workers Static Assets.
+/_redirects
+/_routes.json
+/.assetsignore
