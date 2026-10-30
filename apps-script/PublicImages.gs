@@ -25,6 +25,7 @@ function auroraImageFolder_(create){
  */
 function setupAuroraImagesOnce(){
   auroraRequireInteractiveSetup_();
+  if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
   return auroraImageFolder_(true).getId();
 }
 function auroraImageMime_(bytes){

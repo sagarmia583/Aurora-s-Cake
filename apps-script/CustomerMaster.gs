@@ -106,9 +106,11 @@ function auroraStaffCustomerLookup_(input){
  */
 function backfillCustomerMasterOnce(){
   auroraRequireInteractiveSetup_();
+  if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
   var lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))throw new Error('Other bakery updates are running. Retry.');
   try{
+    if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
     if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();
     var book=auroraSpreadsheet_(),orders=auroraPrivateTable_(book,'orders');
     var table=auroraPrivateTable_(book,'customer_master');

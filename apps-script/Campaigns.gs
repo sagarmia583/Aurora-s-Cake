@@ -51,6 +51,7 @@ function setupCampaignTools() {
   if(!effective || active!==effective)throw new Error('Run setupCampaignTools directly in your Apps Script editor while signed in as the bakery owner.');
   var previous=String(props.getProperty('AURORA_CAMPAIGN_OWNER_EMAIL')||'').toLowerCase();
   if(previous && previous!==effective)throw new Error('Campaign tools already belong to another owner.');
+  if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
   if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();
   props.setProperty('AURORA_CAMPAIGN_OWNER_EMAIL',effective);
   var book=auroraSpreadsheet_();auroraSetupCampaignTables_(book);
@@ -67,6 +68,7 @@ function auroraCampaignOnOpen() {
 }
 function auroraNewCampaignDraft() {
   auroraCampaignOwner_(true);
+  if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
   if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();
   var book=auroraSpreadsheet_(),table=auroraCampaignTable_(book,'email_campaigns');
   var id='campaign_'+Utilities.getUuid();
@@ -115,6 +117,7 @@ function auroraCampaignEscape_(text) {
 }
 function auroraPreviewCampaign() {
   var owner=auroraCampaignOwner_(true);
+  if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
   if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();
   var bridge=typeof auroraSupabaseImportSelectedCampaignDraft_==='function'?auroraSupabaseImportSelectedCampaignDraft_():null;
   var book=auroraSpreadsheet_(),active=book.getActiveSheet(),range=book.getActiveRange();
@@ -131,10 +134,12 @@ function auroraPreviewCampaign() {
 }
 function auroraConfirmCampaign(token) {
   var owner=auroraCampaignOwner_(true);
+  if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
   if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();
   var lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))throw new Error('Another operation is running. Review the campaign again shortly.');
   try{
+    if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
     var props=PropertiesService.getScriptProperties(),review;
     try{review=JSON.parse(props.getProperty('AURORA_CAMPAIGN_REVIEW')||'null');}catch(_){review=null;}
     if(!review||review.owner!==owner||review.token!==String(token)||review.expires_at<Date.now())throw new Error('This preview expired. Review the selected campaign again.');
@@ -164,11 +169,12 @@ function auroraCampaignEnsureWorker_() {
   if(!triggers.length)triggers=[ScriptApp.newTrigger('auroraCampaignTick').timeBased().everyMinutes(5).create()];
   props.setProperty('AURORA_CAMPAIGN_WORKER_ID',triggers[0].getUniqueId());
 }
-function auroraResumeCampaigns() {auroraCampaignOwner_(true);auroraCampaignEnsureWorker_();return auroraCampaignRun_();}
+function auroraResumeCampaigns() {auroraCampaignOwner_(true);if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();auroraCampaignEnsureWorker_();return auroraCampaignRun_();}
 function auroraCampaignTick(e) {
   auroraCampaignOwner_(false);
   var expected=PropertiesService.getScriptProperties().getProperty('AURORA_CAMPAIGN_WORKER_ID');
   if(!e||String(e.triggerUid)!==expected)throw new Error('Only the installed campaign worker can use this entry point.');
+  if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_())return {processed:0,migration_frozen:true};
   return auroraCampaignRun_();
 }
 function auroraCampaignMessage_(snapshot,recipient) {
@@ -181,8 +187,10 @@ function auroraCampaignMessage_(snapshot,recipient) {
 }
 function auroraCampaignRun_() {
   auroraCampaignOwner_(false);
+  if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_())return {processed:0,migration_frozen:true};
   if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();
   var lock=LockService.getScriptLock();if(!lock.tryLock(1000))return {processed:0,busy:true};
+  if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_()){lock.releaseLock();return {processed:0,migration_frozen:true};}
   var locked=true,props=PropertiesService.getScriptProperties(),lease;
   try{lease=JSON.parse(props.getProperty('AURORA_CAMPAIGN_WORKER_LEASE')||'null');}catch(_){lease=null;}
   if(lease && lease.expires_at>Date.now()){lock.releaseLock();return {processed:0,busy:true};}
@@ -194,6 +202,7 @@ function auroraCampaignRun_() {
     var book=auroraSpreadsheet_(),campaigns=auroraCampaignTable_(book,'email_campaigns'),deliveries=auroraCampaignTable_(book,'email_deliveries');
     var pending=campaigns.rows.filter(function(row){return ['queued','sending','waiting_quota'].indexOf(String(row.status))>=0;});
     for(var i=0;i<pending.length && processed<AURORA_CAMPAIGN_BATCH_SIZE && Date.now()-started<200000;i++){
+      if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_()){if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();return {processed:processed,migration_frozen:true};}
       var campaign=pending[i];
       if(campaign.next_attempt_at && new Date(campaign.next_attempt_at).getTime()>Date.now())continue;
       var snapshot;
@@ -206,6 +215,7 @@ function auroraCampaignRun_() {
       rows.filter(function(row){return row.status==='sending';}).forEach(function(row){auroraCampaignUpdate_(deliveries,row,{status:'unknown',last_error:'A previous send was interrupted. Delivery is uncertain; this recipient will not be retried automatically.'});});
       var next=rows.filter(function(row){return row.status==='queued';}),quotaWait=false;
       for(var j=0;j<next.length && processed<AURORA_CAMPAIGN_BATCH_SIZE && Date.now()-started<200000;j++){
+        if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_()){if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();return {processed:processed,migration_frozen:true};}
         var customers=auroraSubscriptionCampaignRecipients_(book);
         var delivery=next[j],matches=customers.filter(function(customer){return String(customer.customer_id)===String(delivery.customer_id);});
         var customer=matches.length===1?matches[0]:null;
@@ -214,6 +224,7 @@ function auroraCampaignRun_() {
         }
         if(MailApp.getRemainingDailyQuota()<=AURORA_CAMPAIGN_QUOTA_RESERVE){quotaWait=true;break;}
         var message=auroraCampaignMessage_(snapshot,delivery);
+        if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_()){if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();return {processed:processed,migration_frozen:true};}
         auroraCampaignUpdate_(deliveries,delivery,{status:'sending',attempted_at:new Date().toISOString(),last_error:''});
         // Flush the claim before the external send. If flushing fails, no mail is attempted.
         if(typeof auroraPersistenceFlush_==='function')auroraPersistenceFlush_();else SpreadsheetApp.flush();
@@ -233,6 +244,7 @@ function auroraCampaignRun_() {
       auroraCampaignUpdate_(campaigns,campaign,{sent_count:counts.sent,skipped_count:counts.skipped,unknown_count:counts.unknown,status:remaining?(quotaWait?'waiting_quota':'sending'):(counts.unknown?'completed_with_issues':'completed'),finished_at:remaining?'':new Date().toISOString(),next_attempt_at:quotaWait?new Date(Date.now()+3600000).toISOString():'',last_error:quotaWait?'Waiting for Google’s mail allowance; ten messages are reserved for customer verification.':(counts.unknown?'Some send outcomes are uncertain. See email_deliveries.':'')});
     }
     if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
+    if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_())return {processed:processed,migration_frozen:true};
     if(typeof auroraSupabaseProjectCampaignState_==='function')auroraSupabaseProjectCampaignState_();
     // Another owner action may queue a campaign while MailApp releases our
     // lock. Check fresh authoritative state before deleting its shared trigger.

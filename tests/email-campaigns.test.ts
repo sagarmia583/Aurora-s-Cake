@@ -42,7 +42,7 @@ function harness() {
     auroraSubscriptionCampaignRecipients_:()=>tables.customers.slice(1).filter(values=>values[7]===true&&values[8]===true).map(values=>({customer_id:values[0],email:values[4]})),
     auroraCustomerUnsubscribeToken_:(id:string)=>'opaque-signed-'+createHash('sha256').update(id).digest('hex'),
   };
-  vm.createContext(ctx);vm.runInContext(source,ctx);ctx.auroraSetupCampaignTables_(book);
+  vm.createContext(ctx);vm.runInContext(source,ctx);vm.runInContext(fs.readFileSync(new URL('../apps-script/MigrationControl.gs',import.meta.url),'utf8'),ctx);ctx.auroraSetupCampaignTables_(book);
   function records(name:string){return tables[name].slice(1).map(values=>Object.fromEntries(tables[name][0].map((key,index)=>[String(key),values[index]])));}
   function change(name:string,row:number,key:string,value:unknown){tables[name][row+1][tables[name][0].indexOf(key)]=value;}
   function addCustomer(id:string,email:string,consent=true,verified=true){tables.customers.push([id,'phone|'+email,'Test Person','01700000000',email,'Private test address','zone',consent,verified]);}
@@ -54,6 +54,19 @@ function harness() {
 test('campaign setup preserves records and installs only the open menu without sending',()=>{
   const h=harness();h.draft();const before=structuredClone(h.tables.email_campaigns);h.ctx.setupCampaignTools();h.ctx.setupCampaignTools();
   assert.deepEqual(h.tables.email_campaigns,before);assert.equal(h.sent.length,0);assert.equal(h.triggers.length,1);assert.equal(h.triggers[0].getHandlerFunction(),'auroraCampaignOnOpen');
+});
+test('a freeze during an already-claimed send records its outcome but leaves later recipients and the worker queued',()=>{
+  const h=harness();h.addCustomer('c1','first@example.test');h.addCustomer('c2','second@example.test');h.draft();
+  h.onSend(()=>{h.props.AURORA_MIGRATION_FROZEN_AT=new Date().toISOString();});h.ctx.auroraConfirmCampaign(h.preview());
+  assert.equal(h.sent.length,1);assert.deepEqual(h.records('email_deliveries').map(row=>row.status),['sent','queued']);
+  assert.equal(h.triggers.some(t=>t.getHandlerFunction()==='auroraCampaignTick'),true);assert.ok(h.props.AURORA_CAMPAIGN_WORKER_ID);
+  assert.equal(h.ctx.auroraCampaignRun_().migration_frozen,true);assert.equal(h.sent.length,1);
+  delete h.props.AURORA_MIGRATION_FROZEN_AT;h.onSend(()=>{});h.ctx.auroraResumeCampaigns();assert.equal(h.sent.length,2);assert.equal(h.records('email_deliveries').every(row=>row.status==='sent'),true);
+});
+test('a freeze observed immediately before the next claim sends no email and preserves delivery rows',()=>{
+  const h=harness();h.addCustomer('c1','first@example.test');h.draft();const message=h.ctx.auroraCampaignMessage_;
+  h.ctx.auroraCampaignMessage_=(snapshot:any,recipient:any)=>{h.props.AURORA_MIGRATION_FROZEN_AT=new Date().toISOString();return message(snapshot,recipient);};
+  h.ctx.auroraConfirmCampaign(h.preview());assert.equal(h.sent.length,0);assert.equal(h.records('email_deliveries')[0].status,'queued');assert.equal(h.triggers.some(t=>t.getHandlerFunction()==='auroraCampaignTick'),true);
 });
 test('owner checks block other editors, anonymous web contexts and forged workers',()=>{
   const h=harness();h.addCustomer('c1','a@example.test');h.draft();h.identity('visitor@example.test','owner@example.test');
