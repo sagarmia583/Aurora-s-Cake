@@ -65,26 +65,21 @@ function auroraAccountAuthenticate_(kind,value){
   return account;
 }
 function auroraAccountSignOut_(kind,value){
+  if(typeof value!=='string'||! /^[0-9a-f-]{72}$/i.test(value))auroraReject_('unauthorized','A valid account session is required to sign out.');
   var h=auroraAccountDigest_(value),t=auroraPrivateTable_(auroraSpreadsheet_(),'auth_sessions');
-  t.rows.forEach(function(row){if(row.token_hash===h&&row.account_type===kind){
+  t.rows.forEach(function(row){if(row.token_hash===h&&row.account_type===kind&&!(row.revoked===true||String(row.revoked).toLowerCase()==='true')){
     row.revoked=true;auroraAccountSave_(t,row);
   }});
 }
 function auroraAccountRevokeAll_(kind,id){
   var t=auroraPrivateTable_(auroraSpreadsheet_(),'auth_sessions');
-  t.rows.forEach(function(row){if(row.account_type===kind&&row.account_id===id&&!row.revoked){
+  t.rows.forEach(function(row){if(row.account_type===kind&&row.account_id===id&&!(row.revoked===true||String(row.revoked).toLowerCase()==='true')){
     row.revoked=true;auroraAccountSave_(t,row);
   }});
 }
-function auroraAccountLogin_(kind,identifier,password){
-  var name=String(identifier||'').trim().toLowerCase();
-  var isCustomer=kind==='customer';
-  var key=isCustomer?'phone':'username';
-  var accounts=auroraPrivateTable_(auroraSpreadsheet_(),isCustomer?'customer_accounts':'staff_accounts');
-  var person=accounts.rows.filter(function(row){return String(row[key]).toLowerCase()===name;})[0];
-  // Public users cannot enumerate accounts from different responses.
-  if(!person||!(person.active===true||String(person.active).toLowerCase()==='true'))
-    auroraReject_('invalid_credentials','Invalid login details.');
+function auroraAccountVerifyPassword_(accounts,person,password){
+  if(typeof auroraSupabaseHasChanges_==='function'&&auroraSupabaseHasChanges_())
+    throw new Error('Password verification requires a fresh account transaction.');
   if(Number(person.locked_until||0)>Date.now())
     auroraReject_('too_many_attempts','Too many attempts. Try again in 15 minutes.');
   if(typeof password!=='string'||password.length<10||password.length>128||
@@ -92,14 +87,31 @@ function auroraAccountLogin_(kind,identifier,password){
     person.failed_attempts=Number(person.failed_attempts||0)+1;
     if(person.failed_attempts>=5){person.locked_until=Date.now()+15*60000;person.failed_attempts=0;}
     auroraAccountSave_(accounts,person);
-    // A rejected login still durably consumes an attempt. Do not roll this
-    // security checkpoint back with the validation-error response.
+    // Callers verify before staging any business changes. Persist ONLY this
+    // security counter checkpoint before the validation-error response.
     if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
     auroraReject_('invalid_credentials','Invalid login details.');
   }
   person.failed_attempts=0;person.locked_until=0;
-  auroraAccountSave_(accounts,person);
-  return {person:person,token:auroraAccountStart_(kind,person.id)};
+}
+function auroraAccountLogin_(kind,identifier,password){
+  var name=String(identifier||'').trim().toLowerCase(),isCustomer=kind==='customer',key=isCustomer?'phone':'username';
+  var lock=LockService.getScriptLock();
+  if(!lock.tryLock(10000))auroraReject_('busy','Another account update is in progress. Retry signing in.');
+  try{
+    // Serialize attempts, then refresh before verification so concurrent guesses
+    // cannot lose their counters through an optimistic revision conflict.
+    if(typeof auroraSupabaseRefresh_==='function')auroraSupabaseRefresh_();
+    var accounts=auroraPrivateTable_(auroraSpreadsheet_(),isCustomer?'customer_accounts':'staff_accounts');
+    var person=accounts.rows.filter(function(row){return String(row[key]).toLowerCase()===name;})[0];
+    if(!person||!(person.active===true||String(person.active).toLowerCase()==='true'))
+      auroraReject_('invalid_credentials','Invalid login details.');
+    auroraAccountVerifyPassword_(accounts,person,password);
+    auroraAccountSave_(accounts,person);
+    var token=auroraAccountStart_(kind,person.id);
+    if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
+    return {person:person,token:token};
+  }finally{lock.releaseLock();}
 }
 function auroraAccountPhone_(value){
   var phone=String(value||'').replace(/[\s()-]/g,'');
@@ -133,9 +145,14 @@ function auroraAccountStaffPost_(input) {
     var login=auroraAccountLogin_('staff',input.username,input.password);
     return {ok:true,auth_token:login.token,role:login.person.role,name:login.person.name,username:login.person.username};
   }
+  // Possession of this bearer token is sufficient to revoke ONLY that token.
+  // Already-revoked/expired sessions may retry a lost acknowledgement safely.
+  if(input.action==='staff_password_logout'){
+    auroraAccountSignOut_('staff',input.auth_token);
+    return {ok:true,revoked:true};
+  }
   var actor=auroraStaffAuthenticate_(input);
   if(input.action==='staff_account_create')return auroraAccountCreateStaff_(actor,input);
-  if(input.action==='staff_password_logout'){if(input.auth_token)auroraAccountSignOut_('staff',input.auth_token);return {ok:true};}
   if(input.action==='staff_account_set_active'||input.action==='staff_account_reset_password'){
     if(actor.role!=='super_admin')auroraReject_('forbidden','Only Super Admin can update staff.');
     var username=String(input.username||'').toLowerCase().trim();
@@ -193,24 +210,26 @@ function auroraAccountCustomerPost_(input) {
   if(action==='customer_phone_session')return {ok:true,profile:auroraAccountSafeCustomer_(person)};
   if(action==='customer_phone_logout'){auroraAccountSignOut_('customer',input.auth_token);return {ok:true};}
   if(action==='customer_phone_password'||action==='customer_phone_close'){
-    var oldPassword=String(input.current_password||'');
-    if(oldPassword.length<10||auroraAccountHash_(oldPassword,String(person.password_salt))!==person.password_hash)
-      auroraReject_('invalid_credentials','Current password was not accepted.');
+    var oldPassword=input.current_password;
     var accountLock=LockService.getScriptLock();
     if(!accountLock.tryLock(10000))auroraReject_('busy','Another account update is in progress.');
     try{
+      if(typeof auroraSupabaseRefresh_==='function')auroraSupabaseRefresh_();
+      // Revalidate the bearer after waiting: logout/reset/disable may have
+      // revoked it while this request was acquiring the update lock.
+      var freshIdentity=auroraAccountAuthenticate_('customer',input.auth_token);
       var accounts=auroraPrivateTable_(auroraSpreadsheet_(),'customer_accounts');
-      var current=auroraAccountValue_(accounts,person.id);
+      var current=auroraAccountValue_(accounts,freshIdentity.id);
       if(!current||!(current.active===true||String(current.active).toLowerCase()==='true'))
         auroraReject_('unauthorized','Your account is no longer active.');
-      if(auroraAccountHash_(oldPassword,String(current.password_salt))!==current.password_hash)
-        auroraReject_('invalid_credentials','Current password was not accepted.');
+      auroraAccountVerifyPassword_(accounts,current,oldPassword);
       if(action==='customer_phone_close'){
         current.active=false;
         current.name='Closed account';current.email='';current.address='';
         current.updated_at=new Date().toISOString();
         auroraAccountSave_(accounts,current);
         auroraAccountRevokeAll_('customer',current.id);
+        if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
         // Financial records/receipts remain unchanged for COD reconciliation.
         return {ok:true,closed:true};
       }
@@ -222,7 +241,9 @@ function auroraAccountCustomerPost_(input) {
       current.updated_at=new Date().toISOString();
       auroraAccountSave_(accounts,current);
       auroraAccountRevokeAll_('customer',current.id);
-      return {ok:true,auth_token:auroraAccountStart_('customer',current.id)};
+      var newToken=auroraAccountStart_('customer',current.id);
+      if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
+      return {ok:true,auth_token:newToken};
     }finally{accountLock.releaseLock();}
   }
   if(action==='customer_phone_profile'){

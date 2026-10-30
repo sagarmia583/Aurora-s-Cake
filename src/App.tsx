@@ -32,6 +32,8 @@ import { isConfirmedDeletedSheetOrder, verifyStoredOrderHistory } from './servic
 import { syncPhoneCustomerConfirmedOrder } from './services/phoneCustomerApi';
 import { getBrowserWorkspaceStorage, isStaffWorkspaceOpen, setStaffWorkspaceOpen } from './services/staffWorkspaceSession';
 import { reconcilePublicCart, reorderFromPublicOrder } from './services/reconcilePublicCart';
+import { inspectPendingCheckout, loadCheckoutCart, saveCheckoutCart, settleCheckoutCart } from './services/checkoutRecovery';
+import type { CheckoutCompletion } from './services/checkoutRecovery';
 import { 
   ShopSettings, 
   Product, 
@@ -92,14 +94,7 @@ export default function App() {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
   // Cart State
-  const [cartItems, setCartItems] = useState<CartItem[]>(() => {
-    try {
-      const stored = localStorage.getItem('cake_cart_items_v1');
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [cartItems, setCartItems] = useState<CartItem[]>(() => loadCheckoutCart());
 
   const cartRef = useRef(cartItems);
   const [cartNotice, setCartNotice] = useState('');
@@ -115,7 +110,10 @@ export default function App() {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   // A checkout keeps its original live target across catalog refreshes and close/reopen.
   // Only a confirmed receipt ends the session and releases an uncertain order reference.
-  const [checkoutSession, setCheckoutSession] = useState<{ endpoint: string } | null>(null);
+  const [checkoutSession, setCheckoutSession] = useState<{ endpoint: string } | null>(() => {
+    const recovery = inspectPendingCheckout(sheetContent.endpoint);
+    return recovery.status === 'ready' ? { endpoint: recovery.pending.attempt.endpoint } : null;
+  });
   const [isTrackOrderOpen, setIsTrackOrderOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isCustomCakeOpen, setIsCustomCakeOpen] = useState(false);
@@ -132,11 +130,21 @@ export default function App() {
   // Sync cart to localStorage
   useEffect(() => {
     try {
-      localStorage.setItem('cake_cart_items_v1', JSON.stringify(cartItems));
+      saveCheckoutCart(cartItems);
     } catch {
       // Storage unavailable
     }
   }, [cartItems]);
+
+  useEffect(() => {
+    const syncBag = (event: StorageEvent) => {
+      if (event.key !== 'cake_cart_items_v1' && event.key !== null) return;
+      const next = loadCheckoutCart(); cartRef.current = next; setCartItems(next);
+      setCartNotice('Your bag was updated in another tab. Please review the remaining cakes.');
+    };
+    window.addEventListener('storage', syncBag);
+    return () => window.removeEventListener('storage', syncBag);
+  }, []);
 
   // Public reads never include orders. Confirmed private Sheet receipts are cached on this device.
   const refreshData = async () => {
@@ -243,6 +251,18 @@ export default function App() {
       setIsCheckoutOpen(true);
       return;
     }
+    const recovery = inspectPendingCheckout(sheetContent.endpoint);
+    if (recovery.status === 'blocked') {
+      setCartNotice(recovery.message);
+      setIsCartOpen(true);
+      return;
+    }
+    if (recovery.status === 'ready') {
+      setCheckoutSession({ endpoint: recovery.pending.attempt.endpoint });
+      setIsCartOpen(false);
+      setIsCheckoutOpen(true);
+      return;
+    }
     if (!cartItems.length || !publicData.order_submission_enabled || !settings.accepting_orders || !sheetContent.endpoint) {
       setCartNotice(!cartItems.length ? 'Add a cake to your bag before placing an order.' : 'Online ordering is temporarily paused. Your bag has been kept.');
       setIsCartOpen(true);
@@ -253,7 +273,13 @@ export default function App() {
     setIsCartOpen(false);
     setIsCheckoutOpen(true);
   };
-  const handleOrderSuccess = (newOrder: Order) => {
+  const handleOrderSuccess = (newOrder: Order, completion?: CheckoutCompletion) => {
+    if (!completion) throw new Error('The original bag reference is missing. Keep this order reference and retry confirmation.');
+    // Atomically persist both the remaining bag and this request's completion
+    // marker before releasing its durable pending order reference.
+    const remaining = settleCheckoutCart(cartRef.current, completion);
+    cartRef.current = remaining;
+    setCartItems(remaining);
     if (newOrder.persistence === 'google_sheets') {
       rememberConfirmedSheetOrder(newOrder);
       // Profile saving uses this committed receipt and the authenticated account.
@@ -262,11 +288,10 @@ export default function App() {
       if(token)void syncCustomerDeliveryProfile(newOrder,sheetContent.endpoint,publicData.customer_order_profile_sync_enabled?'profile':'link');
     }
     setOrders(previous => [newOrder, ...previous.filter(order => order.id !== newOrder.id)]);
-    setCartNotice('');
+    setCartNotice(remaining.length ? 'Your order is confirmed. Cakes added after that checkout are still in your bag.' : '');
     setIsCartOpen(false);
     setIsCheckoutOpen(false);
     setCheckoutSession(null);
-    setCartItems([]);
     setLatestOrderId(newOrder.id);
     setIsTrackOrderOpen(true);
   };
@@ -593,7 +618,7 @@ export default function App() {
 
       {isStaffPortalOpen && <Suspense fallback={null}><StaffPortal isOpen={isStaffPortalOpen} onClose={closeStaffPortal} endpoint={sheetContent.endpoint} onCatalogUpdated={() => { void sheetContent.refresh(); }} /></Suspense>}
       {isCustomerAccountOpen && <Suspense fallback={null}><CustomerAccountPortal open={isCustomerAccountOpen} onTrackOrder={id => { setLatestOrderId(id); setIsCustomerAccountOpen(false); setIsTrackOrderOpen(true); }} onClose={() => setIsCustomerAccountOpen(false)} endpoint={sheetContent.endpoint} localReceipts={orders.filter(o => o.persistence === 'google_sheets')} onIdentityToken={setCustomerGoogleToken} onSignOut={() => { removeConfirmedSheetOrdersById(restoredSessionOrderIds); setOrders(previous => previous.filter(order => !restoredSessionOrderIds.includes(order.id))); setRestoredSessionOrderIds([]); }} onRecover={handleRecoveredCustomerOrders} /></Suspense>}
-      {isSheetContentOpen && <Suspense fallback={null}><SheetContentPanel isOpen={isSheetContentOpen} onClose={() => setIsSheetContentOpen(false)} endpoint={sheetContent.endpoint} status={sheetContent.status} orderSubmissionEnabled={publicData.order_submission_enabled} onRefresh={sheetContent.refresh} onSaveEndpoint={sheetContent.updateEndpoint}/></Suspense>}
+      {isSheetContentOpen && <Suspense fallback={null}><SheetContentPanel isOpen={isSheetContentOpen} onClose={() => setIsSheetContentOpen(false)} endpoint={sheetContent.endpoint} status={sheetContent.status} orderSubmissionEnabled={publicData.order_submission_enabled} databaseBackend={databaseStatus.backend} onOpenStaffPortal={()=>{setIsSheetContentOpen(false);openStaffPortal();}} onRefresh={sheetContent.refresh} onSaveEndpoint={sheetContent.updateEndpoint}/></Suspense>}
       {/* Modals & Slide-outs */}
       <Suspense fallback={null}>
       {selectedProductForDetail && <ProductDetailModal

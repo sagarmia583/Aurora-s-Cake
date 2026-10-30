@@ -171,10 +171,39 @@ export function createSheetOrderAttempt(endpoint: string, draft: SheetOrderDraft
   return Object.freeze({ endpoint: safeEndpoint, fingerprint, request_id: requestId, body: JSON.stringify({ action: 'create_order', request_id: requestId, checkout_proof: checkoutProof, ...payload }) });
 }
 
-export async function submitSheetOrder(attempt: SheetOrderAttempt, options: { timeoutMs?: number; fetcher?: typeof fetch } = {}): Promise<Order> {
+/** Recovery may return a later order status, but must still match this exact checkout. */
+function matchesOriginalReceipt(order: Order, attempt: SheetOrderAttempt): boolean {
+  try {
+    const body = JSON.parse(attempt.body);
+    if (body.action !== 'create_order' || body.request_id !== attempt.request_id) return false;
+    const original = cleanDraft(body);
+    if (order.id !== 'ord_' + attempt.request_id ||
+      !/^[a-f0-9-]{72}$/i.test(order.customer_access_token || '') ||
+      (order.payment_status === 'paid') !== order.cod_collected) return false;
+    for (const key of ['customer_name', 'customer_phone', 'delivery_address', 'delivery_slot', 'delivery_date'] as const) {
+      if (order[key] !== original[key]) return false;
+    }
+    if (order.delivery_zone.id !== original.delivery_zone_id ||
+      (order.coupon_code || '') !== (original.coupon_code || '') ||
+      (order.order_note || '') !== (original.order_note || '') ||
+      (original.expected_total !== undefined && Math.abs(order.total_amount - original.expected_total) > 0.0100000001) ||
+      order.items.length !== original.cart_items.length) return false;
+    return order.items.every((item, index) => {
+      const requested = original.cart_items[index];
+      const stored = item as typeof item & { variant_id?: string; flavor_id?: string };
+      return item.order_id === order.id && item.product_id === requested.product_id &&
+        stored.variant_id === requested.variant_id && (stored.flavor_id || '') === (requested.flavor_id || '') &&
+        item.quantity === requested.quantity && (item.writing_message || '') === requested.writing_message &&
+        item.addons.every(addon => addon.quantity === requested.quantity) &&
+        JSON.stringify(item.addons.map(addon => addon.addon_id).sort()) === JSON.stringify(requested.addon_ids);
+    });
+  } catch { return false; }
+}
+
+export async function submitSheetOrder(attempt: SheetOrderAttempt, options: { timeoutMs?: number; fetcher?: typeof fetch; recoverOriginal?: boolean } = {}): Promise<Order> {
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(() => controller.abort(), options.timeoutMs ?? 45000);
-  const unconfirmed = () => new SheetOrderSubmissionError("We couldn't confirm whether Google Sheets saved this order. Retry the original order with the same reference.", true, attempt.request_id);
+  const unconfirmed = () => new SheetOrderSubmissionError("We couldn't confirm whether the bakery saved this order. Retry the original order with the same reference.", true, attempt.request_id);
   try {
     const postUrl = resolveSheetsPostEndpoint(attempt.endpoint);
     const response = await (options.fetcher ?? globalThis.fetch)(postUrl, {
@@ -189,7 +218,8 @@ export async function submitSheetOrder(attempt: SheetOrderAttempt, options: { ti
       throw new SheetOrderSubmissionError('The order was not saved. ' + reason, false, attempt.request_id);
     }
     if (!isObject(acknowledgement) || acknowledgement.success !== true || acknowledgement.persisted !== true || !isValidSheetOrderReceipt(acknowledgement.order)) throw unconfirmed();
-    if (acknowledgement.order.payment_status !== 'pending' || acknowledgement.order.cod_collected) throw unconfirmed();
+    if (options.recoverOriginal ? !matchesOriginalReceipt(acknowledgement.order, attempt)
+      : acknowledgement.order.payment_status !== 'pending' || acknowledgement.order.cod_collected) throw unconfirmed();
     return { ...acknowledgement.order, persistence: 'google_sheets' };
   } catch (error) {
     if (error instanceof SheetOrderSubmissionError) throw error;

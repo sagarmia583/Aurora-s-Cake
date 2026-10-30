@@ -6,6 +6,7 @@
 var AURORA_CMS_TABLES_=['settings','content','hero_slides','highlights','faqs','links','categories','products','product_variants','flavors','product_addons','banners','delivery_zones','delivery_slots','coupons','reviews'];
 var AURORA_CMS_BOOLEAN_FIELDS_=['is_active','is_featured','accepting_orders','delivery_enabled'];
 var AURORA_CMS_NUMBER_FIELDS_=['sort_order','base_price','sale_price','price','weight_grams','rating','review_count','delivery_fee','discount_value','min_order_amount','max_discount_amount','usage_count'];
+var AURORA_CMS_OPTIONAL_NUMBER_FIELDS_=['sale_price','max_discount_amount','rating'];
 var AURORA_CMS_URL_FIELDS_=['image_url','logo_url','profile_image_url','facebook_url','instagram_url','youtube_url','tiktok_url','website_url','button_link','url','whatsapp_url','maps_url'];
 function auroraCmsTable_(name) {
   if(AURORA_CMS_TABLES_.indexOf(name)===-1)auroraReject_('forbidden','This table is not editable through the website.');
@@ -41,7 +42,7 @@ function auroraCmsValidate_(name,field,value){
     return value;
   }
   if(AURORA_CMS_NUMBER_FIELDS_.indexOf(field)!==-1){
-    if(value===''&&['sale_price','max_discount_amount','rating'].indexOf(field)!==-1)return '';
+    if(value===''&&AURORA_CMS_OPTIONAL_NUMBER_FIELDS_.indexOf(field)!==-1)return '';
     if(typeof value!=='number'||!isFinite(value)||value<0||value>10000000)
       auroraReject_('invalid_value','Enter a valid non-negative number for '+field);
     return Math.round(value*100)/100;
@@ -166,6 +167,7 @@ function auroraCmsPost_(input){
       table.columns.forEach(function(field){
         row[field]=existing?existing[field]:field===table.key?nowId:
           AURORA_CMS_BOOLEAN_FIELDS_.indexOf(field)!==-1?false:
+          AURORA_CMS_OPTIONAL_NUMBER_FIELDS_.indexOf(field)!==-1?'':
           AURORA_CMS_NUMBER_FIELDS_.indexOf(field)!==-1?0:'';
       });
       if(action==='staff_cms_delete'){

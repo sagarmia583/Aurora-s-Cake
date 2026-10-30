@@ -24,6 +24,50 @@ const receipt = (changes: Partial<Order> = {}): Order => ({
 });
 const jsonFetch = (body: unknown): typeof fetch => async () => new Response(JSON.stringify(body), { status: 200 });
 
+function originalReceipt(attempt: ReturnType<typeof createSheetOrderAttempt>): Order {
+  const body = JSON.parse(attempt.body), id = 'ord_' + attempt.request_id;
+  return receipt({ id, customer_access_token: 'aaaaaaaa-1111-4111-8111-111111111111bbbbbbbb-2222-4222-8222-222222222222',
+    items: body.cart_items.map((line: any, index: number) => ({
+      id: 'item_' + index, order_id: id, product_id: line.product_id, product_name: 'Test cake',
+      variant_id: line.variant_id, variant_name: 'Small', flavor_id: line.flavor_id || '',
+      writing_message: line.writing_message, quantity: line.quantity, unit_price: 200, subtotal: 400,
+      addons: line.addon_ids.map((addon_id: string) => ({ addon_id, addon_name: 'Fixture addon', unit_price: 0, quantity: line.quantity, subtotal: 0 })),
+    })),
+  });
+}
+
+test('original recovery accepts the same persisted order after delivery and COD collection', async () => {
+  const attempt = createSheetOrderAttempt(endpoint, draft());
+  for (const status of ['pending', 'cancelled', 'delivered'] as const) {
+    const order = originalReceipt(attempt);
+    Object.assign(order, { status, payment_status: status === 'delivered' ? 'paid' : 'pending', cod_collected: status === 'delivered' });
+    const result = await submitSheetOrder(attempt, { recoverOriginal: true, fetcher: jsonFetch({ success: true, persisted: true, order }) });
+    assert.equal(result.id, order.id); assert.equal(result.status, status);
+    assert.equal(result.cod_collected, status === 'delivered');
+  }
+});
+
+test('recovery rejects foreign, changed, unproven or inconsistent receipts and keeps the original reference', async () => {
+  const attempt = createSheetOrderAttempt(endpoint, draft());
+  const mutations = [
+    (o: Order) => { o.id = 'ord_foreign'; },
+    (o: Order) => { o.customer_phone = '9999999999'; },
+    (o: Order) => { o.delivery_address = 'Changed address'; },
+    (o: Order) => { o.delivery_zone.id = 'different-zone'; },
+    (o: Order) => { o.total_amount += 10; },
+    (o: Order) => { o.items[0].quantity++; },
+    (o: Order) => { (o.items[0] as any).variant_id = 'other-size'; },
+    (o: Order) => { o.items[0].addons.pop(); },
+    (o: Order) => { delete o.customer_access_token; },
+    (o: Order) => { o.payment_status = 'paid'; o.cod_collected = false; },
+  ];
+  for (const mutate of mutations) {
+    const order = originalReceipt(attempt); mutate(order);
+    await assert.rejects(submitSheetOrder(attempt, { recoverOriginal: true, fetcher: jsonFetch({ success: true, persisted: true, order }) }),
+      (error: unknown) => error instanceof SheetOrderSubmissionError && error.ambiguous && error.request_id === attempt.request_id);
+  }
+});
+
 test('order POST serializes identifiers and compare-only total without client unit prices or PII in the URL', () => {
   const input = draft();
   const poisoned = { ...input, cart_items: input.cart_items.map(item => ({ ...item, unit_price: 999999, total_price: 999999 })), total_amount: 999999 };
@@ -132,10 +176,10 @@ test('live checkout has COD-only copy while inactive live ordering remains an ex
   const props = { isOpen: true, onClose() {}, items: [], currency: '৳', zones: [], slots: [], onOrderSuccess() {} };
   const demo = renderToStaticMarkup(React.createElement(CheckoutModal, props));
   const live = renderToStaticMarkup(React.createElement(CheckoutModal, { ...props, sheetOrderEndpoint: endpoint }));
-  assert.ok(demo.includes('Live Google Sheets ordering is not activated yet.'));
+  assert.ok(demo.includes('Live ordering is not activated yet.'));
   assert.ok(demo.includes('Save demo order'));
   assert.ok(demo.includes('bKash'));
-  assert.ok(live.includes('Google Sheets confirms your order was saved'));
+  assert.ok(live.includes('the bakery confirms your order was saved'));
   assert.ok(live.includes('Place cash-on-delivery order'));
   assert.ok(live.includes('Estimated total'));
   assert.ok(!live.includes('bKash') && !live.includes('Preview only') && !live.includes('Save demo order'));

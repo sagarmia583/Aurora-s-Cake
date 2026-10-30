@@ -7,8 +7,9 @@ const banner=`/**
  * AURORA'S CAKE — ONE-FILE Google Apps Script backend.
  * Rebuilt from the individual apps-script modules by scripts/build-apps-script.mjs.
  * Customer accounts, saved delivery profiles and product-email preferences stay private.
- * Replace the complete deployed Code.gs; run setupSheetDatabase(), then setupCampaignTools()
- * as the bakery owner to authorize mail and install the Sheet menu. Neither setup sends email.
+ * Routine update: replace the complete deployed Code.gs and retain existing Script Properties.
+ * Keep the existing database backend. Database initialization is not part of an update.
+ * New Google Sheets installations only: the owner runs setupSheetDatabase(), then setupCampaignTools().
  * Deploy a NEW Web App version using Execute as Me / access Anyone.
  */\n\n`;
 const content=banner+files.map(file=>`/* ==== BEGIN apps-script/${file} ==== */\n`+fs.readFileSync(path.join(root,'apps-script',file),'utf8').replace(/^\uFEFF/,'').replace(/\r\n/g,'\n').trimEnd()+`\n/* ==== END apps-script/${file} ==== */\n`).join('\n');

@@ -1,5 +1,5 @@
 import { json, scriptUrl, expectedUpstream, migrationFreezeStatus } from '../../cloudflare/shared.js';
-const EXPECTED_RELEASE='aurora-2026-10-30-supabase-store-r2';
+const EXPECTED_RELEASE='aurora-2026-10-30-supabase-store-r3';
 
 export async function onRequest({ request, env }) {
   if(request.method!=='GET')return json(405,{ok:false,error:'GET only'});

@@ -158,6 +158,18 @@ export const Navbar: React.FC<NavbarProps> = ({
         @media(max-width:1099px){.ac-nav-main{width:calc(100% - 56px);padding:18px 0;gap:20px}.ac-nav-links{gap:20px;font-size:13px}.ac-nav-wordmark{font-size:27px}.ac-nav-actions{gap:5px}.ac-nav-brand{gap:8px}.ac-nav-brand-symbol{width:32px}}
         @media(max-width:980px){.ac-nav-main{width:calc(100% - 44px);min-height:82px;padding:15px 0;gap:10px}.ac-nav-top{font-size:10px;letter-spacing:.05em;padding:0 65px 0 14px;justify-content:flex-start}.ac-nav-studio-toggle{right:18px;font-size:9px!important}.ac-nav-links,.ac-nav-desktop-profile,.ac-nav-bag-label{display:none}.ac-nav-wordmark{font-size:26px}.ac-nav-brand-sub{font-size:7px;letter-spacing:.14em;margin-top:6px}.ac-nav-brand-symbol{width:30px;height:38px}.ac-nav-actions{gap:0}.ac-nav-icon{width:35px}.ac-nav-bag{padding:0 5px;gap:4px}.ac-nav-order-now{min-height:38px;padding:0 10px;font-size:11px!important;border-radius:10px}.ac-nav-count{width:17px;height:17px;font-size:9px}.ac-nav-mobile-toggle{display:grid}.ac-nav-mobile{display:flex;flex-direction:column;padding:12px 24px 22px;background:#FFF9EE;border-bottom:1px solid #174b3b24;box-shadow:0 15px 20px #24352E08}.ac-nav-mobile a,.ac-nav-mobile button{display:flex;align-items:center;justify-content:space-between;min-height:47px;padding:10px 0;font-size:13px;text-align:left;border:0;border-bottom:1px solid #174b3b24;background:none;color:#174B3B}.ac-nav-mobile-small{font-size:12px!important;color:#174B3B!important}.ac-nav-search-form{gap:10px}.ac-nav-search-submit span{display:none}}
         @media(max-width:380px){.ac-nav-main{width:calc(100% - 28px)}.ac-nav-brand-symbol{display:none}.ac-nav-wordmark{font-size:25px}.ac-nav-top{font-size:9px}.ac-nav-order-now{padding:0 7px;font-size:10px!important;gap:3px}.ac-nav-order-now svg{width:12px}.ac-nav-icon{width:31px}}
+        @media(max-width:600px){
+          .ac-nav-main{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;width:calc(100% - 28px)}
+          .ac-nav-brand{min-width:0;gap:8px;flex-shrink:1}
+          .ac-nav-brand>span{min-width:0}
+          .ac-nav-brand-symbol{flex-shrink:0}
+          .ac-nav-wordmark{font-size:22px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+          .ac-nav-brand-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:6px}
+          .ac-nav-actions{min-width:0;gap:0}
+          .ac-nav-icon{width:40px;height:44px}
+          .ac-nav-bag{height:44px;padding:0 4px}
+          .ac-nav-order-now{display:none}
+        }
       `}</style>
       <div className="ac-nav-top">
         <span>{settings.top_announcement_text ?? ''}</span>
@@ -225,7 +237,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button type="button" aria-pressed={viewMode === 'mobile_app'} onClick={() => onViewModeChange('mobile_app')}>Mobile app</button>
         </div>
         <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenTrackOrder)}><Clock size={14} /> Track an order</button>
-        {onOpenSheetSettings && <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenSheetSettings)}><Database size={14} /> Google Sheets content <span className="ac-nav-status" data-connected={isSheetConnected} title={isSheetConnected ? 'Connected to Google Sheets' : 'Google Sheets is not connected'} /></button>}
+        {onOpenSheetSettings && <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenSheetSettings)}><Database size={14} /> Website data <span className="ac-nav-status" data-connected={isSheetConnected} title={isSheetConnected ? 'Website data connected' : 'Website data is not connected'} /></button>}
         <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenSupabaseSync)}><Database size={14} /> Database connection <span className="ac-nav-status" data-connected={isSupabaseConnected || databaseBackend === 'google_sheets'} title={databaseBackendLabel(databaseBackend ?? (isSupabaseConnected ? 'supabase' : 'unknown'))} /></button>
         <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenCacheHub)}><Zap size={14} /> Cache performance</button>
         <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenDbViewer)}><Database size={14} /> Database schema</button>

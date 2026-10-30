@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, RefreshCw, ShieldCheck, Truck, PackageCheck, LayoutDashboard, ShoppingBag, UsersRound, CakeSlice, Store, Search, ChevronDown, ChevronUp, LogOut, Clock3, BadgeCheck, ArrowRight, AlertCircle, CreditCard, MapPin } from 'lucide-react';
-import { checkStaffSession, getStaffOrders, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword, lookupStaffCustomer, backfillFirebaseOrders, verifyFirebaseMirrorFromStaff } from '../services/sheetStaffApi';
+import { checkStaffSession, getStaffOrders, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, signOutStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword, lookupStaffCustomer, backfillFirebaseOrders, verifyFirebaseMirrorFromStaff } from '../services/sheetStaffApi';
 import type { StaffCustomerMatch, StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
 import { getBrowserWorkspaceStorage, loadStaffCredential, saveStaffCredential, clearStaffCredential, loadStaffTab, saveStaffTab } from '../services/staffWorkspaceSession';
@@ -60,6 +60,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const liveIsOpen=useRef(isOpen);
   liveIsOpen.current=isOpen;
   const [restoringSession, setRestoringSession] = useState(() => Boolean(loadStaffCredential(getBrowserWorkspaceStorage())));
+  const [signingOut,setSigningOut]=useState(false);
   const [activeTab,setActiveTab]=useState<StaffTab>(() => {
     const saved=loadStaffTab(getBrowserWorkspaceStorage());
     return ['overview','orders','cakes','team','website'].includes(saved)?saved as StaffTab:'overview';
@@ -172,7 +173,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   };
   const syncHistoricalFirebaseOrders=async()=>{
     if(!identity||identity.role!=='super_admin'||firebaseBackfillBusy)return;
-    if(!window.confirm('Sync private, confirmed Google Sheets order records to your server-only Firebase Firestore mirror? This will not modify any Google Sheets orders.'))return;
+    if(!window.confirm('Sync private, confirmed order records from the active backend to your server-only Firebase Firestore mirror? This keeps the original orders unchanged.'))return;
     setFirebaseBackfillBusy(true);
     setFirebaseBackfillMessage('');
     try{
@@ -326,6 +327,21 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       setRiderEmail(profile.riders[0]?.email||'');
     }catch(caught){setError(caught instanceof Error?caught.message:'Staff sign-in failed.');}
     finally{setLoading(false);}
+  };
+  const signOut=async()=>{
+    if(!identity||signingOut)return;
+    const token=identity.token;setSigningOut(true);setError('');
+    try{
+      // Google credentials are verified externally; only password staff have
+      // an application-owned bearer session that this backend can revoke.
+      if(/^[a-f0-9-]{72}$/i.test(token))await signOutStaffPassword(endpoint,token);
+      if(liveIdentityToken.current!==token)return;
+      liveIdentityToken.current=undefined;
+      clearStaffCredential(getBrowserWorkspaceStorage());clearStaffOrdersSnapshot(getBrowserWorkspaceStorage());
+      setIdentity(null);setOrders([]);setStaffProfiles([]);setActiveTab('overview');setError('');
+    }catch{
+      if(liveIdentityToken.current===token)setError('Sign out could not be confirmed. Retry before leaving this device.');
+    }finally{setSigningOut(false);}
   };
   const createEmployee=async(e:React.FormEvent)=>{
     e.preventDefault();if(!identity||identity.role!=='super_admin')return;
@@ -560,7 +576,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
           </div>}
           {backendWarning&&<p role="alert" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-sm font-medium text-amber-950">
             {backendWarning} <a className="underline font-bold" target="_blank" rel="noreferrer"
-              href="https://github.com/sagarmia583/Aurora-s-Cake/blob/fix/secure-demo-roles-and-delivery-20261024/apps-script/Code.AllInOne.gs">
+              href="https://github.com/sagarmia583/Aurora-s-Cake/blob/main/apps-script/Code.AllInOne.gs">
               Open complete backend code
             </a>
           </p>}
@@ -685,9 +701,9 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                       className="min-h-11 flex items-center gap-2 rounded-xl bg-white border px-3 text-sm font-semibold text-slate-700 disabled:opacity-60">
                       <RefreshCw size={16} className={loadingOrders?'animate-spin':''}/> Refresh
                     </button>
-                    <button type="button" onClick={()=>{setIdentity(null);setOrders([]);setStaffProfiles([]);setActiveTab('overview');setError('');clearStaffCredential(getBrowserWorkspaceStorage());clearStaffOrdersSnapshot(getBrowserWorkspaceStorage());}}
-                      aria-label="Sign out" className="min-h-11 flex items-center gap-2 rounded-xl border bg-white px-3 text-sm text-slate-700">
-                      <LogOut size={16}/><span className="hidden sm:inline">Sign out</span>
+                    <button type="button" disabled={signingOut} onClick={()=>void signOut()}
+                      aria-label="Sign out" className="min-h-11 flex items-center gap-2 rounded-xl border bg-white px-3 text-sm text-slate-700 disabled:opacity-60">
+                      <LogOut size={16}/><span className="hidden sm:inline">{signingOut?'Signing out…':'Sign out'}</span>
                     </button>
                   </div>
                 </div>
