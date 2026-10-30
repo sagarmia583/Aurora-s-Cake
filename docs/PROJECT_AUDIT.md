@@ -1,4 +1,6 @@
-# 🍰 Cake Shop System Architecture & Project Audit
+# Historical architecture proposal and project audit
+
+> **Historical reference.** This is the original Supabase architecture proposal, retained for reference. Its statements about Next.js, verified phone authentication, PostgreSQL/RLS, production readiness and latency are not a verification of the current application. The current app uses Vite/React on Cloudflare Workers and a Google Sheets/Apps Script production backend. D1/R2 remains a disabled migration foundation. Follow [current setup](CLOUDFLARE_WORKER_SETUP.md) and [migration status](CLOUDFLARE_D1_R2_MIGRATION.md).
 
 ## 1. Executive Summary & Architecture Overview
 This document outlines the complete production-grade architecture for the Cake Shop e-commerce and multi-role operations suite, designed with:

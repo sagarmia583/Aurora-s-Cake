@@ -1,20 +1,13 @@
 import * as SecureStore from 'expo-secure-store';
-import {isOrder, roles, type Role,type StaffSession,type StaffOrder,type Operation} from './domain';
+import {isOrder, roles, validateStaffOperationsUrl, type Role,type StaffSession,type StaffOrder,type Operation} from './domain';
 
 const KEY='aurora_staff_session_v1';
 const TOKEN=/^[a-f0-9-]{72}$/i;
 const rawEndpoint=process.env.EXPO_PUBLIC_OPERATIONS_URL||'';
 export function operationsUrl():string {
-  if(!rawEndpoint)throw new Error('App API URL is not configured. Set EXPO_PUBLIC_OPERATIONS_URL before building.');
-  let u:URL;
-  try{u=new URL(rawEndpoint);}catch{throw new Error('Invalid staff API URL.');}
-  // Do not allow credential-bearing mobile requests to arbitrary or HTTP servers.
-  if(u.protocol!=='https:'||u.username||u.password||u.search||u.hash||
-    u.pathname!=='/api/operations'||
-    !(/(^|\.)vercel\.app$/i.test(u.hostname)))
-    throw new Error('Only a secure Vercel /api/operations URL is accepted.');
-  return u.toString();
+  return validateStaffOperationsUrl(rawEndpoint);
 }
+
 export class ApiError extends Error{
   constructor(message:string,public code:string){super(message);this.name='ApiError';}
 }
@@ -33,7 +26,7 @@ export async function post(action:string,params:Record<string,unknown>={},timeou
     });
     // Never send cookies, Google OAuth secrets or passwords to a third-party URL.
     if(!response.ok)throw new ApiError(
-      response.status===404?'API route missing: deploy the latest Vercel backend.':
+      response.status===404?'API route missing: check the current Cloudflare Worker deployment.':
       response.status===401||response.status===403?'API access blocked; check deployment protection.':
       'Server connection failed (HTTP '+response.status+').','network');
     const data:unknown=await response.json().catch(()=>null);

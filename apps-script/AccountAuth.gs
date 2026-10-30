@@ -157,6 +157,7 @@ function auroraAccountSafeCustomer_(p){
 }
 function auroraAccountCustomerPost_(input) {
   var action=String(input.action||'');
+  if(action==='customer_phone_save_order_profile')return auroraAccountSaveOrderProfile_(input);
   if(action==='customer_phone_signup'){
     var phone=auroraAccountPhone_(input.phone),password=auroraAccountPassword_(input.password);
     var name=auroraOrderText_(input.name,'Name',2,100);
@@ -221,7 +222,7 @@ function auroraAccountCustomerPost_(input) {
   }
   if(action==='customer_phone_profile'){
     var n=auroraOrderText_(input.name,'Name',2,100);
-    var address=auroraOptionalText_(input.address,'Address',300);
+    var address=auroraOptionalText_(input.address,'Address',1000);
     var email=String(input.email||'').trim();
     if(email&&(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||email.length>150))
       auroraReject_('invalid_email','Enter a valid contact email.');
@@ -264,4 +265,45 @@ function auroraAccountCustomerPost_(input) {
     }finally{lock.releaseLock();}
   }
   auroraReject_('invalid_action','Unknown customer phone account action.');
+}
+
+/** Save the delivery details of a committed, owned checkout for future devices.
+ * No guest input can update an account; old receipt retries cannot undo a newer
+ * explicit profile edit. Email and subscription preferences are left intact.
+ */
+function auroraAccountSaveOrderProfile_(input) {
+  var id=auroraOrderText_(input.order_id,'Order ID',10,150);
+  var proof=String(input.customer_access_token||'');
+  if(!/^[0-9a-f-]{72}$/i.test(proof))auroraReject_('forbidden','Use the original confirmed receipt.');
+  var lock=LockService.getScriptLock();
+  if(!lock.tryLock(10000))auroraReject_('busy','Your order is saved. Retry saving your delivery profile.');
+  try{
+    // Re-read authentication and account state after taking the update lock.
+    var person=auroraAccountAuthenticate_('customer',input.auth_token);
+    var book=auroraSpreadsheet_(),orders=auroraPrivateTable_(book,'orders');
+    var record=orders.rows.filter(function(row){return String(row.id)===id;})[0];
+    var order;try{order=record&&JSON.parse(String(record.receipt_json||''));}catch(_){}
+    if(!order||order.id!==id||order.customer_access_token!==proof)
+      auroraReject_('forbidden','Use the original confirmed receipt.');
+    if(auroraAccountPhone_(order.customer_phone)!==String(person.phone))
+      auroraReject_('forbidden','Sign in to the same customer account used for this order.');
+    if(order.customer_google_sub||(order.customer_account_id&&order.customer_account_id!==person.id))
+      auroraReject_('already_linked','This order belongs to a different account.');
+    var created=Date.parse(String(order.created_at||''));
+    var profileUpdated=Date.parse(String(person.updated_at||person.created_at||''));
+    if(!isFinite(created)||!isFinite(profileUpdated))
+      auroraReject_('invalid_profile_state','Your order is saved. Edit your delivery profile from My bakery orders.');
+    var name=auroraOrderText_(order.customer_name,'Customer name',2,100);
+    var address=auroraOrderText_(order.delivery_address,'Delivery address',5,1000);
+    if(!order.customer_account_id){
+      order.customer_account_id=person.id;order.updated_at=new Date().toISOString();
+      auroraPrivateSaveReceipt_(orders,auroraPrivateFindRow_(orders,id),order);
+    }
+    if(profileUpdated>created)
+      return {ok:true,saved:false,reason:'newer_profile',profile:auroraAccountSafeCustomer_(person)};
+    var accounts=auroraPrivateTable_(book,'customer_accounts');
+    person.name=name;person.address=address;person.updated_at=new Date().toISOString();
+    auroraAccountSave_(accounts,person);
+    return {ok:true,saved:true,profile:auroraAccountSafeCustomer_(person)};
+  }finally{lock.releaseLock();}
 }

@@ -2,6 +2,14 @@
 
 A responsive forest-green, pistachio and apricot bakery storefront using locally hosted Roboto, built with React, TypeScript, Vite and Tailwind CSS.
 
+## Current production deployment
+
+Production runs on [Cloudflare Workers](https://aurora-s-cake.sagarmia583.workers.dev), with Google Apps Script and Google Sheets behind the same-origin bakery APIs. Vercel and Netlify are retired targets. Use [Cloudflare Worker setup](docs/CLOUDFLARE_WORKER_SETUP.md) for runtime bindings and deployment checks.
+
+D1/R2 is an isolated migration foundation: the existing D1 database is bound, but D1 preview/mutations and Firebase migration flags remain disabled. Historical data, R2 media and customer checkout have not been migrated merely by adding this binding. See [D1/R2 migration status and prerequisites](docs/CLOUDFLARE_D1_R2_MIGRATION.md).
+
+GitHub CI, Worker publication and Apps Script publication are separate. Check the active Worker revision, backend health and public catalogue after each deployment; a passing build alone does not verify production.
+
 ## Run locally
 
 ```sh
@@ -17,7 +25,7 @@ node node_modules/tsx/dist/cli.mjs --test tests/*.test.ts tests/*.test.tsx
 npm run build
 ```
 
-## What works
+## Implemented flows
 
 - Search, category filters and sorting by the cheapest available cake variant
 - Cake size, flavour, add-ons, dedication, quantity and live pricing
@@ -37,7 +45,7 @@ Edit business details in settings; marketing copy and section images in content;
 
 Public GET responses expose only allowlisted website content and never include private order/customer records. The separate create_order POST validates current Sheet options and prices, accepts cash on delivery, and stores an order plus item rows in private orders/order_items tabs. A stable request ID makes uncertain retries idempotent. The client shows success only after a confirmed persisted receipt.
 
-Copy the latest code from Studio or apps-script, run setupSheetDatabase, then deploy a new version. Until the endpoint advertises order_submission_enabled, checkout remains an explicit local preview. A fresh order-enabled response activates Sheet checkout. Receipts are cached on the ordering device. Once the new StaffOperations.gs is deployed, staff orders stay private and customer receipt tracking polls a narrow POST status endpoint by the original receipt ID and checkout phone.
+Install the matching current Apps Script modules or the combined installer, run the relevant non-destructive setup functions, then deploy a new Apps Script version. Until the endpoint advertises order_submission_enabled, checkout remains an explicit local preview. A fresh order-enabled response activates Sheet checkout. Receipts are cached on the ordering device. Once the new StaffOperations.gs is deployed, staff orders stay private and customer receipt tracking polls a narrow POST status endpoint by the original receipt ID and checkout phone.
 
 ## Production staff operations
 
@@ -54,7 +62,7 @@ Photography is illustrative catalogue imagery. Source references and the generat
 ## Android + iOS Staff Application (Expo)
 
 The separate native Staff app is in [apps/staff-mobile](apps/staff-mobile/README.md).
-It uses the existing role-verified Apps Script and Vercel `/api/operations` API,
+It uses the existing role-verified Apps Script backend through the Cloudflare `/api/operations` API,
 with employee Username/Password, encrypted session persistence, fast order
 list, Kitchen, Rider, COD OTP and staff-specific permissions.
 

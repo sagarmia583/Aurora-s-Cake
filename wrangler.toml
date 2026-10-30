@@ -10,6 +10,9 @@ keep_vars = true
 
 [vars]
 DEPLOYMENT_PLATFORM = "cloudflare_worker"
+# Public deployment address, already bundled in the storefront. This is not a credential.
+# Keep the server relay pinned to the same approved Apps Script deployment.
+AURORA_SCRIPT_POST_URL = "https://script.google.com/macros/s/AKfycbw38J4AzlYkAhNtyDAp_CP34fUk9Epae6xz46AQFbF9ye1VsZjxTXmzbJgs52WEoWETMw/exec"
 # Enables server-only *secondary order mirroring*, not Firebase-primary.
 # No order is mirrored until authoritative backend confirms it and
 # FIREBASE_SERVICE_ACCOUNT_JSON is configured as an encrypted Worker Secret.

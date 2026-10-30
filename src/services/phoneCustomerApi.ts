@@ -44,6 +44,24 @@ export async function linkPhoneCustomerReceipt(endpoint:string,token:string,orde
     throw new Error('An original confirmed receipt is required to link this order.');
   await privatePost(endpoint,{action:'customer_phone_claim',auth_token:token,order_id:order.id,customer_access_token:order.customer_access_token});
 }
+/** Separate from placing an order: retrying this never creates another COD order. */
+export async function savePhoneCustomerOrderProfile(endpoint:string,token:string,order:Order):Promise<{saved:boolean;profile:PhoneCustomerProfile}>{
+  if(order.persistence!=='google_sheets'||!isValidSheetOrderReceipt(order)||
+      typeof order.customer_access_token!=='string'||!/^[a-f0-9-]{72}$/i.test(order.customer_access_token))
+    throw new Error('A confirmed original receipt is required to save delivery details.');
+  const result=await privatePost(endpoint,{action:'customer_phone_save_order_profile',auth_token:token,
+    order_id:order.id,customer_access_token:order.customer_access_token});
+  if(typeof result.saved!=='boolean')throw new Error('Your order is saved, but the delivery profile update was not confirmed.');
+  return {saved:result.saved,profile:checkProfile(result.profile)};
+}
+/** Old deployments retain their existing receipt linking path. A failed new
+ * request never silently falls back, because its profile write may have saved.
+ */
+export async function syncPhoneCustomerConfirmedOrder(endpoint:string,token:string,order:Order,profileSyncEnabled:boolean):Promise<'profile_synced'|'linked_only'>{
+  if(profileSyncEnabled){await savePhoneCustomerOrderProfile(endpoint,token,order);return 'profile_synced';}
+  await linkPhoneCustomerReceipt(endpoint,token,order);
+  return 'linked_only';
+}
 export async function logoutPhoneCustomer(endpoint:string,token:string):Promise<void>{
   await privatePost(endpoint,{action:'customer_phone_logout',auth_token:token});
 }

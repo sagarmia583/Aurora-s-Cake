@@ -76,3 +76,20 @@ export function isOrder(value:unknown):value is StaffOrder{
 export function money(value:number|undefined):string{
   return '৳'+Math.round(Math.max(0,Number(value)||0)).toLocaleString('en-BD');
 }
+
+/** The native app sends staff credentials only to these reviewed shop origins. */
+export const STAFF_PRODUCTION_OPERATIONS_URL = 'https://aurora-s-cake.sagarmia583.workers.dev/api/operations';
+const STAFF_API_ORIGINS = new Set([
+  'https://aurora-s-cake.sagarmia583.workers.dev',
+  // Retained for an existing owner-configured build; retired hosting is not re-enabled.
+  'https://aurora-s-cake.vercel.app',
+]);
+export function validateStaffOperationsUrl(raw:string):string {
+  if(!raw)throw new Error('App API URL is not configured. Set EXPO_PUBLIC_OPERATIONS_URL before building.');
+  let url:URL;
+  try{url=new URL(raw);}catch{throw new Error('Invalid staff API URL.');}
+  if(url.protocol!=='https:'||url.username||url.password||raw.includes('@')||/[?#]/.test(raw)||
+      url.pathname!=='/api/operations'||!STAFF_API_ORIGINS.has(url.origin))
+    throw new Error('Use the approved Aurora’s Cake HTTPS /api/operations endpoint.');
+  return url.href;
+}

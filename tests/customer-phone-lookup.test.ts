@@ -31,3 +31,22 @@ test('a typed phone number cannot autofill another account or unrelated local re
   assert.equal(matchCheckoutCustomer('+8801700998877',savedAccount,null,[])?.address,'Private Tangail home');
   assert.equal(matchCheckoutCustomer('01888776655',null,null,[]),null);
 });
+
+test('an empty account address falls back field-by-field to an owned address for the same phone',()=>{
+  const account={name:'Current account name',phone:'01700000000',address:'  '};
+  const found=matchCheckoutCustomer('+8801700000000',account,null,[oldOrder]);
+  assert.equal(found?.name,'Current account name');
+  assert.equal(found?.address,'Original Tangail address');
+  assert.equal(found?.source,'account');
+  const device={name:'',phone:'01700000000',address:'Explicit device address'};
+  assert.equal(matchCheckoutCustomer(account.phone,account,device,[oldOrder])?.address,'Explicit device address');
+  assert.equal(matchCheckoutCustomer(account.phone,account,null,[{...oldOrder,customer_phone:'01800000000'}])?.address,'');
+});
+
+test('blank device fields cannot hide a newer owned receipt or use an unproven receipt',()=>{
+  const device={name:'Saved name',phone:'01700000000',address:''};
+  const newer={...oldOrder,delivery_address:'Latest owned address',created_at:'2026-10-30T00:00:00Z'};
+  assert.equal(matchCheckoutCustomer(device.phone,null,device,[oldOrder,newer])?.address,'Latest owned address');
+  assert.equal(matchCheckoutCustomer(device.phone,null,device,[{...newer,customer_access_token:'x'.repeat(72)}])?.address,'');
+  assert.doesNotThrow(()=>matchCheckoutCustomer(device.phone,null,{...device,name:123 as unknown as string},[]));
+});

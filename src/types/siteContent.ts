@@ -17,6 +17,7 @@ export interface SiteLink {
 export interface PublicSiteData {
   schema_version: 1;
   order_submission_enabled: boolean;
+  customer_order_profile_sync_enabled: boolean;
   settings: ShopSettings;
   content: Record<string, string>;
   hero_slides: HeroSlide[];

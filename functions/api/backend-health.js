@@ -1,5 +1,5 @@
 import { json, scriptUrl, expectedUpstream } from '../../cloudflare/shared.js';
-const EXPECTED_RELEASE='aurora-2026-10-26-customer-master-r2';
+const EXPECTED_RELEASE='aurora-2026-10-30-profiles-email-r1';
 
 export async function onRequest({ request, env }) {
   if(request.method!=='GET')return json(405,{ok:false,error:'GET only'});

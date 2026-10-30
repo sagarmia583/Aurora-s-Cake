@@ -1,4 +1,6 @@
-# Aurora's Cake — Vercel Hobby (Free) deployment
+# Historical Vercel deployment reference
+
+> **Historical reference.** Vercel and Netlify have been retired by the shop owner. Do not follow this historical guide to reactivate them. Current production is [Cloudflare Workers](https://aurora-s-cake.sagarmia583.workers.dev), using the Google Sheets/Apps Script backend. Use [Cloudflare Worker setup](CLOUDFLARE_WORKER_SETUP.md) for current runtime variables, OAuth origin and verification. The retained Vercel-specific steps below document an earlier hosting phase only.
 
 This repository is a **Vite + React** storefront with a Google Sheets +
 Apps Script cash-on-delivery backend. No paid API or payment gateway is needed

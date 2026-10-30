@@ -105,6 +105,7 @@ function auroraStaffCustomerLookup_(input){
  * Does not call external endpoints, send any SMS or alter saved COD orders.
  */
 function backfillCustomerMasterOnce(){
+  auroraRequireInteractiveSetup_();
   var lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))throw new Error('Other bakery updates are running. Retry.');
   try{

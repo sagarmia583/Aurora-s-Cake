@@ -1,4 +1,6 @@
-# 🍰 Cake Shop Security Audit & RLS Specification
+# Historical Supabase RLS specification
+
+> **Historical reference.** This document describes the original Supabase security design. The table below is not a completed independent security audit and does not establish that those RLS/storage controls protect the current Google Sheets backend. Current access checks must be assessed in the actual Apps Script and Worker handlers. D1 uses a separate Cloudflare Access design and remains disabled until its own acceptance checks pass. See [current setup](CLOUDFLARE_WORKER_SETUP.md) and [D1/R2 prerequisites](CLOUDFLARE_D1_R2_MIGRATION.md).
 
 ## 1. Threat Modeling & Vulnerability Safeguards
 

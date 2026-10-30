@@ -65,6 +65,7 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean}={}) {
   const book={getSheetByName:(name:string)=>{reads.push(name);return name in tables?sheet(name):null;},insertSheet:(name:string)=>{tables[name]=[];return sheet(name);}};
   const context:Record<string,any>={
     console:{log:()=>{},error:()=>{}},Date,JSON,Object,Array,String,Math,
+    Session:{getActiveUser:()=>({getEmail:()=> 'owner@example.com'}),getEffectiveUser:()=>({getEmail:()=> 'owner@example.com'})},
     SpreadsheetApp:{openById:()=>book,getActiveSpreadsheet:()=>book},
     PropertiesService:{getScriptProperties:()=>({getProperty:(key:string)=>key==='AURORA_GOOGLE_CLIENT_ID'?'test-client.apps.googleusercontent.com':key==='AURORA_STAFF_USERS'?STAFF_CONFIG:null})},
     UrlFetchApp:{fetch:(url:string)=>({getResponseCode:()=>200,getContentText:()=>JSON.stringify({aud:'test-client.apps.googleusercontent.com',iss:'https://accounts.google.com',sub:url.includes('intruder_')?'other-google-user':'verified-google-user',exp:Math.floor(Date.now()/1000)+3600,email_verified:'true',email:url.includes('rider_')?'rider@example.com':url.includes('intruder_')?'intruder@example.com':'owner@example.com'})})},
@@ -494,7 +495,7 @@ test('single Code.gs file runs full COD, staff role, customer account, live cata
 test('single-file owner setup grants editor account admin access without a client secret',()=>{
   const h=harness({singleFile:true});
   const properties=new Map<string,string>();
-  h.context.Session={getEffectiveUser:()=>({getEmail:()=> 'owner@example.com'})};
+  h.context.Session={getActiveUser:()=>({getEmail:()=> 'owner@example.com'}),getEffectiveUser:()=>({getEmail:()=> 'owner@example.com'})};
   h.context.PropertiesService={getScriptProperties:()=>({
     getProperty:(key:string)=>properties.get(key)||null,
     setProperty:(key:string,value:string)=>{properties.set(key,value);},

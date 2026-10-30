@@ -1,92 +1,83 @@
-# Aurora’s Cake — Existing Cloudflare Worker: Fix build and enable Firebase
+# Aurora’s Cake — Cloudflare Worker production setup
 
-**Project already created:** `aurora-s-cake`
-**Public hostname:** `https://aurora-s-cake.sagarmia583.workers.dev`
-**Runtime:** Cloudflare **Workers** (not Pages).
-**GitHub repository:** `sagarmia583/Aurora-s-Cake`
+Current production target: [aurora-s-cake.sagarmia583.workers.dev](https://aurora-s-cake.sagarmia583.workers.dev). The project is a **Cloudflare Worker with Static Assets**, not a Pages project. Vercel and Netlify are retired deployment targets; do not reactivate them while repairing this deployment.
 
-## Why the existing build failed
+The live catalogue, checkout and existing staff operations use **Google Apps Script and Google Sheets** through the Worker's same-origin APIs. D1/R2 is a separate migration foundation. A configured D1 binding does not apply a schema, copy historical records, or switch checkout.
 
-Previously the repository root `wrangler.toml` described a **Pages** project (`pages_build_output_dir` and a different project name), but the Cloudflare account created a **Worker** project. Pages' `functions/api/*.js` files are not autodiscovered by Workers Builds.
+## 1. Build the existing Worker
 
-The new root `wrangler.toml` targets `aurora-s-cake` as a Worker using `cloudflare/worker.js`, Vite static assets from `dist`, SPA fallback, and `/api/*` route-first handling. The same validated Pages Functions are imported and dispatched by the Worker entrypoint.
-
-### 1. Fix Cloudflare Worker Builds
-
-Go to **Cloudflare → Workers & Pages → aurora-s-cake → Settings → Builds**.
+In **Cloudflare → Workers & Pages → aurora-s-cake → Settings → Builds**, use:
 
 | Field | Value |
 | --- | --- |
 | Git repository | `sagarmia583/Aurora-s-Cake` |
 | Production branch | `main` |
-| Root directory | Repository root (blank or `/`, depending on UI) |
+| Root directory | Repository root |
 | Build command | `npm run build` |
 | Deploy command | `npx wrangler deploy` |
-| Worker name (from `wrangler.toml`) | `aurora-s-cake` |
+| Worker name | `aurora-s-cake` |
+| Node.js | 22 or newer |
 
-Cloudflare installs npm packages from `package-lock.json` during the build. If the Build settings support configuring Node.js, use Node 22+. You no longer need `npx wrangler pages deploy`, `wrangler pages functions build` or the Pages-only `wrangler.pages.toml` for this Worker.
+The root `wrangler.toml` selects `cloudflare/worker.js`, the Vite `dist` assets, SPA fallback and Worker-first `/api/*` routing. The Worker imports the handlers in `functions/api/`; a Workers project does not discover Pages Functions automatically. Do not use `wrangler.pages.toml` or a Pages deploy command for this Worker.
 
-Save build settings and **Retry build** or deploy the latest `main` commit. The Worker gets the React app (static assets), secure same-origin bakery APIs and Firestore mirror. The Vercel site remains untouched.
+`keep_vars = true` preserves dashboard text variables that are not declared in `[vars]` during Wrangler deploys. Explicit tracked values still take precedence. Runtime secrets remain in Cloudflare; never write them into GitHub, frontend `VITE_` variables or build logs.
 
-Cloudflare docs: https://developers.cloudflare.com/workers/ci-cd/builds/configuration/ and https://developers.cloudflare.com/workers/static-assets/routing/single-page-application/
+## 2. Configure the current Google Sheets backend
 
-### Why the endpoint can still say `configuration_code:"disabled"`
+The public Apps Script web-app URL is declared in the tracked `wrangler.toml` `[vars]` as `AURORA_SCRIPT_POST_URL`. This configures the **Worker runtime**, not only the frontend build. The endpoint URL is already public application configuration; it does not grant access to private customer or staff records.
 
-Cloudflare's `wrangler deploy` normally reconciles Dashboard text variables with the project's `wrangler.toml`. If a text variable was added in the Dashboard but omitted from Wrangler config, a later GitHub deployment could remove it. To avoid this, `wrangler.toml` now has `keep_vars = true` and explicitly declares **non-secret** `FIREBASE_MIRROR_ENABLED = "true"` in `[vars]`. **Do not commit the Firebase JSON private key:** it remains a Cloudflare Worker runtime **Secret**.
-
-After deploying the latest `main`, `GET /api/firebase-sync-status` should no longer say `disabled`; it may say `missing_service_account` until the private JSON secret is correctly added to the same Production Worker. Enabling this flag only turns on the **Google Sheets → Firestore order mirror**, not a Firebase-only primary database. Until Orders/Staff/Products/Accounting APIs are separately migrated, do not disable the Google Apps Script backend on a live shop and expect orders to work.
-
-### 2. Set runtime bindings (NOT build variables)
-
-Open **Workers & Pages → aurora-s-cake → Settings → Variables and Secrets** (sometimes called *Bindings → Variables and Secrets*). These variables must be **runtime**, not Git/build-time values.
-
-| Name | Type | Value |
+| Name | Type | Purpose |
 | --- | --- | --- |
-| `AURORA_SCRIPT_POST_URL` | **Secret** | Your actual deployed Apps Script `https://script.google.com/macros/s/.../exec` URL, same as production Vercel. |
-| `FIREBASE_MIRROR_ENABLED` | Plain Text | `true` |
-| `FIREBASE_SERVICE_ACCOUNT_JSON` | **Secret** | Full Google service account JSON, project ID `aurorascake-213a0`. |
+| `AURORA_SCRIPT_POST_URL` | Tracked runtime variable | The verified Apps Script web app URL ending in `/exec`; used by `/api/public`, `/api/backend-health` and `/api/operations`. |
 
-Do **not** upload JSON to GitHub or set `VITE_FIREBASE_SERVICE_ACCOUNT_JSON`. The Worker reads secrets from its `env` bindings; they are never sent to the client. The service account must have the minimal appropriate **Cloud Datastore User** IAM role in Google Cloud for this project. Do **not** open Firestore rules for public writes: the server uses Google IAM directly.
+Use the exact currently deployed shop endpoint. A stale repository example or a URL that returns a Google sign-in page is not a working backend. Confirm the Apps Script points at the intended private shop Sheet before changing the binding. Change the reviewed Wrangler/deployment configuration when selecting a different shop backend, and deploy that configuration so the active Worker receives it. Keep the runtime URL consistent with frontend configuration. If an older deployment has a same-name secret, resolve the reported binding conflict in that deployment rather than adding an unverified fallback URL.
 
-Optional build-time variables:
-- `VITE_GOOGLE_SHEETS_URL`: public Apps Script `/exec` URL (there is a legacy fallback).
-- `VITE_SHEETS_POST_PROXY`: `/api/operations` (the Workers hostname now uses this same-origin route even without this build variable).
-- `VITE_GOOGLE_OAUTH_CLIENT_ID`: configured Google web OAuth client; whitelist `https://aurora-s-cake.sagarmia583.workers.dev` in Google Cloud OAuth **Authorized JavaScript origins** for owner Google Login.
+Actual credentials, including private service-account JSON, OAuth client secrets and staff/session tokens, remain private secrets. Publishing the web-app URL must not weaken the backend's authentication or staff-role checks.
 
-**After editing secrets/variables**, save/deploy a new Worker version so the active isolate receives the bindings.
+Frontend build configuration:
 
-### 3. Check whether the APIs are online
+| Name | Purpose |
+| --- | --- |
+| `VITE_GOOGLE_SHEETS_URL` | Public Apps Script `/exec` URL for the current shop. Keep it consistent with the runtime backend. |
+| `VITE_SHEETS_POST_PROXY` | `/api/operations`; Cloudflare production uses the same-origin relay. |
+| `VITE_GOOGLE_OAUTH_CLIENT_ID` | Public Google Web Client ID, if Google account login is used. Authorize the exact Cloudflare origin in the Google OAuth client. |
 
-1. `https://aurora-s-cake.sagarmia583.workers.dev/api/firebase-sync-status`
-   - Expected: `enabled:true`, `configured:true`, `configuration_code:"configured"`, `deployment_platform:"cloudflare_worker"`.
-   - If false, use the non-sensitive `configuration_code` to diagnose whether variable is disabled/missing, JSON invalid, private key malformed, or project ID wrong.
-   - `configured:true` is **only a format check**, not proof that Firestore permissions work.
-2. `https://aurora-s-cake.sagarmia583.workers.dev/api/backend-health`
-   - `up_to_date:false` means the Apps Script code itself must be redeployed separately.
-3. `https://aurora-s-cake.sagarmia583.workers.dev/api/public`
-   - Expected validated public catalog JSON and products.
+The Google Web Client ID is public configuration. OAuth client secrets, service-account JSON, staff passwords and auth tokens must never be frontend variables.
 
-### 4. Test Firestore writing (Super Admin only)
+The Apps Script deployment is separate from the Worker deployment. Install the matching current Apps Script modules or the single `Code.AllInOne.gs` file, without duplicate handlers. Back up existing code/data before an update, run only the relevant setup functions, and deploy a **New version** of the existing web app. Preserve existing staff access and customer/order rows. GitHub commits alone do not update Apps Script.
 
-Log into Staff Panel as **super_admin**, open **Orders & delivery → Firebase order backup → Test Firebase write**. The request is first authorized by Apps Script. Only a verified `super_admin` is allowed to trigger a harmless Firestore write to `integration_checks/cloudflare_pages` (the document ID is historical and shared by Pages and Workers). Inspect the response:
-- `write_verified`: OAuth and Firestore IAM write succeeded.
-- `firebase_oauth_failed_400`: service account JSON/key may be wrong or revoked.
-- `firestore_write_403`: insufficient Firestore IAM permission.
-- `firebase_server_connectivity_failed`: timeouts, network or runtime error.
-- `not_configured` / `invalid_json` / `wrong_project_id`: review Cloudflare runtime secrets.
+## 3. Keep migration features disabled
 
-Then place **one real checkout test order** through the **Workers** site. In DevTools → Network → `/api/operations` the response should have header `X-Aurora-Firebase-Mirror: saved` or `unchanged`. Verify the order exists in both:
-- Google Sheets (source of truth).
-- Cloud Firestore → database `(default)` → collection `orders` → document `{order.id}` (mirror).
+The current tracked defaults are deliberate:
 
-**Do not place a second order if a write times out.** Retry the *same request ID* through the existing checkout system.
+```toml
+FIREBASE_MIRROR_ENABLED = "false"
+FIREBASE_PRIMARY_CATALOG_ENABLED = "false"
+FIREBASE_PRIMARY_STAFF_ENABLED = "false"
+D1_PREVIEW_ENABLED = "false"
+D1_MUTATIONS_ENABLED = "false"
+```
 
-### 5. Migrate historical orders after live test
+`GET /api/firebase-sync-status` reporting `enabled:false` / `configuration_code:"disabled"` is expected in this configuration. Do not add a Firebase service account, enable mirrors, run Firestore backfills or turn on a Firebase preview to repair Google Sheets checkout.
 
-Use the existing **Super Admin → Orders → Sync existing orders** button. This is an explicit, paged backfill of server-verified Google Sheets data. It does not delete or modify the original. Review errors, reconcile totals and repeat until complete.
+`AURORA_DB` is bound to the owner's existing `aurora-cake-db`. R2 has not been bound in the tracked configuration. Keep the D1 flags off until the schema, private backup, historical import reconciliation, R2 resource and access controls are verified. Follow [D1/R2 migration](CLOUDFLARE_D1_R2_MIGRATION.md) for that separate project; do not create a second database or treat a binding as a completed migration.
 
-### What is not yet migrated
+## 4. Read-only deployment checks
 
-This update mirrors only authoritative order documents + order status transitions. Standalone POS Sales, inventory quantities, expenses, baking cost snapshots, full customer accounts, CMS and staff identity are **not** yet fully migrated to Firebase. They remain in the original systems, and it would be unsafe to present this as a full primary database switch.
+Use the Cloudflare hostname throughout:
 
-Cloudflare has usage limits even on the Free plan. The hostname works only after the Cloudflare project itself has completed a successful deploy. CI build tests are not equivalent to a real deployed customer order test.
+1. Open `/` and confirm the current storefront renders and images load.
+2. `GET /api/backend-health` must return JSON with `ok:true` and `up_to_date:true`. A `503` missing-backend error means `AURORA_SCRIPT_POST_URL` is absent/invalid at runtime; check that the active Worker revision includes the reviewed Wrangler runtime variable. A `502`/`504` means the upstream reply or connection failed. A valid but older release needs a matching Apps Script update; changing frontend files cannot update it.
+3. `GET /api/public` must return the shop's validated public catalogue JSON. HTML, a Google login screen or a React shell is a failure. Customer records must not appear in this response.
+4. `GET /api/operations` should return `405`, because it accepts POST only. Unknown `/api/*` paths should return JSON `404`, not the storefront HTML.
+5. Confirm disabled migration status is expected; do not enable a migration flag merely to make its status green.
+
+Check the deployed Worker version/build revision against the intended commit. A successful GitHub CI build or Wrangler dry-run does not prove that this Worker version was deployed or that runtime bindings and Apps Script match it.
+
+## 5. Controlled acceptance after configuration
+
+Use [Live Operations Setup](LIVE_OPERATIONS_SETUP.md) for the detailed business flow. Read-only checks and deliberately invalid POST requests can validate routing/rejection without creating an order. Successful order creation, staff status changes and COD delivery require a controlled test order approved by the shop owner.
+
+For an approved test, verify exactly one order and its item rows, a confirmed receipt, role-restricted staff access, assigned-rider access and delivery OTP/COD rules. If an acknowledgement times out, retry the **same request ID** instead of submitting a new order. Reconcile the private Sheet record before declaring the flow successful.
+
+Do not reactivate retired hosting, turn on D1/Firebase mutations, import historical records, or send customer campaigns as a side effect of a deployment health check.

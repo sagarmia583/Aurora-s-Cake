@@ -29,7 +29,7 @@ const SheetContentPanel = lazy(() => import('./components/SheetContentPanel').th
 import { loadConfirmedSheetOrders, rememberConfirmedSheetOrder, removeConfirmedSheetOrdersById } from './services/googleSheetOrders';
 import { fetchCustomerOrderStatus, redeemLegacyReceiptAccess } from './services/sheetStaffApi';
 import { isConfirmedDeletedSheetOrder, verifyStoredOrderHistory } from './services/sheetOrderHistorySync';
-import { linkPhoneCustomerReceipt } from './services/phoneCustomerApi';
+import { syncPhoneCustomerConfirmedOrder } from './services/phoneCustomerApi';
 import { getBrowserWorkspaceStorage, isStaffWorkspaceOpen, setStaffWorkspaceOpen } from './services/staffWorkspaceSession';
 import { reconcilePublicCart, reorderFromPublicOrder } from './services/reconcilePublicCart';
 import { 
@@ -100,6 +100,10 @@ export default function App() {
 
   const cartRef = useRef(cartItems);
   const [cartNotice, setCartNotice] = useState('');
+  const [profileSyncFailure,setProfileSyncFailure]=useState<{order:Order;endpoint:string;message:string;mode:'profile'|'link'}|null>(null);
+  const [profileSyncHint,setProfileSyncHint]=useState(false);
+  const [profileSyncBusy,setProfileSyncBusy]=useState(false);
+  const profileSyncVersion=useRef(0);
   useEffect(() => { cartRef.current = cartItems; }, [cartItems]);
 
   // Modals & Navigation
@@ -207,15 +211,30 @@ export default function App() {
     setCartItems((prev) => prev.filter((i) => i.cart_item_id !== cartItemId));
   };
 
+  const syncCustomerDeliveryProfile = async (order:Order,endpoint:string,mode:'profile'|'link') => {
+    const attempt=++profileSyncVersion.current;
+    let token='';try{token=sessionStorage.getItem('aurora_customer_phone_session_v1')||'';}catch{}
+    if(!token){
+      setProfileSyncBusy(false);
+      setProfileSyncFailure({order,endpoint,mode,message:'Sign in to the same customer account, then retry saving these delivery details.'});
+      return;
+    }
+    setProfileSyncBusy(true);
+    try{
+      const result=await syncPhoneCustomerConfirmedOrder(endpoint,token,order,mode==='profile');
+      if(attempt===profileSyncVersion.current){setProfileSyncFailure(null);setProfileSyncHint(result==='linked_only');}
+    }catch(error){
+      if(attempt===profileSyncVersion.current)setProfileSyncFailure({order,endpoint,mode,
+        message:error instanceof Error?error.message:'Your delivery profile could not be confirmed.'});
+    }finally{if(attempt===profileSyncVersion.current)setProfileSyncBusy(false);}
+  };
   const handleOrderSuccess = (newOrder: Order) => {
     if (newOrder.persistence === 'google_sheets') {
       rememberConfirmedSheetOrder(newOrder);
-      // The original receipt capability authorizes linking. Phone alone never
-      // exposes historical orders; account association is stored in the Sheet.
+      // Profile saving uses this committed receipt and the authenticated account.
+      // A failure is retried independently; the confirmed COD order is untouched.
       let token='';try{token=sessionStorage.getItem('aurora_customer_phone_session_v1')||'';}catch{}
-      if(token)void linkPhoneCustomerReceipt(sheetContent.endpoint,token,newOrder).catch(()=>{
-        setCartNotice('Your order was saved, but account linking needs retrying from My bakery orders.');
-      });
+      if(token)void syncCustomerDeliveryProfile(newOrder,sheetContent.endpoint,publicData.customer_order_profile_sync_enabled?'profile':'link');
     }
     setOrders(previous => [newOrder, ...previous.filter(order => order.id !== newOrder.id)]);
     setCartNotice('');
@@ -403,6 +422,21 @@ export default function App() {
       />
 
       {cartNotice && <div role="status" className="mx-4 my-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 text-xs flex justify-between items-start gap-4"><span>{cartNotice}</span><button onClick={() => setCartNotice('')} className="font-semibold underline">Dismiss</button></div>}
+      {profileSyncFailure&&<div role="status" className="mx-4 my-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+        <p className="font-semibold">Your order is saved. {profileSyncFailure.mode==='profile'?'Delivery details still need syncing to your account.':'Linking it to your account needs attention.'}</p>
+        <p className="mt-1 text-xs">{profileSyncFailure.message} Retrying here only updates your account; it does not place another order.</p>
+        <div className="mt-3 flex flex-wrap gap-3">
+          <button type="button" disabled={profileSyncBusy} onClick={()=>void syncCustomerDeliveryProfile(profileSyncFailure.order,profileSyncFailure.endpoint,profileSyncFailure.mode)}
+            className="rounded-lg bg-emerald-800 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{profileSyncBusy?'Updating account…':profileSyncFailure.mode==='profile'?'Retry saving delivery details':'Retry account linking'}</button>
+          <button type="button" onClick={()=>setIsCustomerAccountOpen(true)} className="text-xs font-semibold underline">My bakery account</button>
+          <button type="button" disabled={profileSyncBusy} onClick={()=>setProfileSyncFailure(null)} className="text-xs underline disabled:opacity-50">Dismiss</button>
+        </div>
+      </div>}
+      {profileSyncHint&&<div role="status" className="mx-4 my-3 rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-xs text-emerald-950">
+        Your order is saved and linked. Automatic profile saving is not enabled yet; you can set the default delivery details for other devices in My bakery account.
+        <button type="button" onClick={()=>setIsCustomerAccountOpen(true)} className="ml-2 font-semibold underline">Edit saved delivery details</button>
+        <button type="button" onClick={()=>setProfileSyncHint(false)} className="ml-3 underline">Dismiss</button>
+      </div>}
       {/* Main Content Area: Responsive Website vs Mobile App */}
       <main id="main-content" className={viewMode === 'web' && activeRole === 'customer' ? 'ac-main' : 'ac-main ac-main--portal'}>
         <Suspense fallback={<div className="py-20 text-center text-rose-700" role="status">Opening the studio…</div>}>

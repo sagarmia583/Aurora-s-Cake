@@ -54,6 +54,8 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   // Form State
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const currentPhoneRef = useRef(customerPhone);
+  currentPhoneRef.current=customerPhone;
   const [autofillNotice, setAutofillNotice] = useState('');
   const ownedCustomerRef = useRef<CheckoutCustomerInfo | null>(null);
   const [deliveryAddress, setDeliveryAddress] = useState('');
@@ -77,15 +79,18 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const currentPrefillRef = useRef<{name:string;address:string}|null>(null);
   const loadLocalProfile = () => {
     try { const value=JSON.parse(localStorage.getItem('aurora_customer_profile_v1')||'{}');
-      return value && typeof value==='object'?value as {name?:string;phone?:string;address?:string}:null;
+      if(!value||typeof value!=='object'||Array.isArray(value))return null;
+      return {name:typeof value.name==='string'?value.name:'',phone:typeof value.phone==='string'?value.phone:'',
+        address:typeof value.address==='string'?value.address:''};
     } catch {return null;}
   };
   const fillFromPhone = (phone:string, verified?:CheckoutCustomerInfo|null) => {
     const customer=matchCheckoutCustomer(phone,verified?{name:verified.name,phone:verified.phone,address:verified.address}:null,
       loadLocalProfile(),loadConfirmedSheetOrders());
     if(!customer){setAutofillNotice('');return;}
-    setCustomerName(previous=>!previous||previous===currentPrefillRef.current?.name?customer.name:previous);
-    setDeliveryAddress(previous=>!previous||previous===currentPrefillRef.current?.address?customer.address:previous);
+    const previousFill=currentPrefillRef.current;
+    setCustomerName(previous=>!previous||previous===previousFill?.name?customer.name:previous);
+    setDeliveryAddress(previous=>!previous||previous===previousFill?.address?customer.address:previous);
     currentPrefillRef.current={name:customer.name,address:customer.address};
     setAutofillNotice(customer.source==='account'?'Saved phone-account details loaded from Google Sheets.':
       'Your previously saved contact details were found on this device.');
@@ -106,26 +111,33 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
       }
     }
     setCustomerPhone(value);
+    currentPhoneRef.current=value;
     fillFromPhone(value,ownedCustomerRef.current);
   };
   useEffect(()=>{
-    if(!isOpen||!sheetOrderEndpoint)return;
+    if(!isOpen||!sheetOrderEndpoint||submissionInFlight.current||unconfirmed)return;
+    const device=loadLocalProfile();
+    const receipts=loadConfirmedSheetOrders();
+    const recent=receipts.filter(order=>!!order.customer_access_token)
+      .sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)))[0];
     let token='';try{token=sessionStorage.getItem('aurora_customer_phone_session_v1')||'';}catch{}
-    if(!token)return;
+    ownedCustomerRef.current=null;
+    const fillLocal=()=>{
+      const phone=currentPhoneRef.current||device?.phone||recent?.customer_phone||'';
+      if(phone){setCustomerPhone(previous=>previous||phone);fillFromPhone(phone);}
+    };
+    if(!token){fillLocal();return;}
     let active=true;
     getPhoneCustomerProfile(sheetOrderEndpoint,token).then(profile=>{
-      if(!active)return;
+      if(!active||submissionInFlight.current)return;
       const verified={name:profile.name,phone:profile.phone,address:profile.address,source:'account' as const};
       ownedCustomerRef.current=verified;
-      setCustomerPhone(previous=>{
-        if(!previous){setCustomerName(n=>n||profile.name);setDeliveryAddress(a=>a||profile.address);
-          currentPrefillRef.current={name:profile.name,address:profile.address};
-          setAutofillNotice('Your saved phone-account profile was loaded from Google Sheets.');return profile.phone;}
-        return previous;
-      });
-    }).catch(()=>{/* An expired account session must not block guest checkout. */});
+      const phone=currentPhoneRef.current||profile.phone;
+      setCustomerPhone(previous=>previous||profile.phone);
+      fillFromPhone(phone,verified);
+    }).catch(()=>{if(active&&!submissionInFlight.current)fillLocal();});
     return()=>{active=false;};
-  },[isOpen,sheetOrderEndpoint]);
+  },[isOpen,sheetOrderEndpoint,unconfirmed]);
   const closeCheckout = () => { if (!submissionInFlight.current) onClose(); };
   const dialogRef = useCakeDialog(closeCheckout, isOpen);
 
