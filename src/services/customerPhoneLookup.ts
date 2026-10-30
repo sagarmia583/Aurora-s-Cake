@@ -16,15 +16,22 @@ export function matchCheckoutCustomer(
 ):CheckoutCustomerInfo|null{
   const target=normalizeCheckoutPhone(phone);
   if(!target)return null;
-  if(account&&normalizeCheckoutPhone(account.phone)===target&&account.name.trim()){
-    return {name:account.name,phone:account.phone,address:account.address||'',source:'account'};
-  }
-  if(device&&normalizeCheckoutPhone(device.phone||'')===target&&device.name?.trim()){
-    return {name:device.name,phone:device.phone||phone,address:device.address||'',source:'device'};
-  }
+  const text=(value:unknown)=>typeof value==='string'?value.trim():'';
   const owned=localReceipts
     .filter(order=>order.persistence==='google_sheets'&&normalizeCheckoutPhone(order.customer_phone)===target
-      && typeof order.customer_access_token==='string'&&order.customer_access_token.length>=72)
-    .sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)))[0];
-  return owned?{name:owned.customer_name,phone:owned.customer_phone,address:owned.delivery_address,source:'receipt'}:null;
+      && typeof order.customer_access_token==='string'&&/^[a-f0-9-]{72}$/i.test(order.customer_access_token))
+    .sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));
+  const candidates:CheckoutCustomerInfo[]=[];
+  if(account&&normalizeCheckoutPhone(account.phone)===target)
+    candidates.push({name:text(account.name),phone:account.phone,address:text(account.address),source:'account'});
+  if(device&&normalizeCheckoutPhone(device.phone||'')===target)
+    candidates.push({name:text(device.name),phone:device.phone||phone,address:text(device.address),source:'device'});
+  for(const receipt of owned)candidates.push({name:text(receipt.customer_name),phone:receipt.customer_phone,
+    address:text(receipt.delivery_address),source:'receipt'});
+  // An incomplete authenticated profile must not mask an already-owned address.
+  // Pick each field separately, while matching every source to the same phone.
+  const first=candidates.find(candidate=>candidate.name||candidate.address);
+  if(!first)return null;
+  return {name:candidates.find(candidate=>candidate.name)?.name||'',phone:first.phone,
+    address:candidates.find(candidate=>candidate.address)?.address||'',source:first.source};
 }

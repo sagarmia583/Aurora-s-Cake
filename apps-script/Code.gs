@@ -5,7 +5,7 @@
 // Leave blank when this script is bound to the intended Sheet through Extensions > Apps Script.
 var AURORA_SPREADSHEET_ID = '18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4';
 var AURORA_SCHEMA_VERSION = 1;
-var AURORA_BACKEND_RELEASE = 'aurora-2026-10-26-customer-master-r2';
+var AURORA_BACKEND_RELEASE = 'aurora-2026-10-30-profiles-email-r1';
 var PUBLIC_TABLE_SCHEMAS = {
   settings: ['key','value'],
   content: ['key','value'],
@@ -37,7 +37,7 @@ function auroraSpreadsheet_() {
   return book;
 }
 function auroraCacheKey_() {
-  return 'aurora_public_v1_orders_'  + (auroraConfiguredId_() || 'bound');
+  return 'aurora_public_profiles_email_v1_'  + (auroraConfiguredId_() || 'bound');
 }
 
 function doGet(e) {
@@ -47,6 +47,7 @@ function doGet(e) {
     return auroraResponse_({ok:false,error:'Invalid callback.'});
   }
   var action = params.action || 'public';
+  if(action==='email_confirm'||action==='email_unsubscribe')return auroraSubscriptionLinkGet_(action,params.token||'');
   if(action==='public_image') {
     try {return auroraResponse_(auroraPublicImage_(params.id||''));}
     catch(error){return auroraResponse_({ok:false,error:'Image unavailable.'});}
@@ -93,6 +94,8 @@ function doPost(e) {
   var lock;
   var locked = false;
   try {
+    var form=e&&e.parameter?e.parameter:{};
+    if((form.action==='email_confirm'||form.action==='email_unsubscribe')&&e.postData&&String(e.postData.type||'').indexOf('application/x-www-form-urlencoded')===0)return auroraSubscriptionLinkPost_(form.action,form.token||'');
     var raw = e && e.postData && e.postData.contents;
     if (typeof raw !== 'string' || !raw || raw.length > 950000) auroraReject_('invalid_request','Request is too large.');
     // Only the authenticated image-upload route can exceed normal 50 KB JSON.
@@ -100,12 +103,13 @@ function doPost(e) {
       auroraReject_('invalid_request','The order body must be under 50 KB.');
     var input;
     try { input = JSON.parse(raw); } catch (_) { auroraReject_('invalid_request','The order body must be valid JSON.'); }
+    if(input&&/^customer_email_(status|subscribe|unsubscribe)$/.test(String(input.action||'')))return auroraResponse_(auroraSubscriptionPost_(input));
     if(input&&input.action==='staff_image_upload')return auroraResponse_(auroraImageUpload_(input));
     // Private operations authenticate every POST; never expose these reads via GET.
     // All credential/private account routes use POST; never exposed via public GET.
     if(input && /^(staff_password_login|staff_password_logout|staff_account_create|staff_account_set_active|staff_account_reset_password)$/.test(String(input.action||'')))
       return auroraResponse_(auroraAccountStaffPost_(input));
-    if(input && /^customer_phone_(signup|login|session|logout|orders|profile|claim|password|close)$/.test(String(input.action||'')))
+    if(input && /^customer_phone_(signup|login|session|logout|orders|profile|claim|password|close|save_order_profile)$/.test(String(input.action||'')))
       return auroraResponse_(auroraAccountCustomerPost_(input));
     if (input && (input.action === 'create_custom_cake' || input.action === 'get_custom_cake_status' || input.action === 'staff_custom_cakes' || input.action === 'staff_custom_quote')) return auroraResponse_(auroraCustomCakePost_(input));
     if (input && input.action === 'staff_customer_lookup') return auroraResponse_(auroraStaffCustomerLookup_(input));
@@ -474,6 +478,7 @@ function auroraPublicData_() {
   return {
     schema_version: AURORA_SCHEMA_VERSION,
     order_submission_enabled: true,
+    customer_order_profile_sync_enabled: typeof auroraAccountSaveOrderProfile_ === 'function',
     settings: settings,
     content: content,
     hero_slides: active('hero_slides'),
@@ -497,7 +502,20 @@ function auroraPublicData_() {
  * Creates/initializes only missing or completely empty public tabs and private order headers.
  * Does not overwrite existing rows, clear sheets, change sharing or submit an order.
  */
+function auroraRequireInteractiveSetup_() {
+  var active='',effective='';
+  try{
+    active=String(Session.getActiveUser().getEmail()||'').trim().toLowerCase();
+    effective=String(Session.getEffectiveUser().getEmail()||'').trim().toLowerCase();
+  }catch(_){throw new Error('Run setup directly in the Apps Script editor while signed in as the intended owner.');}
+  // An execute-as-owner web app still has the owner's effective identity.
+  // Its anonymous visitor must never inherit permission to run editor setup.
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(active)||active!==effective)
+    throw new Error('Run setup directly in the Apps Script editor while signed in as the intended owner.');
+  return effective;
+}
 function setupSheetDatabase() {
+  auroraRequireInteractiveSetup_();
   var book = auroraSpreadsheet_();
   var seed = typeof AURORA_SEED_DATA !== 'undefined' ? AURORA_SEED_DATA : {};
   var report = [];
@@ -544,6 +562,8 @@ function setupSheetDatabase() {
     sheet.setColumnWidths(1,columns.length,160);
     report.push(name + ': private headers created; no customer starter rows');
   });
+  if(typeof auroraSetupSubscriptions_==='function')auroraSetupSubscriptions_(book);
+  if(typeof auroraSetupCampaignTables_==='function')auroraSetupCampaignTables_(book);
   CacheService.getScriptCache().remove(auroraCacheKey_());
   console.log(report.join('\n'));
   return report.join('\n');

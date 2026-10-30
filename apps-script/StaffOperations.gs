@@ -18,14 +18,11 @@ var AURORA_STAFF_ROLES_ = ['super_admin','admin','order_manager','kitchen_manage
  * It refuses to replace an existing nonempty staff allowlist.
  */
 function setupAuroraOwnerOnce() {
+  var email = auroraRequireInteractiveSetup_();
   var props = PropertiesService.getScriptProperties();
   var existing = String(props.getProperty('AURORA_STAFF_USERS') || '').trim();
   if (existing && existing !== '{}') {
     throw new Error('Staff allowlist already exists. Update it manually in Script Properties; setup will not overwrite it.');
-  }
-  var email = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new Error('Could not detect the script owner Google email. Configure AURORA_STAFF_USERS manually.');
   }
   var staff = {};
   staff[email] = {role:'super_admin',name:'Shop Owner'};

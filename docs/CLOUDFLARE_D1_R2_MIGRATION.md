@@ -12,7 +12,7 @@
 - `scripts/prepare-d1-import.mjs`: offline export validator/generator, dry-run by default. Writes **only** to private `migration_runs` and `migration_staging`, with stable legacy text IDs, SHA-256 fingerprints, exact row counts and order-money totals. Does not delete or overwrite the legacy source or automatically change live orders.
 - `scripts/verify-d1-schema.py` + `tests/cloudflare-d1-r2.test.ts`: schema constraints and fail-closed Worker route tests.
 
-**Important:** This is the **foundation and isolated API**, not yet a finished customer app. New D1 API mutating operations are gated off; no D1 database/R2 bucket binding has been added because the owner's Cloudflare resource IDs have not been provided, and no real historical records have been copied. Live staff UI and customer checkout still rely on the older backend.
+**Current scope:** This is the **foundation and isolated API**, not yet a finished D1 customer app. The owner's existing D1 database is bound as `AURORA_DB`; a binding alone does not verify schema migrations or copy historical data. R2 is not yet bound, historical import has not been reconciled, and D1 preview/mutations remain disabled. Live staff UI and customer checkout still use the Google Apps Script/Sheets backend until a verified cutover.
 
 ## Current D1 binding status
 

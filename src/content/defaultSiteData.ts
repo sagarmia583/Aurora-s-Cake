@@ -3,6 +3,7 @@ import type { PublicSiteData } from '../types/siteContent';
 export const DEFAULT_PUBLIC_SITE_DATA: PublicSiteData = {
   "schema_version": 1,
   "order_submission_enabled": false,
+  "customer_order_profile_sync_enabled": false,
   "settings": {
     "id": "setting-1",
     "shop_name": "Aurora’s Cake",

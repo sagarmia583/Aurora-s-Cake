@@ -1,4 +1,6 @@
-# 🍰 Cake Shop Implementation Roadmap
+# Historical prototype implementation roadmap
+
+> **Historical reference.** This checklist records the original Supabase/mock implementation plan. Checked boxes describe prototype artifacts; they do not certify live services, paid payment methods, production permissions, latency targets or completed deployment. The current deployment is Cloudflare Workers with the Google Sheets/Apps Script backend. D1/R2 migration flags remain disabled. Use [current setup](CLOUDFLARE_WORKER_SETUP.md) and [migration prerequisites](CLOUDFLARE_D1_R2_MIGRATION.md) for current work.
 
 - [x] **Phase 0: Project Architecture & Foundations**
   - [x] Environment configuration (`.env.example`, Supabase variables)

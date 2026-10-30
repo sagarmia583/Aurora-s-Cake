@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {canOperate,isOrder,nextOperation,visibleOrders,type StaffOrder,type StaffSession} from '../apps/staff-mobile/src/domain';
+import {canOperate,isOrder,validateStaffOperationsUrl,STAFF_PRODUCTION_OPERATIONS_URL,nextOperation,visibleOrders,type StaffOrder,type StaffSession} from '../apps/staff-mobile/src/domain';
 
 const owner:StaffSession={role:'admin',email:'manager@example.com',name:'Manager',riders:[]};
 const rider:StaffSession={role:'delivery_man',email:'rider01',username:'rider01',name:'Rider One',riders:[]};
@@ -35,4 +35,30 @@ test('mobile order validation rejects bearer secrets and malformed data',()=>{
   assert.equal(isOrder({...safe,customer_access_token:'private'}),false);
   assert.equal(isOrder({...safe,total_amount:-10}),false);
   assert.equal(isOrder({...safe,status:'unknown'}),false);
+});
+
+test('native staff endpoint accepts the exact Cloudflare production origin and retained legacy shop only',()=>{
+  assert.equal(validateStaffOperationsUrl(STAFF_PRODUCTION_OPERATIONS_URL),STAFF_PRODUCTION_OPERATIONS_URL);
+  assert.equal(validateStaffOperationsUrl('https://aurora-s-cake.vercel.app/api/operations'),'https://aurora-s-cake.vercel.app/api/operations');
+  assert.equal(validateStaffOperationsUrl('https://AURORA-S-CAKE.SAGARMIA583.WORKERS.DEV:443/api/operations'),STAFF_PRODUCTION_OPERATIONS_URL);
+});
+test('native staff credentials cannot be sent to lookalike hosts, other tenants, or altered API targets',()=>{
+  for(const endpoint of [
+    '', 'not a URL',
+    'http://aurora-s-cake.sagarmia583.workers.dev/api/operations',
+    'https://other.sagarmia583.workers.dev/api/operations',
+    'https://aurora-s-cake.other.workers.dev/api/operations',
+    'https://aurora-s-cake.sagarmia583.workers.dev.evil.example/api/operations',
+    'https://aurora-s-cake.vercel.app.evil.example/api/operations',
+    'https://other-shop.vercel.app/api/operations',
+    'https://aurora-s-cake.vercel.app:444/api/operations',
+    'https://user:password@aurora-s-cake.sagarmia583.workers.dev/api/operations',
+    'https://@aurora-s-cake.sagarmia583.workers.dev/api/operations',
+    STAFF_PRODUCTION_OPERATIONS_URL+'?token=private',
+    STAFF_PRODUCTION_OPERATIONS_URL+'#private',
+    STAFF_PRODUCTION_OPERATIONS_URL+'?',
+    STAFF_PRODUCTION_OPERATIONS_URL+'#',
+    STAFF_PRODUCTION_OPERATIONS_URL+'/',
+    'https://aurora-s-cake.sagarmia583.workers.dev/api/public',
+  ]) assert.throws(()=>validateStaffOperationsUrl(endpoint),Error,endpoint);
 });

@@ -24,6 +24,7 @@ function auroraImageFolder_(create){
  * Existing folder is reused; the folder is never made public.
  */
 function setupAuroraImagesOnce(){
+  auroraRequireInteractiveSetup_();
   return auroraImageFolder_(true).getId();
 }
 function auroraImageMime_(bytes){

@@ -5,6 +5,7 @@ import { verifyCustomerGoogle, linkCustomerReceipt, recoverCustomerReceipts } fr
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
 import { getPhoneCustomerProfile, signupPhoneCustomer, loginPhoneCustomer, updatePhoneCustomerProfile, phoneCustomerOrders, linkPhoneCustomerReceipt, logoutPhoneCustomer, changePhoneCustomerPassword, closePhoneCustomerAccount } from '../services/phoneCustomerApi';
 import type { PhoneCustomerProfile } from '../services/phoneCustomerApi';
+import { EmailSubscriptionPanel } from './EmailSubscriptionPanel';
 import { normalizeCheckoutPhone } from '../services/customerPhoneLookup';
 
 type GoogleSdk = {
@@ -276,6 +277,7 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
               <textarea aria-label="Delivery address" placeholder="Saved delivery address" value={phoneProfileDraft.address} onChange={e=>setPhoneProfileDraft(p=>({...p,address:e.target.value}))} className="border rounded-xl p-2"/>
               <button disabled={busy} type="submit" className="bg-emerald-800 text-white rounded-xl p-2 disabled:opacity-50">Save profile to Sheets</button>
             </form>
+            <EmailSubscriptionPanel key={endpoint+phoneAccount.profile.id} endpoint={endpoint} authToken={phoneAccount.token} initialEmail={phoneAccount.profile.email}/>
             <details className="rounded-xl border border-emerald-200 bg-white p-3">
               <summary className="text-sm font-semibold cursor-pointer">Account security & password</summary>
               <form onSubmit={changeMyPassword} className="mt-3 space-y-2">

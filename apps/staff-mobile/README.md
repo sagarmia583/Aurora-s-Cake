@@ -15,8 +15,8 @@ Expo SDK 58 / React Native native staff app. This is source code, not yet a sign
 1. Back up Google Sheet and install/deploy latest ALL-IN-ONE Code.gs using Apps Script New version.
 2. Run setupSheetDatabase() to add private staff_accounts and auth_sessions if absent.
 3. In the Super Admin web dashboard create active employee username/password accounts.
-4. The Vercel Production deployment must have working POST /api/operations, configured with the same Apps Script /exec URL.
-5. A Vercel SSO-protected Preview is normally unsuitable for native login: do not remove authentication to bypass it.
+4. The current Cloudflare Worker at `https://aurora-s-cake.sagarmia583.workers.dev` must expose working POST `/api/operations`, configured with the verified Apps Script `/exec` runtime URL. See [Cloudflare setup](../../docs/CLOUDFLARE_WORKER_SETUP.md).
+5. Check the actual Cloudflare deployment and staff permissions before building the app. Keep Vercel/Netlify retired; do not remove protection to make a preview URL work.
 
 ## Run with Expo in Windows PowerShell
 

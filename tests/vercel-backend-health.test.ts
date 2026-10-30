@@ -14,12 +14,12 @@ test('new backend health check confirms exact Apps Script version without privat
   process.env.AURORA_SCRIPT_POST_URL=SCRIPT;
   globalThis.fetch=(async()=>({ok:true,url:'https://script.googleusercontent.com/macros/echo',
     json:async()=>({ok:true,service:'aurora_public_content',schema_version:1,
-      release:'aurora-2026-10-26-customer-master-r2',private_key:'never-output'})})) as unknown as typeof fetch;
+      release:'aurora-2026-10-30-profiles-email-r1',private_key:'never-output'})})) as unknown as typeof fetch;
   try{
     const result=await check();
     assert.equal(result.status,200);
     assert.equal(result.body.up_to_date,true);
-    assert.equal(result.body.installed_release,'aurora-2026-10-26-customer-master-r2');
+    assert.equal(result.body.installed_release,'aurora-2026-10-30-profiles-email-r1');
     assert.equal('private_key' in result.body,false);
     assert.equal(result.headers['Cache-Control'],'no-store');
     assert.equal((await check('POST')).status,405);

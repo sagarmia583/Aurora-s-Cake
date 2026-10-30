@@ -1,6 +1,7 @@
 import React, { Suspense, useMemo, useState } from 'react';
 import { ClipboardCopy, KeyRound, MapPin, PackageCheck, Phone, ShieldCheck, X } from 'lucide-react';
 import type { Order } from '../types';
+import { EmailSubscriptionPanel } from './EmailSubscriptionPanel';
 import { privatePost } from '../services/sheetStaffApi';
 import { recoverOrderWithReceiptKey } from '../services/receiptRecovery';
 
@@ -165,6 +166,7 @@ export const CustomerAccountPortal:React.FC<Props>=(props)=>{
         <p className="text-xs text-slate-500 flex gap-2 items-start"><ShieldCheck size={16} className="shrink-0"/>
           We never disclose customer names, addresses, complete order history or rider OTP through an anonymous phone-only search.
         </p>
+        <EmailSubscriptionPanel endpoint={endpoint} onSignIn={()=>setShowGuest(false)}/>
         <button type="button" onClick={()=>setShowGuest(false)} className="w-full bg-emerald-800 text-white font-semibold p-3 rounded-xl">
           Open mobile account & saved order history
         </button>

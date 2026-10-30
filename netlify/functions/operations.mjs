@@ -24,7 +24,8 @@ export default async function operations(request, { scriptUrl = process.env.AURO
     'get_custom_cake_status','staff_custom_cakes','staff_custom_quote',
     'staff_password_login','staff_password_logout','staff_account_create','staff_account_set_active',
     'staff_account_reset_password','staff_cms_list','staff_cms_create','staff_cms_update','staff_cms_delete','staff_image_upload','customer_phone_signup','customer_phone_login','customer_phone_session',
-    'customer_phone_logout','customer_phone_profile','customer_phone_orders','customer_phone_claim','customer_phone_password','customer_phone_close'];
+    'customer_phone_logout','customer_phone_profile','customer_phone_orders','customer_phone_claim','customer_phone_password','customer_phone_close','customer_phone_save_order_profile',
+    'customer_email_status','customer_email_subscribe','customer_email_unsubscribe'];
   if(!payload||typeof payload!=='object'||Array.isArray(payload)||!allowed.includes(payload.action))
     return response(400,'Unknown action.');
   if(raw.length>50000&&payload.action!=='staff_image_upload')

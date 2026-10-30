@@ -1,11 +1,10 @@
 /**
  * AURORA'S CAKE — ONE-FILE Google Apps Script backend.
- * Public COD saves contact data and order history privately in Google Sheets.
- * Password-free customer contact submissions and recovery by original
- * private receipt key are supported; phone-only public lookup is forbidden.
- * Staff password sessions, owner Google login, CMS, image hosting and order
- * verification remain role protected. Back up the Sheet first. Replace the
- * complete Code.gs; run setupSheetDatabase(), then deploy NEW Web App version.
+ * Rebuilt from the individual apps-script modules by scripts/build-apps-script.mjs.
+ * Customer accounts, saved delivery profiles and product-email preferences stay private.
+ * Replace the complete deployed Code.gs; run setupSheetDatabase(), then setupCampaignTools()
+ * as the bakery owner to authorize mail and install the Sheet menu. Neither setup sends email.
+ * Deploy a NEW Web App version using Execute as Me / access Anyone.
  */
 
 /* ==== BEGIN apps-script/Code.gs ==== */
@@ -16,7 +15,7 @@
 // Leave blank when this script is bound to the intended Sheet through Extensions > Apps Script.
 var AURORA_SPREADSHEET_ID = '18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4';
 var AURORA_SCHEMA_VERSION = 1;
-var AURORA_BACKEND_RELEASE = 'aurora-2026-10-26-customer-master-r2';
+var AURORA_BACKEND_RELEASE = 'aurora-2026-10-30-profiles-email-r1';
 var PUBLIC_TABLE_SCHEMAS = {
   settings: ['key','value'],
   content: ['key','value'],
@@ -48,7 +47,7 @@ function auroraSpreadsheet_() {
   return book;
 }
 function auroraCacheKey_() {
-  return 'aurora_public_v1_orders_'  + (auroraConfiguredId_() || 'bound');
+  return 'aurora_public_profiles_email_v1_'  + (auroraConfiguredId_() || 'bound');
 }
 
 function doGet(e) {
@@ -58,6 +57,7 @@ function doGet(e) {
     return auroraResponse_({ok:false,error:'Invalid callback.'});
   }
   var action = params.action || 'public';
+  if(action==='email_confirm'||action==='email_unsubscribe')return auroraSubscriptionLinkGet_(action,params.token||'');
   if(action==='public_image') {
     try {return auroraResponse_(auroraPublicImage_(params.id||''));}
     catch(error){return auroraResponse_({ok:false,error:'Image unavailable.'});}
@@ -104,6 +104,8 @@ function doPost(e) {
   var lock;
   var locked = false;
   try {
+    var form=e&&e.parameter?e.parameter:{};
+    if((form.action==='email_confirm'||form.action==='email_unsubscribe')&&e.postData&&String(e.postData.type||'').indexOf('application/x-www-form-urlencoded')===0)return auroraSubscriptionLinkPost_(form.action,form.token||'');
     var raw = e && e.postData && e.postData.contents;
     if (typeof raw !== 'string' || !raw || raw.length > 950000) auroraReject_('invalid_request','Request is too large.');
     // Only the authenticated image-upload route can exceed normal 50 KB JSON.
@@ -111,12 +113,13 @@ function doPost(e) {
       auroraReject_('invalid_request','The order body must be under 50 KB.');
     var input;
     try { input = JSON.parse(raw); } catch (_) { auroraReject_('invalid_request','The order body must be valid JSON.'); }
+    if(input&&/^customer_email_(status|subscribe|unsubscribe)$/.test(String(input.action||'')))return auroraResponse_(auroraSubscriptionPost_(input));
     if(input&&input.action==='staff_image_upload')return auroraResponse_(auroraImageUpload_(input));
     // Private operations authenticate every POST; never expose these reads via GET.
     // All credential/private account routes use POST; never exposed via public GET.
     if(input && /^(staff_password_login|staff_password_logout|staff_account_create|staff_account_set_active|staff_account_reset_password)$/.test(String(input.action||'')))
       return auroraResponse_(auroraAccountStaffPost_(input));
-    if(input && /^customer_phone_(signup|login|session|logout|orders|profile|claim|password|close)$/.test(String(input.action||'')))
+    if(input && /^customer_phone_(signup|login|session|logout|orders|profile|claim|password|close|save_order_profile)$/.test(String(input.action||'')))
       return auroraResponse_(auroraAccountCustomerPost_(input));
     if (input && (input.action === 'create_custom_cake' || input.action === 'get_custom_cake_status' || input.action === 'staff_custom_cakes' || input.action === 'staff_custom_quote')) return auroraResponse_(auroraCustomCakePost_(input));
     if (input && input.action === 'staff_customer_lookup') return auroraResponse_(auroraStaffCustomerLookup_(input));
@@ -485,6 +488,7 @@ function auroraPublicData_() {
   return {
     schema_version: AURORA_SCHEMA_VERSION,
     order_submission_enabled: true,
+    customer_order_profile_sync_enabled: typeof auroraAccountSaveOrderProfile_ === 'function',
     settings: settings,
     content: content,
     hero_slides: active('hero_slides'),
@@ -508,7 +512,20 @@ function auroraPublicData_() {
  * Creates/initializes only missing or completely empty public tabs and private order headers.
  * Does not overwrite existing rows, clear sheets, change sharing or submit an order.
  */
+function auroraRequireInteractiveSetup_() {
+  var active='',effective='';
+  try{
+    active=String(Session.getActiveUser().getEmail()||'').trim().toLowerCase();
+    effective=String(Session.getEffectiveUser().getEmail()||'').trim().toLowerCase();
+  }catch(_){throw new Error('Run setup directly in the Apps Script editor while signed in as the intended owner.');}
+  // An execute-as-owner web app still has the owner's effective identity.
+  // Its anonymous visitor must never inherit permission to run editor setup.
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(active)||active!==effective)
+    throw new Error('Run setup directly in the Apps Script editor while signed in as the intended owner.');
+  return effective;
+}
 function setupSheetDatabase() {
+  auroraRequireInteractiveSetup_();
   var book = auroraSpreadsheet_();
   var seed = typeof AURORA_SEED_DATA !== 'undefined' ? AURORA_SEED_DATA : {};
   var report = [];
@@ -555,6 +572,8 @@ function setupSheetDatabase() {
     sheet.setColumnWidths(1,columns.length,160);
     report.push(name + ': private headers created; no customer starter rows');
   });
+  if(typeof auroraSetupSubscriptions_==='function')auroraSetupSubscriptions_(book);
+  if(typeof auroraSetupCampaignTables_==='function')auroraSetupCampaignTables_(book);
   CacheService.getScriptCache().remove(auroraCacheKey_());
   console.log(report.join('\n'));
   return report.join('\n');
@@ -1427,14 +1446,11 @@ var AURORA_STAFF_ROLES_ = ['super_admin','admin','order_manager','kitchen_manage
  * It refuses to replace an existing nonempty staff allowlist.
  */
 function setupAuroraOwnerOnce() {
+  var email = auroraRequireInteractiveSetup_();
   var props = PropertiesService.getScriptProperties();
   var existing = String(props.getProperty('AURORA_STAFF_USERS') || '').trim();
   if (existing && existing !== '{}') {
     throw new Error('Staff allowlist already exists. Update it manually in Script Properties; setup will not overwrite it.');
-  }
-  var email = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new Error('Could not detect the script owner Google email. Configure AURORA_STAFF_USERS manually.');
   }
   var staff = {};
   staff[email] = {role:'super_admin',name:'Shop Owner'};
@@ -1978,6 +1994,7 @@ function auroraAccountSafeCustomer_(p){
 }
 function auroraAccountCustomerPost_(input) {
   var action=String(input.action||'');
+  if(action==='customer_phone_save_order_profile')return auroraAccountSaveOrderProfile_(input);
   if(action==='customer_phone_signup'){
     var phone=auroraAccountPhone_(input.phone),password=auroraAccountPassword_(input.password);
     var name=auroraOrderText_(input.name,'Name',2,100);
@@ -2042,7 +2059,7 @@ function auroraAccountCustomerPost_(input) {
   }
   if(action==='customer_phone_profile'){
     var n=auroraOrderText_(input.name,'Name',2,100);
-    var address=auroraOptionalText_(input.address,'Address',300);
+    var address=auroraOptionalText_(input.address,'Address',1000);
     var email=String(input.email||'').trim();
     if(email&&(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||email.length>150))
       auroraReject_('invalid_email','Enter a valid contact email.');
@@ -2085,6 +2102,47 @@ function auroraAccountCustomerPost_(input) {
     }finally{lock.releaseLock();}
   }
   auroraReject_('invalid_action','Unknown customer phone account action.');
+}
+
+/** Save the delivery details of a committed, owned checkout for future devices.
+ * No guest input can update an account; old receipt retries cannot undo a newer
+ * explicit profile edit. Email and subscription preferences are left intact.
+ */
+function auroraAccountSaveOrderProfile_(input) {
+  var id=auroraOrderText_(input.order_id,'Order ID',10,150);
+  var proof=String(input.customer_access_token||'');
+  if(!/^[0-9a-f-]{72}$/i.test(proof))auroraReject_('forbidden','Use the original confirmed receipt.');
+  var lock=LockService.getScriptLock();
+  if(!lock.tryLock(10000))auroraReject_('busy','Your order is saved. Retry saving your delivery profile.');
+  try{
+    // Re-read authentication and account state after taking the update lock.
+    var person=auroraAccountAuthenticate_('customer',input.auth_token);
+    var book=auroraSpreadsheet_(),orders=auroraPrivateTable_(book,'orders');
+    var record=orders.rows.filter(function(row){return String(row.id)===id;})[0];
+    var order;try{order=record&&JSON.parse(String(record.receipt_json||''));}catch(_){}
+    if(!order||order.id!==id||order.customer_access_token!==proof)
+      auroraReject_('forbidden','Use the original confirmed receipt.');
+    if(auroraAccountPhone_(order.customer_phone)!==String(person.phone))
+      auroraReject_('forbidden','Sign in to the same customer account used for this order.');
+    if(order.customer_google_sub||(order.customer_account_id&&order.customer_account_id!==person.id))
+      auroraReject_('already_linked','This order belongs to a different account.');
+    var created=Date.parse(String(order.created_at||''));
+    var profileUpdated=Date.parse(String(person.updated_at||person.created_at||''));
+    if(!isFinite(created)||!isFinite(profileUpdated))
+      auroraReject_('invalid_profile_state','Your order is saved. Edit your delivery profile from My bakery orders.');
+    var name=auroraOrderText_(order.customer_name,'Customer name',2,100);
+    var address=auroraOrderText_(order.delivery_address,'Delivery address',5,1000);
+    if(!order.customer_account_id){
+      order.customer_account_id=person.id;order.updated_at=new Date().toISOString();
+      auroraPrivateSaveReceipt_(orders,auroraPrivateFindRow_(orders,id),order);
+    }
+    if(profileUpdated>created)
+      return {ok:true,saved:false,reason:'newer_profile',profile:auroraAccountSafeCustomer_(person)};
+    var accounts=auroraPrivateTable_(book,'customer_accounts');
+    person.name=name;person.address=address;person.updated_at=new Date().toISOString();
+    auroraAccountSave_(accounts,person);
+    return {ok:true,saved:true,profile:auroraAccountSafeCustomer_(person)};
+  }finally{lock.releaseLock();}
 }
 /* ==== END apps-script/AccountAuth.gs ==== */
 
@@ -2196,6 +2254,7 @@ function auroraStaffCustomerLookup_(input){
  * Does not call external endpoints, send any SMS or alter saved COD orders.
  */
 function backfillCustomerMasterOnce(){
+  auroraRequireInteractiveSetup_();
   var lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))throw new Error('Other bakery updates are running. Retry.');
   try{
@@ -2303,6 +2362,141 @@ function auroraCustomerAccountsPost_(input) {
   auroraReject_('invalid_action','Unsupported customer account action.');
 }
 /* ==== END apps-script/CustomerAccounts.gs ==== */
+
+/* ==== BEGIN apps-script/CustomCakeRequests.gs ==== */
+/**
+ * Free custom-cake quote requests. Public create/status and authenticated
+ * staff queue share a private Google Sheet tab, never included in public GET.
+ */
+function auroraCustomCakeDraft_(input) {
+  if (!input || input.action!=='create_custom_cake') auroraReject_('invalid_action','Unknown custom request.');
+  var id=auroraOrderText_(input.request_id,'Request ID',36,36).toLowerCase();
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id))
+    auroraReject_('invalid_request','A valid request reference is required.');
+  var phone=auroraOrderText_(input.customer_phone,'Phone',7,30);
+  var digits=phone.replace(/\D/g,'');
+  if(!/^\+?[0-9 ()-]+$/.test(phone)||digits.length<7||digits.length>15)
+    auroraReject_('invalid_phone','Enter a valid phone number.');
+  var image=auroraOptionalText_(input.reference_image_url,'Reference image URL',1500);
+  if(image&&!/^https:\/\/[^ <>"']+$/i.test(image)) auroraReject_('invalid_url','Use a public HTTPS reference image URL.');
+  return {
+    request_id:id,customer_name:auroraOrderText_(input.customer_name,'Name',2,100),
+    customer_phone:phone,cake_type:auroraOrderText_(input.cake_type,'Cake theme',2,120),
+    approx_size:auroraOrderText_(input.approx_size,'Cake weight',1,100),
+    flavor:auroraOrderText_(input.flavor,'Flavor',1,150),
+    color_theme:auroraOptionalText_(input.color_theme,'Color theme',150),
+    writing_text:auroraOptionalText_(input.writing_text,'Cake dedication',200),
+    instructions:auroraOptionalText_(input.instructions,'Instructions',1000),
+    reference_image_url:image
+  };
+}
+function auroraCustomCakeThrottled_(draft) {
+  var cache=CacheService.getScriptCache();
+  var hash=Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,
+    draft.customer_phone.replace(/\D/g,''),Utilities.Charset.UTF_8)
+    .map(function(byte){return ('0'+((byte+256)%256).toString(16)).slice(-2);}).join('').slice(0,24);
+  var key='aurora_custom_phone_'+hash;
+  var attempt='aurora_custom_attempt_'+draft.request_id;
+  if(cache.get(attempt))return;
+  var count=Number(cache.get(key)||0);
+  if(count>=3)auroraReject_('rate_limited','Too many custom cake requests. Please contact the bakery.');
+  cache.put(key,String(count+1),600);
+  cache.put(attempt,'1',600);
+}
+function auroraCustomCakeRows_(table) {
+  return table.rows.map(function(row) {
+    var value;
+    try{value=JSON.parse(String(row.receipt_json||''));}catch(_){return null;}
+    return value && value.id ? value : null;
+  }).filter(Boolean);
+}
+function auroraCustomCakePost_(input) {
+  if (input.action==='create_custom_cake') {
+    var draft=auroraCustomCakeDraft_(input),hash=auroraRequestHash_(draft);
+    var lock=LockService.getScriptLock();
+    if(!lock.tryLock(10000))auroraReject_('busy','Request confirmation is still pending. Retry with the same reference.');
+    try{
+      var table=auroraPrivateTable_(auroraSpreadsheet_(),'custom_cake_requests');
+      var existing=table.rows.filter(function(row){return String(row.request_id)===draft.request_id;});
+      if(existing.length>1)throw new Error('Duplicate custom cake request references.');
+      if(existing.length){
+        if(String(existing[0].request_hash)!==hash) auroraReject_('idempotency_conflict','Request ID belongs to a different custom cake.');
+        return {ok:true,saved:true,request_id:draft.request_id};
+      }
+      auroraCustomCakeThrottled_(draft);
+      var now=new Date().toISOString();
+      var request={
+        id:'custom_'+draft.request_id,request_id:draft.request_id,
+        customer_name:draft.customer_name,customer_phone:draft.customer_phone,
+        cake_type:draft.cake_type,approx_size:draft.approx_size,flavor:draft.flavor,
+        color_theme:draft.color_theme,writing_text:draft.writing_text,
+        instructions:draft.instructions,reference_image_url:draft.reference_image_url,
+        status:'pending',estimated_price:0,quoted_price:0,created_at:now,updated_at:now
+      };
+      auroraAppendPrivate_(table,{
+        id:request.id,request_id:draft.request_id,request_hash:hash,created_at:now,updated_at:now,
+        customer_name:request.customer_name,customer_phone:request.customer_phone,
+        cake_type:request.cake_type,approx_size:request.approx_size,
+        flavor:request.flavor,color_theme:request.color_theme,writing_text:request.writing_text,
+        instructions:request.instructions,reference_image_url:request.reference_image_url,
+        status:'pending',estimated_price:0,quoted_price:0,receipt_json:JSON.stringify(request)
+      });
+      return {ok:true,saved:true,request_id:draft.request_id};
+    }finally{lock.releaseLock();}
+  }
+  if(input.action==='get_custom_cake_status'){
+    var id=auroraOrderText_(input.request_id,'Request ID',36,36).toLowerCase();
+    var phone=auroraOrderText_(input.customer_phone,'Phone',7,30).replace(/\D/g,'');
+    var found=auroraPrivateTable_(auroraSpreadsheet_(),'custom_cake_requests').rows
+      .filter(function(row){return String(row.request_id)===id&&String(row.customer_phone).replace(/\D/g,'')===phone;});
+    if(found.length!==1)auroraReject_('not_found','Request and phone do not match.');
+    var current=JSON.parse(String(found[0].receipt_json));
+    return {ok:true,request_id:id,status:current.status,quoted_price:current.quoted_price,updated_at:current.updated_at};
+  }
+  var actor=auroraStaffAuthenticate_(input);
+  if(['super_admin','admin','order_manager'].indexOf(actor.role)===-1)
+    auroraReject_('forbidden','Only authorized managers may read custom cake requests.');
+  if(input.action==='staff_custom_cakes'){
+    var table=auroraPrivateTable_(auroraSpreadsheet_(),'custom_cake_requests');
+    var requests=auroraCustomCakeRows_(table);
+    requests.sort(function(a,b){return String(b.created_at).localeCompare(String(a.created_at));});
+    return {ok:true,requests:requests.slice(0,100)};
+  }
+  if(input.action==='staff_custom_quote'){
+    var id=auroraOrderText_(input.request_id,'Request ID',36,36).toLowerCase();
+    var status=String(input.status||'');
+    if(['quoted','declined'].indexOf(status)===-1)auroraReject_('invalid_status','Choose quoted or declined.');
+    var price=Number(input.quoted_price||0);
+    if(!Number.isFinite(price)||price<0||price>10000000||(status==='quoted'&&price<=0))
+      auroraReject_('invalid_price','An accepted quote must have a positive price.');
+    var lock=LockService.getScriptLock();
+    if(!lock.tryLock(10000))auroraReject_('busy','Another custom quote update is pending.');
+    try{
+      var table=auroraPrivateTable_(auroraSpreadsheet_(),'custom_cake_requests');
+      var row=table.rows.filter(function(row){return String(row.request_id)===id;})[0];
+      if(!row)auroraReject_('not_found','Request was not found.');
+      var old=JSON.parse(String(row.receipt_json));
+      if(old.status!=='pending'&&old.status!=='quoted')auroraReject_('invalid_status','A declined request cannot be modified.');
+      old.status=status;old.quoted_price=status==='quoted'?Math.round(price*100)/100:0;
+      old.updated_at=new Date().toISOString();
+      var sheet=table.sheet;
+      var idIndex=table.headers.indexOf('request_id');
+      var values=sheet.getRange(2,idIndex+1,sheet.getLastRow()-1,1).getValues();
+      var rowNumbers=[];
+      values.forEach(function(r,i){if(String(r[0])===id)rowNumbers.push(i+2);});
+      if(rowNumbers.length!==1)auroraReject_('invalid_sheet','Duplicate request references.');
+      var all=sheet.getRange(rowNumbers[0],1,1,table.headers.length).getValues()[0];
+      [['receipt_json',JSON.stringify(old)],['status',old.status],
+        ['quoted_price',old.quoted_price],['updated_at',old.updated_at]].forEach(function(pair){
+        all[table.headers.indexOf(pair[0])]=auroraSheetCell_(pair[1]);
+      });
+      sheet.getRange(rowNumbers[0],1,1,all.length).setValues([all]);
+      return {ok:true,updated:true};
+    }finally{lock.releaseLock();}
+  }
+  auroraReject_('invalid_action','Invalid custom cake action.');
+}
+/* ==== END apps-script/CustomCakeRequests.gs ==== */
 
 /* ==== BEGIN apps-script/LiveCatalog.gs ==== */
 /**
@@ -2638,6 +2832,7 @@ function auroraImageFolder_(create){
  * Existing folder is reused; the folder is never made public.
  */
 function setupAuroraImagesOnce(){
+  auroraRequireInteractiveSetup_();
   return auroraImageFolder_(true).getId();
 }
 function auroraImageMime_(bytes){
@@ -2682,137 +2877,392 @@ function auroraPublicImage_(id){
 }
 /* ==== END apps-script/PublicImages.gs ==== */
 
-/* ==== BEGIN apps-script/CustomCakeRequests.gs ==== */
-/**
- * Free custom-cake quote requests. Public create/status and authenticated
- * staff queue share a private Google Sheet tab, never included in public GET.
- */
-function auroraCustomCakeDraft_(input) {
-  if (!input || input.action!=='create_custom_cake') auroraReject_('invalid_action','Unknown custom request.');
-  var id=auroraOrderText_(input.request_id,'Request ID',36,36).toLowerCase();
-  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id))
-    auroraReject_('invalid_request','A valid request reference is required.');
-  var phone=auroraOrderText_(input.customer_phone,'Phone',7,30);
-  var digits=phone.replace(/\D/g,'');
-  if(!/^\+?[0-9 ()-]+$/.test(phone)||digits.length<7||digits.length>15)
-    auroraReject_('invalid_phone','Enter a valid phone number.');
-  var image=auroraOptionalText_(input.reference_image_url,'Reference image URL',1500);
-  if(image&&!/^https:\/\/[^ <>"']+$/i.test(image)) auroraReject_('invalid_url','Use a public HTTPS reference image URL.');
-  return {
-    request_id:id,customer_name:auroraOrderText_(input.customer_name,'Name',2,100),
-    customer_phone:phone,cake_type:auroraOrderText_(input.cake_type,'Cake theme',2,120),
-    approx_size:auroraOrderText_(input.approx_size,'Cake weight',1,100),
-    flavor:auroraOrderText_(input.flavor,'Flavor',1,150),
-    color_theme:auroraOptionalText_(input.color_theme,'Color theme',150),
-    writing_text:auroraOptionalText_(input.writing_text,'Cake dedication',200),
-    instructions:auroraOptionalText_(input.instructions,'Instructions',1000),
-    reference_image_url:image
-  };
+/* ==== BEGIN apps-script/CustomerSubscriptions.gs ==== */
+/** Explicit product-email subscriptions, separate from phone/password account identity. */
+var AURORA_SUBSCRIPTION_HEADERS = ['id','customer_id','email','marketing_consent','email_verified','status','consent_requested_at','confirmed_at','updated_at','confirmation_nonce_hash','confirmation_expires_at','confirmation_version','unsubscribed_at','last_confirmation_at'];
+function auroraSetupSubscriptions_(book) {
+  var sheet=book.getSheetByName('customer_subscriptions')||book.insertSheet('customer_subscriptions');
+  var headers=sheet.getLastRow()?sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0].map(String):[];
+  if(headers.some(function(key,index){return key&&headers.indexOf(key)!==index;}))throw new Error('Duplicate subscription headers.');
+  var missing=AURORA_SUBSCRIPTION_HEADERS.filter(function(key){return headers.indexOf(key)<0;});
+  if(missing.length)sheet.getRange(1,headers.length+1,1,missing.length).setValues([missing]);
+  sheet.setFrozenRows(1);sheet.setColumnWidths(1,Math.max(headers.length,AURORA_SUBSCRIPTION_HEADERS.length),185);
+  sheet.getRange(1,1,1,Math.max(headers.length,AURORA_SUBSCRIPTION_HEADERS.length)).setFontWeight('bold').setBackground('#eef2f1').setFontColor('#173c30').setWrap(true);
 }
-function auroraCustomCakeThrottled_(draft) {
-  var cache=CacheService.getScriptCache();
-  var hash=Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,
-    draft.customer_phone.replace(/\D/g,''),Utilities.Charset.UTF_8)
-    .map(function(byte){return ('0'+((byte+256)%256).toString(16)).slice(-2);}).join('').slice(0,24);
-  var key='aurora_custom_phone_'+hash;
-  var attempt='aurora_custom_attempt_'+draft.request_id;
-  if(cache.get(attempt))return;
-  var count=Number(cache.get(key)||0);
-  if(count>=3)auroraReject_('rate_limited','Too many custom cake requests. Please contact the bakery.');
-  cache.put(key,String(count+1),600);
-  cache.put(attempt,'1',600);
+function auroraSubscriptionTable_(book) {
+  var sheet=book.getSheetByName('customer_subscriptions');
+  if(!sheet||!sheet.getLastRow())auroraReject_('setup_required','Product email preferences are not ready. Please try again later.');
+  if(sheet.getLastRow()>50001||sheet.getLastColumn()>50)throw new Error('Subscription table exceeds supported size.');
+  var values=sheet.getRange(1,1,sheet.getLastRow(),sheet.getLastColumn()).getValues(),headers=values.shift().map(String);
+  if(AURORA_SUBSCRIPTION_HEADERS.some(function(key){return headers.indexOf(key)<0||headers.indexOf(key)!==headers.lastIndexOf(key);}))throw new Error('Invalid subscription headers.');
+  var rows=values.map(function(values,index){var row={};headers.forEach(function(key,col){row[key]=values[col];});Object.defineProperty(row,'_rowNumber',{value:index+2});return row;}).filter(function(row){return !!row.id;});
+  var ids=Object.create(null),customers=Object.create(null);
+  rows.forEach(function(row){if(!row.customer_id||ids[String(row.id)]||customers[String(row.customer_id)])throw new Error('Duplicate or incomplete subscription identity.');ids[String(row.id)]=true;customers[String(row.customer_id)]=true;});
+  return {sheet:sheet,headers:headers,rows:rows};
 }
-function auroraCustomCakeRows_(table) {
-  return table.rows.map(function(row) {
-    var value;
-    try{value=JSON.parse(String(row.receipt_json||''));}catch(_){return null;}
-    return value && value.id ? value : null;
-  }).filter(Boolean);
+function auroraSubscriptionSave_(table,row,patch) {
+  Object.keys(patch).forEach(function(key){var col=table.headers.indexOf(key);if(col<0)throw new Error('Missing subscription column.');table.sheet.getRange(row._rowNumber,col+1,1,1).setValues([[auroraSheetCell_(patch[key])]]);row[key]=patch[key];});
 }
-function auroraCustomCakePost_(input) {
-  if (input.action==='create_custom_cake') {
-    var draft=auroraCustomCakeDraft_(input),hash=auroraRequestHash_(draft);
-    var lock=LockService.getScriptLock();
-    if(!lock.tryLock(10000))auroraReject_('busy','Request confirmation is still pending. Retry with the same reference.');
-    try{
-      var table=auroraPrivateTable_(auroraSpreadsheet_(),'custom_cake_requests');
-      var existing=table.rows.filter(function(row){return String(row.request_id)===draft.request_id;});
-      if(existing.length>1)throw new Error('Duplicate custom cake request references.');
-      if(existing.length){
-        if(String(existing[0].request_hash)!==hash) auroraReject_('idempotency_conflict','Request ID belongs to a different custom cake.');
-        return {ok:true,saved:true,request_id:draft.request_id};
+function auroraSubscriptionRow_(table,id) {
+  var found=table.rows.filter(function(row){return String(row.customer_id)===String(id);});
+  if(found.length>1)throw new Error('Duplicate customer subscriptions.');return found[0]||null;
+}
+function auroraSubscriptionTrue_(value) {return value===true||(typeof value==='string'&&value.trim().toLowerCase()==='true');}
+function auroraSubscriptionSafe_(row) {
+  if(!row)return {email:'',marketing_consent:false,email_verified:false,status:'not_subscribed'};
+  return {email:String(row.email||''),marketing_consent:auroraSubscriptionTrue_(row.marketing_consent),email_verified:auroraSubscriptionTrue_(row.email_verified),status:String(row.status||'not_subscribed')};
+}
+function auroraSubscriptionEmail_(value) {
+  if(typeof value!=='string')auroraReject_('invalid_email','Enter a valid email address.');
+  var email=value.trim().toLowerCase();
+  if(email.length>150||!/^[a-z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i.test(email)||/\s/.test(email))auroraReject_('invalid_email','Enter a valid email address.');
+  return email;
+}
+function auroraSubscriptionSecret_(create) {
+  var props=PropertiesService.getScriptProperties(),secret=props.getProperty('AURORA_SUBSCRIPTION_SECRET');
+  if(!secret && create){secret=auroraAccountToken_()+auroraAccountToken_();props.setProperty('AURORA_SUBSCRIPTION_SECRET',secret);}
+  if(!secret)throw new Error('Email link signing is not configured.');return secret;
+}
+function auroraSubscriptionMac_(value) {
+  return Utilities.computeHmacSha256Signature(String(value),auroraSubscriptionSecret_(),Utilities.Charset.UTF_8).map(function(byte){return ('0'+((byte+256)%256).toString(16)).slice(-2);}).join('');
+}
+function auroraSubscriptionEqual_(left,right) {
+  if(typeof left!=='string'||typeof right!=='string'||left.length!==right.length)return false;
+  var difference=0;for(var i=0;i<left.length;i++)difference|=left.charCodeAt(i)^right.charCodeAt(i);return difference===0;
+}
+function auroraSubscriptionToken_(parts) {auroraSubscriptionSecret_(true);var value=parts.join('.');return value+'.'+auroraSubscriptionMac_(value);}
+function auroraSubscriptionParseToken_(token,kind) {
+  if(typeof token!=='string'||token.length>500||!/^[a-z0-9_.-]+$/i.test(token))auroraReject_('invalid_link','This email link is invalid or expired.');
+  var parts=token.split('.'),signature=parts.pop();
+  if(parts[0]!==kind||!signature||!auroraSubscriptionEqual_(signature,auroraSubscriptionMac_(parts.join('.'))))auroraReject_('invalid_link','This email link is invalid or expired.');
+  if((kind==='confirm'&&(parts.length!==5||!/^\d+$/.test(parts[2])||!/^\d+$/.test(parts[4])||Number(parts[4])<Date.now()))||(kind==='unsubscribe'&&parts.length!==3))auroraReject_('invalid_link','This email link is invalid or expired.');
+  return parts;
+}
+function auroraSubscriptionRate_(accountId,email) {
+  var props=PropertiesService.getScriptProperties(),key='AURORA_SUBSCRIPTION_DAILY_LIMITS';
+  var today=Utilities.formatDate(new Date(),'Asia/Dhaka','yyyy-MM-dd'),state;
+  try{state=JSON.parse(props.getProperty(key)||'null');}catch(_){state=null;}
+  if(!state||state.day!==today)state={day:today,total:0,emails:{},accounts:{}};
+  var emailKey=auroraAccountDigest_(email).slice(0,24),accountKey=auroraAccountDigest_(accountId).slice(0,24),now=Date.now();
+  var mail=state.emails[emailKey]||{count:0,last:0},account=state.accounts[accountKey]||{count:0,last:0};
+  if(state.total>=50||mail.count>=3||account.count>=3||now-mail.last<60000||now-account.last<60000)auroraReject_('rate_limited','Please wait before requesting another confirmation email. Daily limits apply.');
+  if(MailApp.getRemainingDailyQuota()<1)auroraReject_('mail_quota','Email confirmation is temporarily unavailable. Try again later.');
+  mail.count++;mail.last=now;account.count++;account.last=now;state.total++;state.emails[emailKey]=mail;state.accounts[accountKey]=account;
+  var json=JSON.stringify(state);if(json.length>8500)auroraReject_('rate_limited','Email confirmation is temporarily unavailable. Try again later.');
+  // Count before sending, including interrupted mail calls, so retries cannot bypass the limit.
+  props.setProperty(key,json);
+}
+function auroraSubscriptionPost_(input) {
+  var person=auroraAccountAuthenticate_('customer',input.auth_token),book=auroraSpreadsheet_();
+  if(input.action==='customer_email_status')return {ok:true,subscription:auroraSubscriptionSafe_(auroraSubscriptionRow_(auroraSubscriptionTable_(book),person.id))};
+  var lock=LockService.getScriptLock();if(!lock.tryLock(10000))auroraReject_('busy','Please retry your email preference shortly.');
+  var locked=true,message,row;
+  try{
+    person=auroraAccountAuthenticate_('customer',input.auth_token);
+    var table=auroraSubscriptionTable_(book);row=auroraSubscriptionRow_(table,person.id);
+    if(input.action==='customer_email_unsubscribe'){
+      if(row)auroraSubscriptionOptOutEmail_(table,String(row.email));
+      return {ok:true,subscription:auroraSubscriptionSafe_(row)};
+    }
+    if(input.action!=='customer_email_subscribe')auroraReject_('invalid_action','Unknown email preference action.');
+    if(input.marketing_consent!==true)auroraReject_('consent_required','Choose product email updates before requesting confirmation.');
+    var email=auroraSubscriptionEmail_(input.email);
+    if(row&&row.email===email&&row.status==='subscribed'&&auroraSubscriptionTrue_(row.email_verified)&&auroraSubscriptionTrue_(row.marketing_consent))return {ok:true,subscription:auroraSubscriptionSafe_(row),already_subscribed:true};
+    var base=String(ScriptApp.getService().getUrl()||'');
+    if(!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(base))auroraReject_('setup_required','Email confirmation is not configured yet.');
+    auroraSubscriptionRate_(String(person.id),email);
+    if(!row){
+      var created={id:'subscription_'+Utilities.getUuid(),customer_id:String(person.id)};
+      var rowNumber=table.sheet.getLastRow()+1;
+      if(rowNumber>table.sheet.getMaxRows())table.sheet.insertRowsAfter(table.sheet.getMaxRows(),rowNumber-table.sheet.getMaxRows());
+      table.sheet.getRange(rowNumber,1,1,table.headers.length).setValues([table.headers.map(function(key){return auroraSheetCell_(created[key]===undefined?'':created[key]);})]);
+      row=created;Object.defineProperty(row,'_rowNumber',{value:rowNumber});table.rows.push(row);
+    }
+    var now=new Date().toISOString(),nonce=auroraAccountToken_().replace(/-/g,''),expires=Date.now()+24*3600000,version=Number(row.confirmation_version||0)+1;
+    auroraSubscriptionSave_(table,row,{marketing_consent:false,email_verified:false,status:'pending_confirmation',email:email,consent_requested_at:now,confirmed_at:'',updated_at:now,confirmation_nonce_hash:auroraAccountDigest_(nonce),confirmation_expires_at:new Date(expires).toISOString(),confirmation_version:version,unsubscribed_at:'',last_confirmation_at:now});
+    var token=auroraSubscriptionToken_(['confirm',row.id,version,nonce,expires]),link=base+'?action=email_confirm&token='+encodeURIComponent(token);
+    message={to:email,subject:'Confirm Aurora’s Cake product updates',body:'You asked to receive new cake and product announcements from Aurora’s Cake.\n\nConfirm your email preference: '+link+'\n\nThis link expires in 24 hours. If you did not request this, ignore the message; you will not be subscribed.',name:'Aurora’s Cake'};
+    SpreadsheetApp.flush();lock.releaseLock();locked=false;
+    try{MailApp.sendEmail(message);}catch(_){auroraReject_('email_unconfirmed','We could not confirm delivery of the verification email. Check your inbox before requesting another.');}
+    return {ok:true,subscription:auroraSubscriptionSafe_(row),confirmation_sent:true};
+  }finally{if(locked)lock.releaseLock();}
+}
+function auroraSubscriptionOptOutEmail_(table,email) {
+  var now=new Date().toISOString(),normalized=String(email).trim().toLowerCase();
+  table.rows.forEach(function(row){if(String(row.email).trim().toLowerCase()===normalized)auroraSubscriptionSave_(table,row,{marketing_consent:false,status:'unsubscribed',unsubscribed_at:now,updated_at:now,confirmation_nonce_hash:'',confirmation_version:Number(row.confirmation_version||0)+1});});
+}
+function auroraSubscriptionLinkPage_(title,text,action,token) {
+  var safe=function(value){return String(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');};
+  var form='';
+  if(action){var base=String(ScriptApp.getService().getUrl()||'');if(!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(base))throw new Error('Web app URL unavailable.');form='<form method="post" action="'+safe(base)+'" target="_top"><input type="hidden" name="action" value="'+safe(action)+'"><input type="hidden" name="token" value="'+safe(token)+'"><button type="submit">'+(action==='email_confirm'?'Confirm email updates':'Unsubscribe')+'</button></form>';}
+  return HtmlService.createHtmlOutput('<!doctype html><html><head><base target="_top"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><style>body{font:16px Arial,sans-serif;line-height:1.6;color:#173c30;max-width:520px;margin:48px auto;padding:20px}button{padding:14px 20px;border:0;border-radius:12px;color:white;background:#174b3b;font-weight:bold;cursor:pointer}</style></head><body><h1>'+safe(title)+'</h1><p>'+safe(text)+'</p>'+form+'</body></html>');
+}
+function auroraSubscriptionLinkGet_(action,token) {
+  try{auroraSubscriptionParseToken_(token,action==='email_confirm'?'confirm':'unsubscribe');return auroraSubscriptionLinkPage_(action==='email_confirm'?'Confirm product updates':'Stop product updates',action==='email_confirm'?'Choose Confirm email updates to receive Aurora’s Cake product announcements.':'Choose Unsubscribe to stop product announcements sent to this email address.',action,token);}
+  catch(_){return auroraSubscriptionLinkPage_('This link is unavailable','The link is invalid or expired. Open your bakery account to manage email preferences.');}
+}
+function auroraSubscriptionLinkPost_(action,token) {
+  var lock=LockService.getScriptLock(),locked=false;
+  try{
+    var parts=auroraSubscriptionParseToken_(token,action==='email_confirm'?'confirm':'unsubscribe');
+    if(!lock.tryLock(10000))return auroraSubscriptionLinkPage_('Please try again','Another update is in progress. Press the button again.',action,token);locked=true;
+    var book=auroraSpreadsheet_(),table=auroraSubscriptionTable_(book),matches=table.rows.filter(function(row){return String(row.id)===parts[1];});
+    if(matches.length!==1)throw new Error('Unknown link');var row=matches[0];
+    if(action==='email_unsubscribe'){
+      if(parts[2]!==auroraAccountDigest_(String(row.email).trim().toLowerCase()))throw new Error('Email changed');
+      auroraSubscriptionOptOutEmail_(table,String(row.email));return auroraSubscriptionLinkPage_('You are unsubscribed','Product announcements to this email address have been stopped. Order messages and account access are unchanged.');
+    }
+    if(Number(row.confirmation_version)!==Number(parts[2])||!auroraSubscriptionEqual_(String(row.confirmation_nonce_hash),auroraAccountDigest_(parts[3]))||Date.parse(String(row.confirmation_expires_at))<Date.now())throw new Error('Expired confirmation');
+    var account=auroraAccountValue_(auroraPrivateTable_(book,'customer_accounts'),row.customer_id);if(!account||!auroraSubscriptionTrue_(account.active))throw new Error('Closed account');
+    if(row.status==='subscribed')return auroraSubscriptionLinkPage_('Email already confirmed','Your product email preference is active. You can change it in your bakery account.');
+    var now=new Date().toISOString();auroraSubscriptionSave_(table,row,{marketing_consent:true,email_verified:true,status:'subscribed',confirmed_at:now,updated_at:now});
+    return auroraSubscriptionLinkPage_('Email confirmed','You can now receive Aurora’s Cake product announcements. Every announcement includes an unsubscribe link.');
+  }catch(_){return auroraSubscriptionLinkPage_('This link is unavailable','The link is invalid or expired. Open your bakery account to manage email preferences.');}
+  finally{if(locked)lock.releaseLock();}
+}
+function auroraCustomerUnsubscribeToken_(customerId) {
+  var row=auroraSubscriptionRow_(auroraSubscriptionTable_(auroraSpreadsheet_()),customerId);
+  if(!row)throw new Error('Subscription was removed.');
+  return auroraSubscriptionToken_(['unsubscribe',row.id,auroraAccountDigest_(String(row.email).trim().toLowerCase())]);
+}
+function auroraSubscriptionCampaignRecipients_(book) {
+  var accounts=auroraPrivateTable_(book,'customer_accounts').rows,active=Object.create(null);
+  accounts.forEach(function(account){if(auroraSubscriptionTrue_(account.active))active[String(account.id)]=true;});
+  return auroraSubscriptionTable_(book).rows.filter(function(row){return active[String(row.customer_id)]&&row.status==='subscribed'&&auroraSubscriptionTrue_(row.email_verified)&&auroraSubscriptionTrue_(row.marketing_consent);}).map(function(row){return {customer_id:String(row.customer_id),email:String(row.email).trim().toLowerCase()};});
+}
+/* ==== END apps-script/CustomerSubscriptions.gs ==== */
+
+/* ==== BEGIN apps-script/Campaigns.gs ==== */
+/** Owner-only product-launch email tools. Never call these functions from doGet/doPost. */
+var AURORA_CAMPAIGN_SCHEMAS = {
+  email_campaigns: ['id','subject','body','product_url','status','recipient_count','sent_count','skipped_count','unknown_count','created_at','started_at','finished_at','next_attempt_at','snapshot_json','last_error'],
+  email_deliveries: ['id','campaign_id','customer_id','email','status','created_at','attempted_at','sent_at','last_error']
+};
+var AURORA_CAMPAIGN_BATCH_SIZE = 40;
+var AURORA_CAMPAIGN_QUOTA_RESERVE = 10;
+
+function auroraSetupCampaignTables_(book) {
+  Object.keys(AURORA_CAMPAIGN_SCHEMAS).forEach(function(name) {
+    var headers = AURORA_CAMPAIGN_SCHEMAS[name];
+    var sheet = book.getSheetByName(name) || book.insertSheet(name);
+    var existing = sheet.getLastRow() ? sheet.getRange(1,1,1,Math.max(1,sheet.getLastColumn())).getValues()[0].map(String) : [];
+    if (existing.some(function(key,index) { return key && existing.indexOf(key) !== index; })) throw new Error('Duplicate campaign headers in ' + name);
+    var missing = headers.filter(function(key) { return existing.indexOf(key) === -1; });
+    if (missing.length) sheet.getRange(1,existing.length+1,1,missing.length).setValues([missing]);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1,1,1,Math.max(headers.length,existing.length)).setFontWeight('bold').setBackground('#eef2f1').setFontColor('#172e29').setWrap(true);
+    sheet.setColumnWidths(1,Math.max(headers.length,existing.length),180);
+  });
+}
+function auroraCampaignTable_(book,name) {
+  var schema=AURORA_CAMPAIGN_SCHEMAS[name], sheet=book.getSheetByName(name);
+  if (!schema || !sheet || sheet.getLastRow()<1) throw new Error('Run setupSheetDatabase to create campaign tabs.');
+  var values=sheet.getRange(1,1,sheet.getLastRow(),sheet.getLastColumn()).getValues();
+  var headers=values.shift().map(String);
+  if(schema.some(function(key){return headers.indexOf(key)<0 || headers.indexOf(key)!==headers.lastIndexOf(key);})) throw new Error('Invalid campaign headers.');
+  var rows=values.map(function(values,index){var row={};headers.forEach(function(key,column){row[key]=values[column];});Object.defineProperty(row,'_rowNumber',{value:index+2});return row;}).filter(function(row){return headers.some(function(key){return row[key]!=='';});});
+  return {sheet:sheet,headers:headers,rows:rows};
+}
+function auroraCampaignUpdate_(table,row,patch) {
+  Object.keys(patch).forEach(function(key){var column=table.headers.indexOf(key);if(column<0)throw new Error('Missing campaign column.');table.sheet.getRange(row._rowNumber,column+1,1,1).setValues([[auroraSheetCell_(patch[key])]]);row[key]=patch[key];});
+}
+function auroraCampaignAppend_(table,records) {
+  if(!records.length)return;
+  var start=table.sheet.getLastRow()+1, end=start+records.length-1;
+  if(typeof table.sheet.getMaxRows==='function' && end>table.sheet.getMaxRows())table.sheet.insertRowsAfter(table.sheet.getMaxRows(),end-table.sheet.getMaxRows());
+  table.sheet.getRange(start,1,records.length,table.headers.length).setValues(records.map(function(row){return table.headers.map(function(key){return auroraSheetCell_(row[key]===undefined?'':row[key]);});}));
+}
+function auroraCampaignOwner_(interactive) {
+  var owner=String(PropertiesService.getScriptProperties().getProperty('AURORA_CAMPAIGN_OWNER_EMAIL')||'').toLowerCase();
+  var effective=String(Session.getEffectiveUser().getEmail()||'').toLowerCase();
+  var active=String(Session.getActiveUser().getEmail()||'').toLowerCase();
+  if(!owner || effective!==owner || (interactive && active!==owner))throw new Error('Only the configured campaign owner can use this action. Run setupCampaignTools from the owner’s Apps Script editor.');
+  return owner;
+}
+function setupCampaignTools() {
+  var props=PropertiesService.getScriptProperties();
+  var effective=String(Session.getEffectiveUser().getEmail()||'').trim().toLowerCase();
+  var active=String(Session.getActiveUser().getEmail()||'').trim().toLowerCase();
+  if(!effective || active!==effective)throw new Error('Run setupCampaignTools directly in your Apps Script editor while signed in as the bakery owner.');
+  var previous=String(props.getProperty('AURORA_CAMPAIGN_OWNER_EMAIL')||'').toLowerCase();
+  if(previous && previous!==effective)throw new Error('Campaign tools already belong to another owner.');
+  props.setProperty('AURORA_CAMPAIGN_OWNER_EMAIL',effective);
+  var book=auroraSpreadsheet_();auroraSetupCampaignTables_(book);
+  // Request the mail permission during explicit setup, without sending anything.
+  MailApp.getRemainingDailyQuota();
+  var existing=ScriptApp.getProjectTriggers().filter(function(trigger){return trigger.getHandlerFunction()==='auroraCampaignOnOpen';});
+  if(!existing.length)ScriptApp.newTrigger('auroraCampaignOnOpen').forSpreadsheet(book.getId()).onOpen().create();
+  try{auroraCampaignOnOpen();}catch(_){/* Standalone scripts: reopen the Sheet to display its menu. */}
+  return 'Campaign tools are installed. Reopen the Sheet to see Aurora’s Cake. No emails have been sent.';
+}
+function auroraCampaignOnOpen() {
+  var ui=SpreadsheetApp.getUi();
+  ui.createMenu('Aurora’s Cake').addItem('New email campaign draft','auroraNewCampaignDraft').addItem('Review & send selected campaign','auroraPreviewCampaign').addItem('Resume queued campaigns','auroraResumeCampaigns').addToUi();
+}
+function auroraNewCampaignDraft() {
+  auroraCampaignOwner_(true);
+  var book=auroraSpreadsheet_(),table=auroraCampaignTable_(book,'email_campaigns');
+  var id='campaign_'+Utilities.getUuid();
+  auroraCampaignAppend_(table,[{id:id,status:'draft',created_at:new Date().toISOString(),recipient_count:0,sent_count:0,skipped_count:0,unknown_count:0}]);
+  book.setActiveSheet(table.sheet);table.sheet.getRange(table.sheet.getLastRow(),2).activate();
+  SpreadsheetApp.getUi().alert('Add the subject, message body and optional HTTPS product link in this new row, then choose Aurora’s Cake → Review & send selected campaign.');
+}
+function auroraCampaignFind_(table,id) {
+  var matches=table.rows.filter(function(row){return String(row.id)===id;});
+  if(matches.length!==1)throw new Error('Select a campaign with a unique non-empty id.');
+  return matches[0];
+}
+function auroraCampaignText_(value,label,max) {
+  var text=String(value===undefined?'':value).trim();
+  if(!text || text.length>max)throw new Error(label+' is required and must be at most '+max+' characters.');
+  return text;
+}
+function auroraCampaignContent_(row) {
+  var subject=auroraCampaignText_(row.subject,'Subject',150),body=auroraCampaignText_(row.body,'Message',5000),url=String(row.product_url||'').trim();
+  if(/[\r\n]/.test(subject))throw new Error('Keep the subject on one line.');
+  if(url && (!/^https:\/\/[^\s<>"'@]+(?:\/[^\s<>"']*)?$/.test(url) || url.length>1000))throw new Error('Use a valid HTTPS product link without embedded credentials.');
+  return {subject:subject,body:body,product_url:url};
+}
+function auroraCampaignEligible_(book) {
+  var seen=Object.create(null),result=[];
+  auroraSubscriptionCampaignRecipients_(book).forEach(function(row){
+    var email=String(row.email||'').trim().toLowerCase();
+    if(!row.customer_id||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||seen[email])return;
+    seen[email]=true;result.push({customer_id:String(row.customer_id),email:email});
+  });
+  return result.sort(function(a,b){return a.email.localeCompare(b.email);});
+}
+function auroraCampaignHash_(value) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,JSON.stringify(value),Utilities.Charset.UTF_8).map(function(byte){return ('0'+((byte+256)%256).toString(16)).slice(-2);}).join('');
+}
+function auroraCampaignDraft_(book,id) {
+  var table=auroraCampaignTable_(book,'email_campaigns'),row=auroraCampaignFind_(table,id);
+  if(row.status && row.status!=='draft')throw new Error('This campaign is already queued or finished. Create a new draft for a different announcement.');
+  var content=auroraCampaignContent_(row),recipients=auroraCampaignEligible_(book);
+  if(!recipients.length)throw new Error('There are no verified customers who agreed to product emails yet.');
+  return {table:table,row:row,content:content,recipients:recipients,hash:auroraCampaignHash_({id:id,content:content,recipients:recipients})};
+}
+function auroraCampaignEscape_(text) {
+  return String(text).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function auroraPreviewCampaign() {
+  var owner=auroraCampaignOwner_(true),book=auroraSpreadsheet_(),active=book.getActiveSheet(),range=book.getActiveRange();
+  if(!active||active.getName()!=='email_campaigns'||!range||range.getRow()<2)throw new Error('Select a filled campaign row in email_campaigns first.');
+  var table=auroraCampaignTable_(book,'email_campaigns'),row=table.rows.filter(function(row){return row._rowNumber===range.getRow();})[0];
+  if(!row)throw new Error('Select a filled campaign row.');
+  var draft=auroraCampaignDraft_(book,String(row.id));
+  var token=Utilities.getUuid().replace(/-/g,'')+Utilities.getUuid().replace(/-/g,'');
+  var props=PropertiesService.getScriptProperties();
+  props.setProperty('AURORA_CAMPAIGN_REVIEW',JSON.stringify({token:token,id:String(row.id),owner:owner,hash:draft.hash,expires_at:Date.now()+10*60000}));
+  var safe=auroraCampaignEscape_,scriptToken=JSON.stringify(token).replace(/</g,'\\u003c');
+  var html='<!doctype html><html><head><base target="_top"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:15px Arial,sans-serif;color:#173c30;padding:20px;line-height:1.55}pre{white-space:pre-wrap;font:inherit;background:#f4f7f1;padding:16px;border-radius:12px}button{background:#194c3b;color:#fff;border:0;border-radius:9px;padding:12px 18px;font-weight:700;cursor:pointer}button:disabled{opacity:.6}small{color:#555}</style></head><body><h2>'+safe(draft.content.subject)+'</h2><pre>'+safe(draft.content.body)+'</pre>'+(draft.content.product_url?'<p>Product link: '+safe(draft.content.product_url)+'</p>':'')+'<p><strong>'+draft.recipients.length+' verified, opted-in recipients.</strong> Each person receives an individual message with an unsubscribe link.</p><p><small>Sent from '+safe(owner)+'. Google’s daily sending allowance may split a large audience across days. The queued announcement will keep this exact content.</small></p><button id="send" onclick="sendCampaign()">Send campaign</button><p id="result" role="status"></p><script>function sendCampaign(){var b=document.getElementById("send"),r=document.getElementById("result");b.disabled=true;r.textContent="Queuing campaign…";google.script.run.withSuccessHandler(function(v){r.textContent=v.message;}).withFailureHandler(function(e){r.textContent=e.message||"Campaign could not be queued. Check its Sheet status before retrying.";}).auroraConfirmCampaign('+scriptToken+');}</script></body></html>';
+  SpreadsheetApp.getUi().showModalDialog(HtmlService.createHtmlOutput(html).setWidth(590).setHeight(610),'Review product launch email');
+}
+function auroraConfirmCampaign(token) {
+  var owner=auroraCampaignOwner_(true),lock=LockService.getScriptLock();
+  if(!lock.tryLock(10000))throw new Error('Another operation is running. Review the campaign again shortly.');
+  try{
+    var props=PropertiesService.getScriptProperties(),review;
+    try{review=JSON.parse(props.getProperty('AURORA_CAMPAIGN_REVIEW')||'null');}catch(_){review=null;}
+    if(!review||review.owner!==owner||review.token!==String(token)||review.expires_at<Date.now())throw new Error('This preview expired. Review the selected campaign again.');
+    var book=auroraSpreadsheet_(),draft=auroraCampaignDraft_(book,review.id);
+    if(draft.hash!==review.hash)throw new Error('The message or subscriber list changed. Review the campaign again before sending.');
+    var base=String(ScriptApp.getService().getUrl()||'');
+    if(!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(base))throw new Error('Deploy this Apps Script as a web app before sending campaigns.');
+    var now=new Date().toISOString(),settings=auroraPairs_(auroraRows_(book,'settings'),PUBLIC_SETTINGS_KEYS);
+    var snapshot={subject:draft.content.subject,body:draft.content.body,product_url:draft.content.product_url,sender_name:String(settings.shop_name||'Aurora’s Cake').slice(0,100),unsubscribe_base_url:base,audience_hash:auroraCampaignHash_(draft.recipients)};
+    props.deleteProperty('AURORA_CAMPAIGN_REVIEW');
+    auroraCampaignUpdate_(draft.table,draft.row,{status:'preparing',snapshot_json:JSON.stringify(snapshot),recipient_count:draft.recipients.length,started_at:now,last_error:''});
+    var deliveries=auroraCampaignTable_(book,'email_deliveries');
+    if(deliveries.rows.some(function(row){return row.campaign_id===review.id;}))throw new Error('This draft already has delivery rows; inspect it before creating a new campaign.');
+    auroraCampaignAppend_(deliveries,draft.recipients.map(function(customer){return {id:review.id+'_'+auroraCampaignHash_(customer.email),campaign_id:review.id,customer_id:customer.customer_id,email:customer.email,status:'queued',created_at:now};}));
+    auroraCampaignUpdate_(draft.table,draft.row,{status:'queued'});
+    auroraCampaignEnsureWorker_();
+  }finally{lock.releaseLock();}
+  // The explicit owner click starts the first batch. Later batches are automatic.
+  auroraCampaignRun_();
+  return {success:true,message:'Campaign queued. See email_campaigns for progress and email_deliveries for individual results. Remaining messages continue automatically within Google’s allowance.'};
+}
+function auroraCampaignEnsureWorker_() {
+  var props=PropertiesService.getScriptProperties(),triggers=ScriptApp.getProjectTriggers().filter(function(trigger){return trigger.getHandlerFunction()==='auroraCampaignTick';});
+  if(!triggers.length)triggers=[ScriptApp.newTrigger('auroraCampaignTick').timeBased().everyMinutes(5).create()];
+  props.setProperty('AURORA_CAMPAIGN_WORKER_ID',triggers[0].getUniqueId());
+}
+function auroraResumeCampaigns() {auroraCampaignOwner_(true);auroraCampaignEnsureWorker_();return auroraCampaignRun_();}
+function auroraCampaignTick(e) {
+  auroraCampaignOwner_(false);
+  var expected=PropertiesService.getScriptProperties().getProperty('AURORA_CAMPAIGN_WORKER_ID');
+  if(!e||String(e.triggerUid)!==expected)throw new Error('Only the installed campaign worker can use this entry point.');
+  return auroraCampaignRun_();
+}
+function auroraCampaignMessage_(snapshot,recipient) {
+  var token=auroraCustomerUnsubscribeToken_(recipient.customer_id);
+  var link=snapshot.unsubscribe_base_url+'?action=email_unsubscribe&token='+encodeURIComponent(token);
+  var plain=snapshot.body+(snapshot.product_url?'\n\nView product: '+snapshot.product_url:'')+'\n\nYou receive this because you agreed to product updates from '+snapshot.sender_name+'.\nUnsubscribe: '+link;
+  var safe=auroraCampaignEscape_;
+  var html='<div style="font-family:Arial,sans-serif;line-height:1.65;color:#173c30;max-width:620px"><h2>'+safe(snapshot.subject)+'</h2><p>'+safe(snapshot.body).replace(/\n/g,'<br>')+'</p>'+(snapshot.product_url?'<p><a href="'+safe(snapshot.product_url)+'">View the product</a></p>':'')+'<hr><p style="font-size:12px;color:#555">You agreed to product updates from '+safe(snapshot.sender_name)+'. <a href="'+safe(link)+'">Unsubscribe</a></p></div>';
+  return {to:recipient.email,subject:snapshot.subject,body:plain,htmlBody:html,name:snapshot.sender_name};
+}
+function auroraCampaignRun_() {
+  auroraCampaignOwner_(false);
+  var lock=LockService.getScriptLock();if(!lock.tryLock(1000))return {processed:0,busy:true};
+  var locked=true,props=PropertiesService.getScriptProperties(),lease;
+  try{lease=JSON.parse(props.getProperty('AURORA_CAMPAIGN_WORKER_LEASE')||'null');}catch(_){lease=null;}
+  if(lease && lease.expires_at>Date.now()){lock.releaseLock();return {processed:0,busy:true};}
+  // Seven minutes exceeds the Apps Script six-minute execution ceiling. A slow
+  // external send cannot let a second worker take over while this one is alive.
+  var leaseId=Utilities.getUuid();props.setProperty('AURORA_CAMPAIGN_WORKER_LEASE',JSON.stringify({id:leaseId,expires_at:Date.now()+420000}));
+  var started=Date.now(),processed=0;
+  try{
+    var book=auroraSpreadsheet_(),campaigns=auroraCampaignTable_(book,'email_campaigns'),deliveries=auroraCampaignTable_(book,'email_deliveries');
+    var pending=campaigns.rows.filter(function(row){return ['queued','sending','waiting_quota'].indexOf(String(row.status))>=0;});
+    for(var i=0;i<pending.length && processed<AURORA_CAMPAIGN_BATCH_SIZE && Date.now()-started<200000;i++){
+      var campaign=pending[i];
+      if(campaign.next_attempt_at && new Date(campaign.next_attempt_at).getTime()>Date.now())continue;
+      var snapshot;
+      try{snapshot=JSON.parse(String(campaign.snapshot_json));if(!snapshot.subject||!snapshot.body||!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(snapshot.unsubscribe_base_url))throw new Error('Invalid snapshot');}catch(_){auroraCampaignUpdate_(campaigns,campaign,{status:'needs_review',last_error:'The immutable campaign snapshot is missing or invalid.'});continue;}
+      var rows=deliveries.rows.filter(function(row){return row.campaign_id===campaign.id;});
+      var audience=rows.map(function(row){return {customer_id:String(row.customer_id),email:String(row.email).trim().toLowerCase()};}).sort(function(a,b){return a.email.localeCompare(b.email);});
+      var uniqueEmails=Object.create(null),duplicateEmail=audience.some(function(row){if(uniqueEmails[row.email])return true;uniqueEmails[row.email]=true;return false;});
+      if(rows.length!==Number(campaign.recipient_count)||duplicateEmail||snapshot.audience_hash!==auroraCampaignHash_(audience)){auroraCampaignUpdate_(campaigns,campaign,{status:'needs_review',last_error:'Delivery count does not match the approved audience.'});continue;}
+      // A previous execution may have sent before losing its acknowledgement. Never resend that claim.
+      rows.filter(function(row){return row.status==='sending';}).forEach(function(row){auroraCampaignUpdate_(deliveries,row,{status:'unknown',last_error:'A previous send was interrupted. Delivery is uncertain; this recipient will not be retried automatically.'});});
+      var next=rows.filter(function(row){return row.status==='queued';}),quotaWait=false;
+      for(var j=0;j<next.length && processed<AURORA_CAMPAIGN_BATCH_SIZE && Date.now()-started<200000;j++){
+        var customers=auroraSubscriptionCampaignRecipients_(book);
+        var delivery=next[j],matches=customers.filter(function(customer){return String(customer.customer_id)===String(delivery.customer_id);});
+        var customer=matches.length===1?matches[0]:null;
+        if(!customer || String(customer.email).trim().toLowerCase()!==String(delivery.email).toLowerCase()){
+          auroraCampaignUpdate_(deliveries,delivery,{status:'skipped',last_error:'Customer is no longer eligible for product emails.'});processed++;continue;
+        }
+        if(MailApp.getRemainingDailyQuota()<=AURORA_CAMPAIGN_QUOTA_RESERVE){quotaWait=true;break;}
+        var message=auroraCampaignMessage_(snapshot,delivery);
+        auroraCampaignUpdate_(deliveries,delivery,{status:'sending',attempted_at:new Date().toISOString(),last_error:''});
+        // Flush the claim before the external send. If flushing fails, no mail is attempted.
+        SpreadsheetApp.flush();
+        lock.releaseLock();locked=false;
+        var sendSucceeded=false;
+        try{MailApp.sendEmail(message);sendSucceeded=true;}catch(_){/* MailApp cannot prove whether an interrupted call delivered. */}
+        // Checkout, OTP and unsubscribe requests may run while the mail service is sending.
+        if(!lock.tryLock(10000))return {processed:processed+1,unconfirmed:true};
+        locked=true;
+        if(sendSucceeded)auroraCampaignUpdate_(deliveries,delivery,{status:'sent',sent_at:new Date().toISOString()});
+        else auroraCampaignUpdate_(deliveries,delivery,{status:'unknown',last_error:'Send outcome is uncertain. Inspect the sending account before any manual follow-up; automatic resend is disabled.'});
+        processed++;
       }
-      auroraCustomCakeThrottled_(draft);
-      var now=new Date().toISOString();
-      var request={
-        id:'custom_'+draft.request_id,request_id:draft.request_id,
-        customer_name:draft.customer_name,customer_phone:draft.customer_phone,
-        cake_type:draft.cake_type,approx_size:draft.approx_size,flavor:draft.flavor,
-        color_theme:draft.color_theme,writing_text:draft.writing_text,
-        instructions:draft.instructions,reference_image_url:draft.reference_image_url,
-        status:'pending',estimated_price:0,quoted_price:0,created_at:now,updated_at:now
-      };
-      auroraAppendPrivate_(table,{
-        id:request.id,request_id:draft.request_id,request_hash:hash,created_at:now,updated_at:now,
-        customer_name:request.customer_name,customer_phone:request.customer_phone,
-        cake_type:request.cake_type,approx_size:request.approx_size,
-        flavor:request.flavor,color_theme:request.color_theme,writing_text:request.writing_text,
-        instructions:request.instructions,reference_image_url:request.reference_image_url,
-        status:'pending',estimated_price:0,quoted_price:0,receipt_json:JSON.stringify(request)
-      });
-      return {ok:true,saved:true,request_id:draft.request_id};
-    }finally{lock.releaseLock();}
+      var counts={sent:0,skipped:0,unknown:0,queued:0};rows.forEach(function(row){if(counts[row.status]!==undefined)counts[row.status]++;});
+      var remaining=counts.queued>0;
+      auroraCampaignUpdate_(campaigns,campaign,{sent_count:counts.sent,skipped_count:counts.skipped,unknown_count:counts.unknown,status:remaining?(quotaWait?'waiting_quota':'sending'):(counts.unknown?'completed_with_issues':'completed'),finished_at:remaining?'':new Date().toISOString(),next_attempt_at:quotaWait?new Date(Date.now()+3600000).toISOString():'',last_error:quotaWait?'Waiting for Google’s mail allowance; ten messages are reserved for customer verification.':(counts.unknown?'Some send outcomes are uncertain. See email_deliveries.':'')});
+    }
+    if(!campaigns.rows.some(function(row){return ['queued','sending','waiting_quota'].indexOf(String(row.status))>=0;})){
+      ScriptApp.getProjectTriggers().filter(function(trigger){return trigger.getHandlerFunction()==='auroraCampaignTick';}).forEach(function(trigger){ScriptApp.deleteTrigger(trigger);});
+      PropertiesService.getScriptProperties().deleteProperty('AURORA_CAMPAIGN_WORKER_ID');
+    }
+    return {processed:processed};
+  }finally{
+    var current;try{current=JSON.parse(props.getProperty('AURORA_CAMPAIGN_WORKER_LEASE')||'null');}catch(_){current=null;}
+    if(current && current.id===leaseId)props.deleteProperty('AURORA_CAMPAIGN_WORKER_LEASE');
+    if(locked)lock.releaseLock();
   }
-  if(input.action==='get_custom_cake_status'){
-    var id=auroraOrderText_(input.request_id,'Request ID',36,36).toLowerCase();
-    var phone=auroraOrderText_(input.customer_phone,'Phone',7,30).replace(/\D/g,'');
-    var found=auroraPrivateTable_(auroraSpreadsheet_(),'custom_cake_requests').rows
-      .filter(function(row){return String(row.request_id)===id&&String(row.customer_phone).replace(/\D/g,'')===phone;});
-    if(found.length!==1)auroraReject_('not_found','Request and phone do not match.');
-    var current=JSON.parse(String(found[0].receipt_json));
-    return {ok:true,request_id:id,status:current.status,quoted_price:current.quoted_price,updated_at:current.updated_at};
-  }
-  var actor=auroraStaffAuthenticate_(input);
-  if(['super_admin','admin','order_manager'].indexOf(actor.role)===-1)
-    auroraReject_('forbidden','Only authorized managers may read custom cake requests.');
-  if(input.action==='staff_custom_cakes'){
-    var table=auroraPrivateTable_(auroraSpreadsheet_(),'custom_cake_requests');
-    var requests=auroraCustomCakeRows_(table);
-    requests.sort(function(a,b){return String(b.created_at).localeCompare(String(a.created_at));});
-    return {ok:true,requests:requests.slice(0,100)};
-  }
-  if(input.action==='staff_custom_quote'){
-    var id=auroraOrderText_(input.request_id,'Request ID',36,36).toLowerCase();
-    var status=String(input.status||'');
-    if(['quoted','declined'].indexOf(status)===-1)auroraReject_('invalid_status','Choose quoted or declined.');
-    var price=Number(input.quoted_price||0);
-    if(!Number.isFinite(price)||price<0||price>10000000||(status==='quoted'&&price<=0))
-      auroraReject_('invalid_price','An accepted quote must have a positive price.');
-    var lock=LockService.getScriptLock();
-    if(!lock.tryLock(10000))auroraReject_('busy','Another custom quote update is pending.');
-    try{
-      var table=auroraPrivateTable_(auroraSpreadsheet_(),'custom_cake_requests');
-      var row=table.rows.filter(function(row){return String(row.request_id)===id;})[0];
-      if(!row)auroraReject_('not_found','Request was not found.');
-      var old=JSON.parse(String(row.receipt_json));
-      if(old.status!=='pending'&&old.status!=='quoted')auroraReject_('invalid_status','A declined request cannot be modified.');
-      old.status=status;old.quoted_price=status==='quoted'?Math.round(price*100)/100:0;
-      old.updated_at=new Date().toISOString();
-      var sheet=table.sheet;
-      var idIndex=table.headers.indexOf('request_id');
-      var values=sheet.getRange(2,idIndex+1,sheet.getLastRow()-1,1).getValues();
-      var rowNumbers=[];
-      values.forEach(function(r,i){if(String(r[0])===id)rowNumbers.push(i+2);});
-      if(rowNumbers.length!==1)auroraReject_('invalid_sheet','Duplicate request references.');
-      var all=sheet.getRange(rowNumbers[0],1,1,table.headers.length).getValues()[0];
-      [['receipt_json',JSON.stringify(old)],['status',old.status],
-        ['quoted_price',old.quoted_price],['updated_at',old.updated_at]].forEach(function(pair){
-        all[table.headers.indexOf(pair[0])]=auroraSheetCell_(pair[1]);
-      });
-      sheet.getRange(rowNumbers[0],1,1,all.length).setValues([all]);
-      return {ok:true,updated:true};
-    }finally{lock.releaseLock();}
-  }
-  auroraReject_('invalid_action','Invalid custom cake action.');
 }
-/* ==== END apps-script/CustomCakeRequests.gs ==== */
+/* ==== END apps-script/Campaigns.gs ==== */
