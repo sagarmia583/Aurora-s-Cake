@@ -20,11 +20,15 @@ export async function verifyRuntime({snapshot,PGlite,sql=undefined}){
   if(sql!==undefined)assert.equal(sha256(sql),sha256(expectedSql),'Prepared SQL must match the current generator.');
   const stagingSql=fs.readFileSync(path.join(ROOT,'supabase/migrations/20261030_006_migration_staging.sql'),'utf8');
   const runtimeSql=fs.readFileSync(path.join(ROOT,'supabase/migrations/20261030_007_private_runtime_store.sql'),'utf8');
+  const cutoverSql=fs.readFileSync(path.join(ROOT,'supabase/migrations/20261030_008_cutover_status.sql'),'utf8');
   const manifest=prepared.manifest, db=new PGlite(), ref=TARGET_PROJECT_REF;
   const checks={};
   try{
     await db.exec('CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;');
-    await db.exec(stagingSql);await db.exec(sql??expectedSql);await db.exec(runtimeSql);
+    await db.exec(stagingSql);await db.exec(sql??expectedSql);await db.exec(runtimeSql);await db.exec(cutoverSql);
+    const lineage=async()=>((await db.query('SELECT public.aurora_runtime_cutover_status($1) AS result',[ref])).rows[0].result);
+    assert.deepEqual(await lineage(),{project_ref:ref,promoted:false});
+    await assert.rejects(db.query('SELECT public.aurora_runtime_cutover_status($1)',['wrong-project']),/wrong_project/);
     const promote=(formula,hash,note,sourceHash=manifest.source_sha256)=>db.query('SELECT aurora_runtime.promote_staged_run($1,$2,$3,$4,$5) AS result',[manifest.run_id,sourceHash,formula,hash,note]);
     await assert.rejects(promote(true,null,null,'0'.repeat(64)),/verified_source_required/);
     checks.exact_source_checksum_required='passed';
@@ -44,6 +48,7 @@ export async function verifyRuntime({snapshot,PGlite,sql=undefined}){
     for(const role of ['anon','authenticated']){
       await db.exec('SET ROLE '+role);
       await assert.rejects(db.query('SELECT public.aurora_runtime_snapshot($1)',[ref]),/permission denied/);
+      await assert.rejects(db.query('SELECT public.aurora_runtime_cutover_status($1)',[ref]),/permission denied/);
       await assert.rejects(db.query('SELECT public.aurora_runtime_commit($1,$2,$3,$4)',[ref,'1',randomUUID(),'[]']),/permission denied/);
       await db.exec('RESET ROLE');
     }
@@ -54,6 +59,8 @@ export async function verifyRuntime({snapshot,PGlite,sql=undefined}){
     checks.service_role_direct_table_and_promotion_denial='passed';
     const read=async()=>((await db.query('SELECT public.aurora_runtime_snapshot($1) AS result',[ref])).rows[0].result);
     const before=await read();assert.equal(before.revision,'1');
+    assert.deepEqual(await lineage(),{project_ref:ref,promoted:true,run_id:manifest.run_id,source_sha256:manifest.source_sha256,source_exported_at:new Date(manifest.source.exported_at).toISOString(),revision:'1'});
+    checks.private_lineage_metadata_and_browser_denial='passed';
     assert.equal(Object.keys(before.tables).length,manifest.table_count);
     for(const table of prepared.tables){
       assert.deepEqual(before.tables[table.name].headers,table.headers);
@@ -83,10 +90,11 @@ export async function verifyRuntime({snapshot,PGlite,sql=undefined}){
     assert.equal((await commit('2',randomUUID(),[{table:'settings',row:appendAt,cells:appended}])).rows[0].result.revision,'3');
     await assert.rejects(commit('3',randomUUID(),[{table:'settings',row:appendAt+1,cells:appended}]),/duplicate_record_key/);
     checks.immutable_existing_keys_and_unique_appends='passed';
+    assert.equal((await lineage()).revision,'3');
     return {verification_version:1,engine:'PGlite PostgreSQL (independent in-memory instance)',
       scope:'offline_runtime_bridge_only',live_network_writes:false,target_project_ref:ref,
       run_id:manifest.run_id,source_sha256:manifest.source_sha256,
-      runtime_schema_sql_sha256:HASH(runtimeSql),staging_schema_sql_sha256:HASH(stagingSql),
+      runtime_schema_sql_sha256:HASH(runtimeSql),staging_schema_sql_sha256:HASH(stagingSql),cutover_status_sql_sha256:HASH(cutoverSql),
       table_count:manifest.table_count,row_count:manifest.row_count,audit_blocker_count:manifest.audits.length,
       checks,production_cutover_ready:false};
   }finally{await db.close();}

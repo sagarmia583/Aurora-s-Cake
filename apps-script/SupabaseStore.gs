@@ -22,7 +22,7 @@ function auroraSupabaseError_(code, uncertain) {
 }
 function auroraSupabaseClone_(value) { return JSON.parse(JSON.stringify(value)); }
 function auroraSupabaseRpc_(name, payload) {
-  if (['aurora_runtime_snapshot','aurora_runtime_commit'].indexOf(name) < 0) throw auroraSupabaseError_('invalid_database_operation', false);
+  if (['aurora_runtime_snapshot','aurora_runtime_commit','aurora_runtime_cutover_status'].indexOf(name) < 0) throw auroraSupabaseError_('invalid_database_operation', false);
   var key = PropertiesService.getScriptProperties().getProperty('AURORA_SUPABASE_SERVICE_KEY') || '';
   if (key.length < 32 || /^sb_publishable_/.test(key)) throw auroraSupabaseError_('database_not_configured', false);
   var headers = {apikey:key};

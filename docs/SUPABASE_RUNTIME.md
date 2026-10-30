@@ -2,7 +2,7 @@
 
 This is an implemented, **inactive by default** persistence adapter for the existing Apps Script API. It moves row storage to project `dtvefwpaxwffxglqbfoo` while preserving account hashes, sessions, original text IDs, receipt capabilities, authoritative pricing, staff workflows and email consent. It is not a replacement with the unrelated old Supabase prototype or Supabase Auth.
 
-The frontend continues calling the same Worker/API/Apps Script endpoints. Receipt `persistence: 'google_sheets'` remains a compatibility label required by existing tracking, recovery and ownership code. Actual storage is reported by the safe `database_backend` health field. Filenames and that compatibility label do not select the database.
+The frontend continues calling the same Worker/API/Apps Script endpoints. Receipt `persistence: 'google_sheets'` remains a compatibility label required by existing tracking, recovery and ownership code. Actual storage is reported by the safe `database_backend` health field. Filenames and that compatibility label do not select the database. Follow `SUPABASE_CUTOVER.md` for the required final freeze/drain/export and guarded reopening procedure.
 
 ## Implemented boundaries
 
@@ -45,7 +45,7 @@ When the source has audit blockers, promotion requires an explicit exact Postgre
 
 The current exported source contains 36 tabs and 214 rows. Review found one existing orphan `order_items` reference and one numeric phone formula in `settings`. Both are preserved. Accepting the orphan and the static formula is an owner decision, not an automatic repair. Promotion records its review and refuses to overwrite a runtime initialized from another run. Repeating the same promotion returns its current revision without resetting live changes.
 
-Private runtime tables are under `aurora_runtime`; all have forced RLS and no browser policies or grants. Only two public RPC names are exposed, both executable solely by the service role. Do not add the private schemas to Supabase's exposed schemas.
+Private runtime tables are under `aurora_runtime`; all have forced RLS and no browser policies or grants. Two business-store RPCs are exposed, both executable solely by the service role. SQL 008 adds a third service-only, metadata-only cutover status RPC. Do not add the private schemas to Supabase's exposed schemas.
 
 ## Apps Script configuration and cutover
 

@@ -34,6 +34,7 @@ interface CheckoutModalProps {
   slots: DeliverySlot[];
   onOrderSuccess: (order: Order) => void;
   sheetOrderEndpoint?: string;
+  orderingPaused?: boolean;
 }
 
 export const CheckoutModal: React.FC<CheckoutModalProps> = (props) =>
@@ -48,8 +49,15 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   slots,
   onOrderSuccess,
   sheetOrderEndpoint,
+  orderingPaused = false,
 }) => {
-  const isLiveOrder = !!sheetOrderEndpoint;
+  // Capture the intent on first opening. Losing the public enabled flag must never
+  // turn an existing real order into a successful device-only demo.
+  const checkoutTargetRef = useRef<{ endpoint?: string } | null>(null);
+  if (isOpen && !checkoutTargetRef.current) checkoutTargetRef.current = { endpoint: sheetOrderEndpoint };
+  const liveOrderEndpoint = checkoutTargetRef.current?.endpoint;
+  const isLiveOrder = !!liveOrderEndpoint;
+  const liveOrderingPaused = isLiveOrder && (orderingPaused || !sheetOrderEndpoint);
 
   // Form State
   const [customerName, setCustomerName] = useState('');
@@ -115,7 +123,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     fillFromPhone(value,ownedCustomerRef.current);
   };
   useEffect(()=>{
-    if(!isOpen||!sheetOrderEndpoint||submissionInFlight.current||unconfirmed)return;
+    if(!isOpen||!liveOrderEndpoint||submissionInFlight.current||unconfirmed)return;
     const device=loadLocalProfile();
     const receipts=loadConfirmedSheetOrders();
     const recent=receipts.filter(order=>!!order.customer_access_token)
@@ -128,7 +136,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     };
     if(!token){fillLocal();return;}
     let active=true;
-    getPhoneCustomerProfile(sheetOrderEndpoint,token).then(profile=>{
+    getPhoneCustomerProfile(liveOrderEndpoint,token).then(profile=>{
       if(!active||submissionInFlight.current)return;
       const verified={name:profile.name,phone:profile.phone,address:profile.address,source:'account' as const};
       ownedCustomerRef.current=verified;
@@ -137,7 +145,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
       fillFromPhone(phone,verified);
     }).catch(()=>{if(active&&!submissionInFlight.current)fillLocal();});
     return()=>{active=false;};
-  },[isOpen,sheetOrderEndpoint,unconfirmed]);
+  },[isOpen,liveOrderEndpoint,unconfirmed]);
   const closeCheckout = () => { if (!submissionInFlight.current) onClose(); };
   const dialogRef = useCakeDialog(closeCheckout, isOpen);
 
@@ -196,6 +204,10 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     if (submissionInFlight.current) return;
     // An uncertain original write must be retried unchanged before consulting refreshed form or catalog data.
     if (unconfirmed && orderAttemptRef.current) { await retryOriginalOrder(); return; }
+    if (liveOrderingPaused) {
+      setErrorMessage('Online ordering is temporarily paused. Your bag and checkout details have been kept.');
+      return;
+    }
     setErrorMessage(null);
     setUnconfirmed(false);
     if (!customerName.trim() || !customerPhone.trim() || !deliveryAddress.trim()) {
@@ -218,8 +230,8 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     submissionInFlight.current = true;
     setIsSubmitting(true);
     try {
-      if (sheetOrderEndpoint) {
-        orderAttemptRef.current = createSheetOrderAttempt(sheetOrderEndpoint, {
+      if (liveOrderEndpoint) {
+        orderAttemptRef.current = createSheetOrderAttempt(liveOrderEndpoint, {
           customer_name: customerName,
           customer_phone: customerPhone,
           delivery_address: deliveryAddress,
@@ -289,6 +301,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handlePlaceOrder} className="overflow-y-auto p-6 space-y-6 flex-1">
+          {liveOrderingPaused && <p role="status" className="text-xs text-amber-950 bg-amber-50 p-3 rounded-xl">Online ordering is temporarily paused. Your checkout stays with the bakery; it has not been changed to a demo. If an earlier attempt is unconfirmed, use “Retry original order” with its saved reference below.</p>}
           <fieldset disabled={isSubmitting || unconfirmed} className="min-w-0 space-y-6 border-0 p-0 m-0">
           <p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">{isLiveOrder ? 'Place your order with the bakery and pay cash on delivery. No online payment is collected. Confirmation appears only after Google Sheets confirms your order was saved.' : 'Live Google Sheets ordering is not activated yet. This demo checkout stays on this device; it is not sent to the bakery and no payment is collected.'}</p>
           {errorMessage && (
@@ -533,7 +546,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
           <button
             type="submit"
             hidden={unconfirmed}
-            disabled={isSubmitting || unconfirmed || !items.length || !selectedZone || !selectedDeliverySlot}
+            disabled={isSubmitting || unconfirmed || liveOrderingPaused || !items.length || !selectedZone || !selectedDeliverySlot}
             className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-3.5 px-4 rounded-2xl shadow-lg shadow-rose-200 flex items-center justify-center gap-2 text-sm transition-all cursor-pointer active:scale-98 disabled:opacity-50"
           >
             {isSubmitting ? (
@@ -541,7 +554,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
             ) : (
               <>
                 <Sparkles className="w-4 h-4" />
-                <span>{isLiveOrder ? 'Place cash-on-delivery order' : 'Save demo order'} — {currency}{estimatedTotal}</span>
+                <span>{liveOrderingPaused ? 'Ordering temporarily paused' : isLiveOrder ? 'Place cash-on-delivery order' : 'Save demo order'} — {currency}{estimatedTotal}</span>
               </>
             )}
           </button>

@@ -1,5 +1,5 @@
-import { json, scriptUrl, expectedUpstream } from '../../cloudflare/shared.js';
-const EXPECTED_RELEASE='aurora-2026-10-30-supabase-store-r1';
+import { json, scriptUrl, expectedUpstream, migrationFreezeStatus } from '../../cloudflare/shared.js';
+const EXPECTED_RELEASE='aurora-2026-10-30-supabase-store-r2';
 
 export async function onRequest({ request, env }) {
   if(request.method!=='GET')return json(405,{ok:false,error:'GET only'});
@@ -19,6 +19,6 @@ export async function onRequest({ request, env }) {
       ? record.database_backend : 'unknown';
     return json(200,{ok:true,expected_release:EXPECTED_RELEASE,
       installed_release:installed,up_to_date:installed===EXPECTED_RELEASE,
-      database_backend:databaseBackend});
+      database_backend:databaseBackend,...migrationFreezeStatus(record)});
   }catch{return json(504,{ok:false,error:'Backend health check failed.'});}
 }

@@ -9,6 +9,17 @@ export const JSON_HEADERS = {
 export function json(status, data, headers={}) {
   return new Response(JSON.stringify(data), {status,headers:{...JSON_HEADERS,...headers}});
 }
+/** Public maintenance metadata only; never forward arbitrary Script Properties. */
+export function migrationFreezeStatus(record) {
+  const frozen=typeof record?.writes_frozen==='boolean'?record.writes_frozen:null;
+  const value=record?.frozen_at;
+  let timestamp=null;
+  if(frozen===true&&typeof value==='string'&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) {
+    const parsed=Date.parse(value);
+    if(Number.isFinite(parsed)&&new Date(parsed).toISOString()===value)timestamp=value;
+  }
+  return {writes_frozen:frozen,frozen_at:timestamp};
+}
 export function scriptUrl(env) {
   let url;
   try { url = new URL(env?.AURORA_SCRIPT_POST_URL || ''); } catch { return null; }

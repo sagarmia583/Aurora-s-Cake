@@ -5,7 +5,7 @@
 // Leave blank when this script is bound to the intended Sheet through Extensions > Apps Script.
 var AURORA_SPREADSHEET_ID = '18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4';
 var AURORA_SCHEMA_VERSION = 1;
-var AURORA_BACKEND_RELEASE = 'aurora-2026-10-30-supabase-store-r1';
+var AURORA_BACKEND_RELEASE = 'aurora-2026-10-30-supabase-store-r2';
 var PUBLIC_TABLE_SCHEMAS = {
   settings: ['key','value'],
   content: ['key','value'],
@@ -45,7 +45,14 @@ function doGet(e) {
   try {
     if (typeof auroraSupabaseBegin_ === 'function') auroraSupabaseBegin_();
     return auroraDoGet_(e);
-  } catch (_) { return auroraResponse_({ok:false,error:'The bakery database is temporarily unavailable.'}); }
+  } catch (_) {
+    var unavailable={ok:false,error:'The bakery database is temporarily unavailable.'};
+    if(e&&e.parameter&&e.parameter.action==='health'){
+      unavailable.release=AURORA_BACKEND_RELEASE;
+      if(typeof auroraMigrationStatus_==='function'){var failedFreeze=auroraMigrationStatus_();unavailable.writes_frozen=failedFreeze.writes_frozen;unavailable.frozen_at=failedFreeze.frozen_at;}
+    }
+    return auroraResponse_(unavailable);
+  }
   finally { if (typeof auroraSupabaseDiscard_ === 'function') auroraSupabaseDiscard_(); }
 }
 function auroraDoGet_(e) {
@@ -65,8 +72,10 @@ function auroraDoGet_(e) {
   }
   try {
     if (action === 'health') {
+      var freeze=typeof auroraMigrationStatus_==='function'?auroraMigrationStatus_():{writes_frozen:false,frozen_at:null};
       return auroraResponse_({ok:true,schema_version:AURORA_SCHEMA_VERSION,service:'aurora_public_content',release:AURORA_BACKEND_RELEASE,
-        database_backend:typeof auroraSupabaseEnabled_ === 'function' && auroraSupabaseEnabled_()?'supabase':'google_sheets'}, callback);
+        database_backend:typeof auroraSupabaseEnabled_ === 'function' && auroraSupabaseEnabled_()?'supabase':'google_sheets',
+        writes_frozen:freeze.writes_frozen,frozen_at:freeze.frozen_at}, callback);
     }
     var cache = CacheService.getScriptCache();
     var cacheKey = auroraCacheKey_();
@@ -79,6 +88,7 @@ function auroraDoGet_(e) {
       var serialized = JSON.stringify(payload);
       if (serialized.length < 90000) cache.put(cacheKey, serialized, 20);
     }
+    if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_()&&payload.data)payload.data.order_submission_enabled=false;
     return auroraResponse_(payload, callback);
   } catch (error) {
     // Do not expose exception text, file metadata or stack traces to public visitors.
@@ -101,6 +111,7 @@ var PRIVATE_ORDER_SCHEMAS = {
 // This handler creates a private COD receipt. GET never calls these functions.
 function doPost(e) {
   try {
+    if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_())return auroraResponse_({ok:false,success:false,code:'migration_frozen',retryable:true,error:'Bakery updates are paused for database migration. Retry later with the same request ID; do not create a new request.'});
     if (typeof auroraSupabaseBegin_ === 'function') auroraSupabaseBegin_();
     return auroraDoPost_(e);
   } catch (_) { return auroraResponse_({ok:false,success:false,code:'submission_uncertain',error:'Order confirmation is unavailable. Retry with the same request ID; do not create a new request.'}); }
@@ -497,7 +508,7 @@ function auroraPublicData_() {
   });
   return {
     schema_version: AURORA_SCHEMA_VERSION,
-    order_submission_enabled: true,
+    order_submission_enabled: !(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_()),
     customer_order_profile_sync_enabled: typeof auroraAccountSaveOrderProfile_ === 'function',
     settings: settings,
     content: content,
@@ -537,6 +548,7 @@ function auroraRequireInteractiveSetup_() {
 function setupSheetDatabase() {
   if(typeof auroraSupabaseEnabled_==='function'&&auroraSupabaseEnabled_())throw new Error('Supabase runtime schemas are owner-managed in SQL. Do not seed or rebuild the migrated database from Sheet setup.');
   auroraRequireInteractiveSetup_();
+  if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
   var book = auroraSpreadsheet_();
   var seed = typeof AURORA_SEED_DATA !== 'undefined' ? AURORA_SEED_DATA : {};
   var report = [];

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { TARGET_PROJECT_REF, assertPrivatePath, canonical, decimalToPaisa, generateSql, prepareSnapshot, sha256, summary } from '../scripts/prepare-supabase-import.mjs';
+import { checkCutoverEvidence, CUTOVER_RELEASE } from '../scripts/verify-supabase-cutover.mjs';
 
 const fixture = ():any => ({
   schema_version:1,target_project_ref:TARGET_PROJECT_REF,
@@ -140,4 +141,39 @@ test('private staging migration enables and forces RLS without browser policies 
   assert.match(sql,/REVOKE ALL ON ALL TABLES IN SCHEMA aurora_migration/);
   assert.doesNotMatch(sql,/CREATE POLICY|GRANT .* TO (anon|authenticated)|CREATE TABLE.*public\./i);
   assert.match(sql,/target_project_ref = 'dtvefwpaxwffxglqbfoo'/);
+});
+
+const freezeEvidence=()=>({schema_version:1,target_project_ref:TARGET_PROJECT_REF,
+  before:{observed_at:'2026-10-30T04:59:59.000Z',health:{ok:true,release:CUTOVER_RELEASE,database_backend:'google_sheets',writes_frozen:true,frozen_at:'2026-10-30T04:52:59.000Z'}},
+  after:{observed_at:'2026-10-30T05:00:02.000Z',health:{ok:true,release:CUTOVER_RELEASE,database_backend:'google_sheets',writes_frozen:true,frozen_at:'2026-10-30T04:52:59.000Z'}},
+  export_started_at:'2026-10-30T04:59:59.000Z',export_completed_at:'2026-10-30T05:00:01.000Z'});
+
+test('cutover checker accepts fresh post-drain evidence without claiming live promotion/readiness',()=>{
+  const snapshot=fixture(),old=fixture();old.source.exported_at='2026-10-30T01:00:00.000Z';
+  const report=checkCutoverEvidence({snapshot,evidence:freezeEvidence(),baseline:old});
+  assert.equal(report.table_count,6);assert.equal(report.baseline_table_count_retained,6);
+  assert.equal(report.production_cutover_ready,false);assert.equal(report.live_network_writes,false);
+  assert.doesNotMatch(JSON.stringify(report),/PRIVATE_HASH|PRIVATE_CAPABILITY|01700000000/);
+  const proxy:any=freezeEvidence();
+  delete proxy.before.health.release;Object.assign(proxy.before.health,{installed_release:CUTOVER_RELEASE,expected_release:CUTOVER_RELEASE,up_to_date:true});
+  assert.equal(checkCutoverEvidence({snapshot,evidence:proxy}).checks.deployed_release,'passed');
+});
+
+test('cutover checker rejects stale snapshots, premature drain and changed freeze/backend',()=>{
+  const stale=fixture();stale.source.exported_at='2026-10-30T01:00:00.000Z';
+  assert.throws(()=>checkCutoverEvidence({snapshot:stale,evidence:freezeEvidence()}),/fresh export interval/);
+  const premature=freezeEvidence();premature.before.health.frozen_at=premature.after.health.frozen_at='2026-10-30T04:53:00.000Z';
+  assert.throws(()=>checkCutoverEvidence({snapshot:fixture(),evidence:premature}),/seven-minute/);
+  const changed=freezeEvidence();changed.after.health.frozen_at='2026-10-30T04:52:58.000Z';
+  assert.throws(()=>checkCutoverEvidence({snapshot:fixture(),evidence:changed}),/Freeze changed/);
+  const switched=freezeEvidence();switched.after.health.database_backend='supabase';
+  assert.throws(()=>checkCutoverEvidence({snapshot:fixture(),evidence:switched}),/authority/);
+  const oldCode=freezeEvidence();oldCode.before.health.release='aurora-2026-10-30-supabase-store-r1';
+  assert.throws(()=>checkCutoverEvidence({snapshot:fixture(),evidence:oldCode}),/r2 release/);
+});
+
+test('cutover checker requires unchanged baseline tab inventory and a new final run',()=>{
+  const old=fixture(),snapshot=fixture();delete snapshot.tables.owner_custom_tab;
+  assert.throws(()=>checkCutoverEvidence({snapshot,evidence:freezeEvidence(),baseline:old}),/omitted/);
+  assert.throws(()=>checkCutoverEvidence({snapshot:old,evidence:freezeEvidence(),baseline:old}),/old staging run/);
 });

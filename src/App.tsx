@@ -113,6 +113,9 @@ export default function App() {
   const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  // A checkout keeps its original live target across catalog refreshes and close/reopen.
+  // Only a confirmed receipt ends the session and releases an uncertain order reference.
+  const [checkoutSession, setCheckoutSession] = useState<{ endpoint: string } | null>(null);
   const [isTrackOrderOpen, setIsTrackOrderOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isCustomCakeOpen, setIsCustomCakeOpen] = useState(false);
@@ -234,6 +237,22 @@ export default function App() {
         message:error instanceof Error?error.message:'Your delivery profile could not be confirmed.'});
     }finally{if(attempt===profileSyncVersion.current)setProfileSyncBusy(false);}
   };
+  const openCheckout = () => {
+    if (checkoutSession) {
+      setIsCartOpen(false);
+      setIsCheckoutOpen(true);
+      return;
+    }
+    if (!cartItems.length || !publicData.order_submission_enabled || !settings.accepting_orders || !sheetContent.endpoint) {
+      setCartNotice(!cartItems.length ? 'Add a cake to your bag before placing an order.' : 'Online ordering is temporarily paused. Your bag has been kept.');
+      setIsCartOpen(true);
+      return;
+    }
+    setCheckoutSession({ endpoint: sheetContent.endpoint });
+    setCartNotice('');
+    setIsCartOpen(false);
+    setIsCheckoutOpen(true);
+  };
   const handleOrderSuccess = (newOrder: Order) => {
     if (newOrder.persistence === 'google_sheets') {
       rememberConfirmedSheetOrder(newOrder);
@@ -246,6 +265,7 @@ export default function App() {
     setCartNotice('');
     setIsCartOpen(false);
     setIsCheckoutOpen(false);
+    setCheckoutSession(null);
     setCartItems([]);
     setLatestOrderId(newOrder.id);
     setIsTrackOrderOpen(true);
@@ -401,21 +421,7 @@ export default function App() {
         onViewModeChange={setViewMode}
         cartCount={cartTotalCount}
         onOpenCart={() => setIsCartOpen(true)}
-        onOrderNow={() => {
-          if (cartItems.length === 0) {
-            setCartNotice('Add a cake to your bag before placing an order.');
-            setIsCartOpen(true);
-            return;
-          }
-          if (!publicData.order_submission_enabled || !settings.accepting_orders) {
-            setCartNotice('Online ordering is temporarily unavailable. Please contact the shop.');
-            setIsCartOpen(true);
-            return;
-          }
-          setCartNotice('');
-          setIsCartOpen(false);
-          setIsCheckoutOpen(true);
-        }}
+        onOrderNow={openCheckout}
         onOpenProfile={() => setIsProfileOpen(true)}
         onOpenCacheHub={() => setIsCacheHubOpen(true)}
         onOpenDbViewer={() => setIsDbViewerOpen(true)}
@@ -465,7 +471,7 @@ export default function App() {
             onAddToCart={handleAddToCart}
             onUpdateCartQuantity={handleUpdateCartQuantity}
             onRemoveCartItem={handleRemoveCartItem}
-            onOpenCheckout={() => setIsCheckoutOpen(true)}
+            onOpenCheckout={openCheckout}
             onSelectProductForDetail={(p) => setSelectedProductForDetail(p)}
             onOpenCustomCake={() => setIsCustomCakeOpen(true)}
             onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
@@ -576,15 +582,7 @@ export default function App() {
               </span>
             )}
           </button>
-          <button type="button" onClick={() => {
-            if (!cartItems.length || !publicData.order_submission_enabled || !settings.accepting_orders) {
-              setIsCartOpen(true);
-              setCartNotice(!cartItems.length ? 'Add a cake to your bag to order.' : 'Online ordering is temporarily unavailable.');
-              return;
-            }
-            setIsCartOpen(false);
-            setIsCheckoutOpen(true);
-          }} className="flex flex-col items-center gap-1 rounded-xl bg-[#174B3B] text-white px-2.5 py-1.5 cursor-pointer">
+          <button type="button" onClick={openCheckout} className="flex flex-col items-center gap-1 rounded-xl bg-[#174B3B] text-white px-2.5 py-1.5 cursor-pointer">
             <ArrowRight className="w-5 h-5" />
             <span className="text-[10px] font-bold">Order Now</span>
           </button>
@@ -633,17 +631,18 @@ export default function App() {
         currency={settings.currency}
         onUpdateQuantity={handleUpdateCartQuantity}
         onRemoveItem={handleRemoveCartItem}
-        onProceedToCheckout={() => { setIsCartOpen(false); setIsCheckoutOpen(true); }}
+        onProceedToCheckout={openCheckout}
       />}
 
-      {isCheckoutOpen && <CheckoutModal
+      {checkoutSession && <CheckoutModal
         isOpen={isCheckoutOpen}
         onClose={() => setIsCheckoutOpen(false)}
         items={cartItems}
         currency={settings.currency}
         zones={zones}
         slots={slots}
-        sheetOrderEndpoint={publicData.order_submission_enabled ? sheetContent.endpoint : undefined}
+        sheetOrderEndpoint={checkoutSession.endpoint}
+        orderingPaused={!publicData.order_submission_enabled || !settings.accepting_orders}
         onOrderSuccess={handleOrderSuccess}
       />}
 

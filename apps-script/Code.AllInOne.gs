@@ -15,7 +15,7 @@
 // Leave blank when this script is bound to the intended Sheet through Extensions > Apps Script.
 var AURORA_SPREADSHEET_ID = '18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4';
 var AURORA_SCHEMA_VERSION = 1;
-var AURORA_BACKEND_RELEASE = 'aurora-2026-10-30-supabase-store-r1';
+var AURORA_BACKEND_RELEASE = 'aurora-2026-10-30-supabase-store-r2';
 var PUBLIC_TABLE_SCHEMAS = {
   settings: ['key','value'],
   content: ['key','value'],
@@ -55,7 +55,14 @@ function doGet(e) {
   try {
     if (typeof auroraSupabaseBegin_ === 'function') auroraSupabaseBegin_();
     return auroraDoGet_(e);
-  } catch (_) { return auroraResponse_({ok:false,error:'The bakery database is temporarily unavailable.'}); }
+  } catch (_) {
+    var unavailable={ok:false,error:'The bakery database is temporarily unavailable.'};
+    if(e&&e.parameter&&e.parameter.action==='health'){
+      unavailable.release=AURORA_BACKEND_RELEASE;
+      if(typeof auroraMigrationStatus_==='function'){var failedFreeze=auroraMigrationStatus_();unavailable.writes_frozen=failedFreeze.writes_frozen;unavailable.frozen_at=failedFreeze.frozen_at;}
+    }
+    return auroraResponse_(unavailable);
+  }
   finally { if (typeof auroraSupabaseDiscard_ === 'function') auroraSupabaseDiscard_(); }
 }
 function auroraDoGet_(e) {
@@ -75,8 +82,10 @@ function auroraDoGet_(e) {
   }
   try {
     if (action === 'health') {
+      var freeze=typeof auroraMigrationStatus_==='function'?auroraMigrationStatus_():{writes_frozen:false,frozen_at:null};
       return auroraResponse_({ok:true,schema_version:AURORA_SCHEMA_VERSION,service:'aurora_public_content',release:AURORA_BACKEND_RELEASE,
-        database_backend:typeof auroraSupabaseEnabled_ === 'function' && auroraSupabaseEnabled_()?'supabase':'google_sheets'}, callback);
+        database_backend:typeof auroraSupabaseEnabled_ === 'function' && auroraSupabaseEnabled_()?'supabase':'google_sheets',
+        writes_frozen:freeze.writes_frozen,frozen_at:freeze.frozen_at}, callback);
     }
     var cache = CacheService.getScriptCache();
     var cacheKey = auroraCacheKey_();
@@ -89,6 +98,7 @@ function auroraDoGet_(e) {
       var serialized = JSON.stringify(payload);
       if (serialized.length < 90000) cache.put(cacheKey, serialized, 20);
     }
+    if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_()&&payload.data)payload.data.order_submission_enabled=false;
     return auroraResponse_(payload, callback);
   } catch (error) {
     // Do not expose exception text, file metadata or stack traces to public visitors.
@@ -111,6 +121,7 @@ var PRIVATE_ORDER_SCHEMAS = {
 // This handler creates a private COD receipt. GET never calls these functions.
 function doPost(e) {
   try {
+    if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_())return auroraResponse_({ok:false,success:false,code:'migration_frozen',retryable:true,error:'Bakery updates are paused for database migration. Retry later with the same request ID; do not create a new request.'});
     if (typeof auroraSupabaseBegin_ === 'function') auroraSupabaseBegin_();
     return auroraDoPost_(e);
   } catch (_) { return auroraResponse_({ok:false,success:false,code:'submission_uncertain',error:'Order confirmation is unavailable. Retry with the same request ID; do not create a new request.'}); }
@@ -507,7 +518,7 @@ function auroraPublicData_() {
   });
   return {
     schema_version: AURORA_SCHEMA_VERSION,
-    order_submission_enabled: true,
+    order_submission_enabled: !(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_()),
     customer_order_profile_sync_enabled: typeof auroraAccountSaveOrderProfile_ === 'function',
     settings: settings,
     content: content,
@@ -547,6 +558,7 @@ function auroraRequireInteractiveSetup_() {
 function setupSheetDatabase() {
   if(typeof auroraSupabaseEnabled_==='function'&&auroraSupabaseEnabled_())throw new Error('Supabase runtime schemas are owner-managed in SQL. Do not seed or rebuild the migrated database from Sheet setup.');
   auroraRequireInteractiveSetup_();
+  if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
   var book = auroraSpreadsheet_();
   var seed = typeof AURORA_SEED_DATA !== 'undefined' ? AURORA_SEED_DATA : {};
   var report = [];
@@ -1468,6 +1480,7 @@ var AURORA_STAFF_ROLES_ = ['super_admin','admin','order_manager','kitchen_manage
  */
 function setupAuroraOwnerOnce() {
   var email = auroraRequireInteractiveSetup_();
+  if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
   var props = PropertiesService.getScriptProperties();
   var existing = String(props.getProperty('AURORA_STAFF_USERS') || '').trim();
   if (existing && existing !== '{}') {
@@ -2282,9 +2295,11 @@ function auroraStaffCustomerLookup_(input){
  */
 function backfillCustomerMasterOnce(){
   auroraRequireInteractiveSetup_();
+  if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
   var lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))throw new Error('Other bakery updates are running. Retry.');
   try{
+    if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
     if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();
     var book=auroraSpreadsheet_(),orders=auroraPrivateTable_(book,'orders');
     var table=auroraPrivateTable_(book,'customer_master');
@@ -2862,6 +2877,7 @@ function auroraImageFolder_(create){
  */
 function setupAuroraImagesOnce(){
   auroraRequireInteractiveSetup_();
+  if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
   return auroraImageFolder_(true).getId();
 }
 function auroraImageMime_(bytes){
@@ -3118,6 +3134,7 @@ function setupCampaignTools() {
   if(!effective || active!==effective)throw new Error('Run setupCampaignTools directly in your Apps Script editor while signed in as the bakery owner.');
   var previous=String(props.getProperty('AURORA_CAMPAIGN_OWNER_EMAIL')||'').toLowerCase();
   if(previous && previous!==effective)throw new Error('Campaign tools already belong to another owner.');
+  if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
   if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();
   props.setProperty('AURORA_CAMPAIGN_OWNER_EMAIL',effective);
   var book=auroraSpreadsheet_();auroraSetupCampaignTables_(book);
@@ -3134,6 +3151,7 @@ function auroraCampaignOnOpen() {
 }
 function auroraNewCampaignDraft() {
   auroraCampaignOwner_(true);
+  if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
   if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();
   var book=auroraSpreadsheet_(),table=auroraCampaignTable_(book,'email_campaigns');
   var id='campaign_'+Utilities.getUuid();
@@ -3182,6 +3200,7 @@ function auroraCampaignEscape_(text) {
 }
 function auroraPreviewCampaign() {
   var owner=auroraCampaignOwner_(true);
+  if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
   if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();
   var bridge=typeof auroraSupabaseImportSelectedCampaignDraft_==='function'?auroraSupabaseImportSelectedCampaignDraft_():null;
   var book=auroraSpreadsheet_(),active=book.getActiveSheet(),range=book.getActiveRange();
@@ -3198,10 +3217,12 @@ function auroraPreviewCampaign() {
 }
 function auroraConfirmCampaign(token) {
   var owner=auroraCampaignOwner_(true);
+  if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
   if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();
   var lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))throw new Error('Another operation is running. Review the campaign again shortly.');
   try{
+    if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
     var props=PropertiesService.getScriptProperties(),review;
     try{review=JSON.parse(props.getProperty('AURORA_CAMPAIGN_REVIEW')||'null');}catch(_){review=null;}
     if(!review||review.owner!==owner||review.token!==String(token)||review.expires_at<Date.now())throw new Error('This preview expired. Review the selected campaign again.');
@@ -3231,11 +3252,12 @@ function auroraCampaignEnsureWorker_() {
   if(!triggers.length)triggers=[ScriptApp.newTrigger('auroraCampaignTick').timeBased().everyMinutes(5).create()];
   props.setProperty('AURORA_CAMPAIGN_WORKER_ID',triggers[0].getUniqueId());
 }
-function auroraResumeCampaigns() {auroraCampaignOwner_(true);auroraCampaignEnsureWorker_();return auroraCampaignRun_();}
+function auroraResumeCampaigns() {auroraCampaignOwner_(true);if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();auroraCampaignEnsureWorker_();return auroraCampaignRun_();}
 function auroraCampaignTick(e) {
   auroraCampaignOwner_(false);
   var expected=PropertiesService.getScriptProperties().getProperty('AURORA_CAMPAIGN_WORKER_ID');
   if(!e||String(e.triggerUid)!==expected)throw new Error('Only the installed campaign worker can use this entry point.');
+  if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_())return {processed:0,migration_frozen:true};
   return auroraCampaignRun_();
 }
 function auroraCampaignMessage_(snapshot,recipient) {
@@ -3248,8 +3270,10 @@ function auroraCampaignMessage_(snapshot,recipient) {
 }
 function auroraCampaignRun_() {
   auroraCampaignOwner_(false);
+  if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_())return {processed:0,migration_frozen:true};
   if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();
   var lock=LockService.getScriptLock();if(!lock.tryLock(1000))return {processed:0,busy:true};
+  if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_()){lock.releaseLock();return {processed:0,migration_frozen:true};}
   var locked=true,props=PropertiesService.getScriptProperties(),lease;
   try{lease=JSON.parse(props.getProperty('AURORA_CAMPAIGN_WORKER_LEASE')||'null');}catch(_){lease=null;}
   if(lease && lease.expires_at>Date.now()){lock.releaseLock();return {processed:0,busy:true};}
@@ -3261,6 +3285,7 @@ function auroraCampaignRun_() {
     var book=auroraSpreadsheet_(),campaigns=auroraCampaignTable_(book,'email_campaigns'),deliveries=auroraCampaignTable_(book,'email_deliveries');
     var pending=campaigns.rows.filter(function(row){return ['queued','sending','waiting_quota'].indexOf(String(row.status))>=0;});
     for(var i=0;i<pending.length && processed<AURORA_CAMPAIGN_BATCH_SIZE && Date.now()-started<200000;i++){
+      if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_()){if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();return {processed:processed,migration_frozen:true};}
       var campaign=pending[i];
       if(campaign.next_attempt_at && new Date(campaign.next_attempt_at).getTime()>Date.now())continue;
       var snapshot;
@@ -3273,6 +3298,7 @@ function auroraCampaignRun_() {
       rows.filter(function(row){return row.status==='sending';}).forEach(function(row){auroraCampaignUpdate_(deliveries,row,{status:'unknown',last_error:'A previous send was interrupted. Delivery is uncertain; this recipient will not be retried automatically.'});});
       var next=rows.filter(function(row){return row.status==='queued';}),quotaWait=false;
       for(var j=0;j<next.length && processed<AURORA_CAMPAIGN_BATCH_SIZE && Date.now()-started<200000;j++){
+        if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_()){if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();return {processed:processed,migration_frozen:true};}
         var customers=auroraSubscriptionCampaignRecipients_(book);
         var delivery=next[j],matches=customers.filter(function(customer){return String(customer.customer_id)===String(delivery.customer_id);});
         var customer=matches.length===1?matches[0]:null;
@@ -3281,6 +3307,7 @@ function auroraCampaignRun_() {
         }
         if(MailApp.getRemainingDailyQuota()<=AURORA_CAMPAIGN_QUOTA_RESERVE){quotaWait=true;break;}
         var message=auroraCampaignMessage_(snapshot,delivery);
+        if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_()){if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();return {processed:processed,migration_frozen:true};}
         auroraCampaignUpdate_(deliveries,delivery,{status:'sending',attempted_at:new Date().toISOString(),last_error:''});
         // Flush the claim before the external send. If flushing fails, no mail is attempted.
         if(typeof auroraPersistenceFlush_==='function')auroraPersistenceFlush_();else SpreadsheetApp.flush();
@@ -3300,6 +3327,7 @@ function auroraCampaignRun_() {
       auroraCampaignUpdate_(campaigns,campaign,{sent_count:counts.sent,skipped_count:counts.skipped,unknown_count:counts.unknown,status:remaining?(quotaWait?'waiting_quota':'sending'):(counts.unknown?'completed_with_issues':'completed'),finished_at:remaining?'':new Date().toISOString(),next_attempt_at:quotaWait?new Date(Date.now()+3600000).toISOString():'',last_error:quotaWait?'Waiting for Google’s mail allowance; ten messages are reserved for customer verification.':(counts.unknown?'Some send outcomes are uncertain. See email_deliveries.':'')});
     }
     if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
+    if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_())return {processed:processed,migration_frozen:true};
     if(typeof auroraSupabaseProjectCampaignState_==='function')auroraSupabaseProjectCampaignState_();
     // Another owner action may queue a campaign while MailApp releases our
     // lock. Check fresh authoritative state before deleting its shared trigger.
@@ -3344,7 +3372,7 @@ function auroraSupabaseError_(code, uncertain) {
 }
 function auroraSupabaseClone_(value) { return JSON.parse(JSON.stringify(value)); }
 function auroraSupabaseRpc_(name, payload) {
-  if (['aurora_runtime_snapshot','aurora_runtime_commit'].indexOf(name) < 0) throw auroraSupabaseError_('invalid_database_operation', false);
+  if (['aurora_runtime_snapshot','aurora_runtime_commit','aurora_runtime_cutover_status'].indexOf(name) < 0) throw auroraSupabaseError_('invalid_database_operation', false);
   var key = PropertiesService.getScriptProperties().getProperty('AURORA_SUPABASE_SERVICE_KEY') || '';
   if (key.length < 32 || /^sb_publishable_/.test(key)) throw auroraSupabaseError_('database_not_configured', false);
   var headers = {apikey:key};
@@ -3570,3 +3598,141 @@ function auroraSupabaseProjectCampaignState_() {
   }catch(_){console.warn('Campaign editor display could not refresh. Private database state remains authoritative.');}
 }
 /* ==== END apps-script/SupabaseStore.gs ==== */
+
+/* ==== BEGIN apps-script/MigrationControl.gs ==== */
+/** Owner-controlled write freeze. Inactive until explicitly started in editor. */
+var AURORA_MIGRATION_DRAIN_MS_ = 7 * 60 * 1000;
+var AURORA_MIGRATION_FROZEN_PROP_ = 'AURORA_MIGRATION_FROZEN_AT';
+var AURORA_MIGRATION_SOURCE_PROP_ = 'AURORA_MIGRATION_SOURCE_BACKEND';
+var AURORA_MIGRATION_VERIFIED_PROP_ = 'AURORA_SUPABASE_CONNECTION_VERIFIED';
+
+function auroraMigrationIso_(value) {
+  if(typeof value!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value))return null;
+  var parsed=new Date(value);return Number.isFinite(parsed.getTime())&&parsed.toISOString()===value?value:null;
+}
+function auroraMigrationStatus_() {
+  var raw=PropertiesService.getScriptProperties().getProperty(AURORA_MIGRATION_FROZEN_PROP_);
+  // Any nonempty corrupt value remains frozen. Never echo it in health output.
+  return {writes_frozen:raw!==null&&raw!==undefined&&raw!=='',frozen_at:auroraMigrationIso_(raw)};
+}
+function auroraMigrationFrozen_() { return auroraMigrationStatus_().writes_frozen; }
+function auroraMigrationDrainReady_() {
+  var status=auroraMigrationStatus_(),stamp=status.frozen_at?Date.parse(status.frozen_at):NaN;
+  return status.writes_frozen&&Number.isFinite(stamp)&&stamp<=Date.now()&&Date.now()-stamp>=AURORA_MIGRATION_DRAIN_MS_;
+}
+function auroraMigrationAssertWritable_() {
+  if(auroraMigrationFrozen_()){
+    var error=new Error('Bakery updates are paused for database migration. Retry later with the same request ID.');
+    error.code='migration_frozen';error.auroraMigrationFrozen=true;throw error;
+  }
+}
+function auroraMigrationOwner_() {
+  var email=auroraRequireInteractiveSetup_(),props=PropertiesService.getScriptProperties();
+  var configured=String(props.getProperty('AURORA_CAMPAIGN_OWNER_EMAIL')||'').trim().toLowerCase();
+  if(configured){if(configured!==email)throw new Error('Only the configured bakery owner can manage migration.');return email;}
+  var people;try{people=JSON.parse(props.getProperty('AURORA_STAFF_USERS')||'{}');}catch(_){people=null;}
+  if(!people||!people[email]||people[email].role!=='super_admin')throw new Error('Configure the bakery owner before managing migration.');
+  return email;
+}
+function auroraMigrationBackend_() {
+  var raw=PropertiesService.getScriptProperties().getProperty('AURORA_DATABASE_BACKEND');
+  if(raw===null||raw===undefined||raw===''||raw==='google_sheets')return 'google_sheets';
+  if(raw==='supabase')return 'supabase';
+  throw new Error('Fix the configured database backend before continuing migration.');
+}
+function auroraMigrationClearCache_() {
+  var suffix=auroraConfiguredId_()||'bound',cache=CacheService.getScriptCache();
+  ['aurora_public_profiles_email_v1_sheets_','aurora_public_profiles_email_v1_supabase_','aurora_public_profiles_email_v1_'].forEach(function(prefix){cache.remove(prefix+suffix);});
+}
+function beginMigrationFreeze() {
+  auroraMigrationOwner_();var lock=LockService.getScriptLock();
+  if(!lock.tryLock(10000))throw new Error('An update is running. Retry starting the freeze.');
+  try{
+    var props=PropertiesService.getScriptProperties(),status=auroraMigrationStatus_();
+    if(!status.writes_frozen){
+      var source=auroraMigrationBackend_();
+      props.setProperty(AURORA_MIGRATION_SOURCE_PROP_,source);
+      props.setProperty(AURORA_MIGRATION_FROZEN_PROP_,new Date().toISOString());
+      status=auroraMigrationStatus_();
+    }
+    auroraMigrationClearCache_();
+    var result={ok:true,writes_frozen:true,frozen_at:status.frozen_at,
+      drain_until:status.frozen_at?new Date(Date.parse(status.frozen_at)+AURORA_MIGRATION_DRAIN_MS_).toISOString():null,
+      drain_ready:auroraMigrationDrainReady_()};
+    console.log(JSON.stringify(result));return result;
+  }finally{lock.releaseLock();}
+}
+function auroraMigrationKeyDigest_(key) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,key,Utilities.Charset.UTF_8)
+    .map(function(byte){return ('0'+((byte+256)%256).toString(16)).slice(-2);}).join('');
+}
+function auroraMigrationVerifyResult_(ok,code) {
+  var allowed=['server_key_missing_or_invalid','connection_unavailable','connection_invalid_response','supabase_connection_verified'];
+  if(allowed.indexOf(code)<0)code='connection_unavailable';
+  console.log(code);return {ok:ok===true,code:code};
+}
+/** Verifies only the isolated operational RPC. No business data read/write. */
+function verifySupabaseConnection() {
+  auroraMigrationOwner_();var props=PropertiesService.getScriptProperties();
+  var key=String(props.getProperty('AURORA_SUPABASE_SERVICE_KEY')||'');
+  if(!/^sb_secret_[A-Za-z0-9_-]{20,}$/.test(key)&&!/^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(key))return auroraMigrationVerifyResult_(false,'server_key_missing_or_invalid');
+  var headers={apikey:key};if(/^eyJ/.test(key))headers.Authorization='Bearer '+key;
+  var slot=new Date(Math.floor(Date.now()/(6*3600000))*(6*3600000)).toISOString();
+  try{
+    var response=UrlFetchApp.fetch('https://dtvefwpaxwffxglqbfoo.supabase.co/rest/v1/rpc/aurora_operational_heartbeat',{
+      method:'post',contentType:'application/json',headers:headers,
+      payload:JSON.stringify({p_slot:slot,p_request_id:Utilities.getUuid()}),muteHttpExceptions:true,
+      followRedirects:false,validateHttpsCertificates:true
+    });
+    var status=response.getResponseCode(),body=response.getContentText();
+    if(status<200||status>=300||body.length>4096)return auroraMigrationVerifyResult_(false,'connection_unavailable');
+    var result=JSON.parse(body);
+    if(!result||result.ok!==true||typeof result.applied!=='boolean'||typeof result.checked_at!=='string'||!Number.isFinite(Date.parse(result.checked_at)))return auroraMigrationVerifyResult_(false,'connection_invalid_response');
+    props.setProperty(AURORA_MIGRATION_VERIFIED_PROP_,JSON.stringify({project_ref:'dtvefwpaxwffxglqbfoo',key_sha256:auroraMigrationKeyDigest_(key),verified_at:new Date().toISOString()}));
+    return auroraMigrationVerifyResult_(true,'supabase_connection_verified');
+  }catch(_){return auroraMigrationVerifyResult_(false,'connection_unavailable');}
+}
+function auroraMigrationConnectionVerified_() {
+  var props=PropertiesService.getScriptProperties(),record;
+  try{record=JSON.parse(props.getProperty(AURORA_MIGRATION_VERIFIED_PROP_)||'null');}catch(_){return false;}
+  var key=String(props.getProperty('AURORA_SUPABASE_SERVICE_KEY')||'');
+  if(!record||record.project_ref!=='dtvefwpaxwffxglqbfoo'||!auroraMigrationIso_(record.verified_at)||!key)return false;
+  var elapsed=Date.now()-Date.parse(record.verified_at);
+  return elapsed>=0&&elapsed<=24*3600000&&record.key_sha256===auroraMigrationKeyDigest_(key);
+}
+function auroraMigrationUnfreeze_(cancel) {
+  auroraMigrationOwner_();var lock=LockService.getScriptLock();
+  if(!lock.tryLock(10000))throw new Error('An update is running. Retry ending the freeze.');
+  try{
+    var props=PropertiesService.getScriptProperties(),status=auroraMigrationStatus_(),backend=auroraMigrationBackend_();
+    if(!cancel&&backend!=='supabase')throw new Error('Select the verified Supabase backend before completing migration. Use cancellation to keep the original source.');
+    if(status.writes_frozen){
+      var source=props.getProperty(AURORA_MIGRATION_SOURCE_PROP_);
+      if(cancel&&(['google_sheets','supabase'].indexOf(source)<0||source!==backend))throw new Error('Cancellation requires the valid recorded original backend to remain selected. No database authority was changed.');
+      if(!cancel&&!auroraMigrationDrainReady_())throw new Error('Keep writes frozen until at least seven minutes after the valid freeze timestamp.');
+      if(!cancel&&!auroraMigrationConnectionVerified_())throw new Error('Verify the current private Supabase connection before reopening writes.');
+      if(!cancel){
+        // The operational RPC proves the key, not business-store promotion.
+        // Require a real snapshot AND post-drain source provenance. A morning
+        // staging import cannot silently become the final live database.
+        try{
+          auroraSupabaseBegin_();
+          var revision=auroraSupabaseContext_().revision;
+          var final=auroraSupabaseRpc_('aurora_runtime_cutover_status',{p_project_ref:'dtvefwpaxwffxglqbfoo'});
+          var exported=final&&auroraMigrationIso_(final.source_exported_at)?Date.parse(final.source_exported_at):NaN;
+          if(!final||final.project_ref!=='dtvefwpaxwffxglqbfoo'||final.promoted!==true||typeof final.source_sha256!=='string'||
+             !/^[a-f0-9]{64}$/.test(final.source_sha256)||final.run_id!=='sheet_'+final.source_sha256.slice(0,32)||
+             String(final.revision)!==revision||!Number.isFinite(exported)||exported<Date.parse(status.frozen_at)+AURORA_MIGRATION_DRAIN_MS_||exported>Date.now()+60000)
+            throw new Error('The final promoted source must match this freeze and be exported after its seven-minute drain.');
+        }finally{auroraSupabaseDiscard_();}
+      }
+    }
+    props.deleteProperty(AURORA_MIGRATION_FROZEN_PROP_);props.deleteProperty(AURORA_MIGRATION_SOURCE_PROP_);
+    auroraMigrationClearCache_();
+    console.log(cancel?'migration_freeze_cancelled':'migration_freeze_ended');
+    return {ok:true,writes_frozen:false,frozen_at:null};
+  }finally{lock.releaseLock();}
+}
+function cancelMigrationFreeze() { return auroraMigrationUnfreeze_(true); }
+function endMigrationFreeze() { return auroraMigrationUnfreeze_(false); }
+/* ==== END apps-script/MigrationControl.gs ==== */

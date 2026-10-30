@@ -85,6 +85,8 @@ Currency audit totals use signed integer **paisa**, calculated with `BigInt`, wi
 
 Promotion requires the exact run ID and source checksum. Any reported source blockers require an explicit reviewed audit hash and owner note; stored formulas require separate acceptance as **static values**, because PostgreSQL does not recalculate Sheet formulas. Promotion never deletes an orphan or invents its missing parent. Rerun the exact prepared staging SQL immediately before promotion to verify that staged cells still match the reviewed backup. Promotion does not activate the website backend.
 
+Migration `20261030_008_cutover_status.sql` adds the service-only, read-only `public.aurora_runtime_cutover_status` RPC. It returns promoted run/checksum/export time and revision, or `promoted: false`; it returns no business rows and changes no data. The owner freeze-end check uses this lineage to reject a runtime imported from a source older than the final seven-minute drain. Include 008 in the reviewed final promotion package; the earlier preparation import is not a reason to activate the backend.
+
 The corresponding `apps-script/SupabaseStore.gs` adapter is off by default and uses the existing Apps Script API. Its server-only `AURORA_SUPABASE_SERVICE_KEY` property must never appear in frontend variables or chat. Backend selection is the private `AURORA_DATABASE_BACKEND` property. Follow `SUPABASE_RUNTIME.md` for the entry-point, flush, deployment and activation requirements. Keep the switch off until final reconciliation and acceptance pass. Apps Script remains responsible for authentication/business logic, Drive and mail during this transitional database migration.
 
 This bridge can complete a database cutover without first changing every source table into the old normalized prototype. A future normalized schema is a separate migration. All tab/column/ownership and finance compatibility still needs review, and keeping physical Sheets as an editing/backup surface does not make them a second active writer.
@@ -121,6 +123,41 @@ Current password verification is per-user salted, iterated SHA-256 in `AccountAu
 
 Until these gates pass, report **private staging complete** separately from **production cutover complete**. The offline importer does not run a server, send data on a timer, perform a live cutover or guarantee a Free project's availability. See `SUPABASE_HEALTH.md` for the independent scheduled health-check behavior.
 
+### Final frozen export
+
+The earlier 36-tab/214-row preparation run is not a final cutover source. After deploying the r2 freeze controls with `google_sheets` still selected, verify the active `/exec` health reports the expected release. The owner then runs `beginMigrationFreeze()` and leaves the freeze set. Wait the full seven-minute drain from the returned `frozen_at` before starting the final native export. Pause manual Sheet edits, other integrations and old deployments that could write without honoring the new freeze. A property in the updated deployment does not stop unrelated writers.
+
+Capture health before and after the full export. Both observations must show `writes_frozen: true`, the same valid `frozen_at`, r2 release and `database_backend: google_sheets`. Record observation and export start/end times. If the freeze changes, the backend changes, any writer resumes, or the export starts early, discard that export as a cutover candidate and repeat the drain/export. Keep raw export and normalization backups; do not merely edit the old snapshot's timestamp.
+
+`verify-supabase-cutover.mjs` checks that evidence offline. Its private evidence file has this shape (example timestamps only):
+
+```json
+{
+  "schema_version": 1,
+  "target_project_ref": "dtvefwpaxwffxglqbfoo",
+  "before": {
+    "observed_at": "2026-10-30T08:07:01.000Z",
+    "health": {"ok": true, "release": "aurora-2026-10-30-supabase-store-r2", "database_backend": "google_sheets", "writes_frozen": true, "frozen_at": "2026-10-30T08:00:00.000Z"}
+  },
+  "after": {
+    "observed_at": "2026-10-30T08:07:31.000Z",
+    "health": {"ok": true, "release": "aurora-2026-10-30-supabase-store-r2", "database_backend": "google_sheets", "writes_frozen": true, "frozen_at": "2026-10-30T08:00:00.000Z"}
+  },
+  "export_started_at": "2026-10-30T08:07:02.000Z",
+  "export_completed_at": "2026-10-30T08:07:30.000Z"
+}
+```
+
+```powershell
+node scripts/verify-supabase-cutover.mjs --input ../private-aurora-migration/final-source.json --evidence ../private-aurora-migration/freeze-evidence.json --baseline ../private-aurora-migration/source.json --project-ref dtvefwpaxwffxglqbfoo --report ../private-aurora-migration/cutover-evidence.json
+```
+
+The checker enforces timestamp ordering, the seven-minute drain, unchanged freeze/source authority, release, target pin, inclusion of every baseline tab and a different final run. It does not prove other writers are paused or claim live readiness.
+
+Prepare/import/reconcile the **new final run**, then explicitly review its own orphan findings and constant phone formula. Use literal final run/checksum/audit-hash values in the owner promotion SQL. Do not select a run by `latest` and do not reuse the morning run's review values. SQL 007 refuses to replace a runtime already initialized from a different run; inspect `aurora_runtime.state` before promotion and stop if it is unexpectedly initialized. Never delete it to force a newer import.
+
+While still frozen, verify the promoted runtime's `import_run_id`, complete table/row parity and private connection. Select exact `supabase`, check the backend health and private snapshot, then use the reviewed owner freeze-end workflow. SQL 008 supplies server-only lineage for the guard: the promoted source export must be at least seven minutes after `frozen_at` and cannot be in the future. Keep the explicit final run/checksum check as well. Cancellation back to Sheet writes invalidates that final export. After new Supabase writes exist, clearing a flag or switching back alone is not a rollback; target writes require reconciliation.
+
 ## Local checks
 
 ```powershell
@@ -147,4 +184,4 @@ node scripts/verify-supabase-runtime.mjs --fixture --project-ref dtvefwpaxwffxgl
 node scripts/verify-supabase-runtime.mjs --input ../private-aurora-migration/source.json --project-ref dtvefwpaxwffxglqbfoo --pglite-module ../health-sql-runtime/node_modules/@electric-sql/pglite/dist/index.js --generated-sql ../private-aurora-migration/aurora-supabase-stage.sql --report ../private-aurora-migration/runtime-verification.json
 ```
 
-It applies 006, the exact import and 007 to a new in-memory database, verifies source/audit/formula promotion gates and complete snapshot parity, then tests service-only RPC permissions, revision conflicts, operation replay, multirow rollback and immutable/unique keys. Its test-only acknowledgment of source audits never reaches the real database. Apps Script transaction/auth/email tests and live activation checks remain separate.
+It applies 006, the exact import, 007 and 008 to a new in-memory database, verifies source/audit/formula promotion gates and complete snapshot parity, then tests service-only RPC permissions, exact private lineage metadata, revision conflicts, operation replay, multirow rollback and immutable/unique keys. Its test-only acknowledgment of source audits never reaches the real database. Apps Script transaction/auth/email tests and live activation checks remain separate.

@@ -19,6 +19,7 @@ var AURORA_STAFF_ROLES_ = ['super_admin','admin','order_manager','kitchen_manage
  */
 function setupAuroraOwnerOnce() {
   var email = auroraRequireInteractiveSetup_();
+  if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
   var props = PropertiesService.getScriptProperties();
   var existing = String(props.getProperty('AURORA_STAFF_USERS') || '').trim();
   if (existing && existing !== '{}') {
