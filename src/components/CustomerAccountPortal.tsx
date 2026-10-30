@@ -128,7 +128,7 @@ export const CustomerAccountPortal:React.FC<Props>=(props)=>{
           <h3 className="font-bold text-lg flex items-center gap-2"><PackageCheck size={18}/> My confirmed orders ({ownReceipts.length})</h3>
           <p className="text-xs text-slate-600">Enter the same phone number used during checkout. Only private receipts saved on this device appear here.</p>
           {!ownReceipts.length&&<p className="text-sm text-slate-500 bg-slate-50 p-3 rounded-xl">
-            No saved receipts for this phone on this device. Placing a COD order saves the full order in Google Sheets.
+            No saved receipts for this phone on this device. Placing a COD order saves the full order with the bakery.
             To recover an earlier order on another device, use its original private receipt key below.
           </p>}
           {ownReceipts.slice(0,60).map(order=><article key={order.id} className="rounded-xl border p-3 flex gap-3 flex-wrap items-center justify-between">

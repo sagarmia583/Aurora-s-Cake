@@ -73,6 +73,11 @@ export async function signInStaffPassword(endpoint:string,username:string,passwo
     throw new Error('Invalid staff login session.');
   return result.auth_token;
 }
+export async function signOutStaffPassword(endpoint:string,token:string):Promise<void>{
+  if(!/^[a-f0-9-]{72}$/i.test(token))throw new Error('A valid employee session is required to sign out.');
+  const result=await privatePost(endpoint,{action:'staff_password_logout',auth_token:token});
+  if(result.revoked!==true)throw new Error('Server sign out was not confirmed. Retry before leaving this device.');
+}
 export async function createStaffAccount(endpoint:string,token:string,name:string,username:string,password:string,role:StaffRoleName):Promise<void>{
   await privatePost(endpoint,{action:'staff_account_create',...staffCredential(token),name,username,password,role});
 }

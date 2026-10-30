@@ -169,7 +169,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
       setAccountPassword('');
       historySignature.current=JSON.stringify(history.map(order=>[order.id,order.status,order.updated_at,order.delivery_otp]));
       onRecoverRef.current(history);
-      setProfileSuccessMsg(added?'Signed in. Your original receipts were linked to this account.':'Signed in. Your Google Sheets history is ready.');
+      setProfileSuccessMsg(added?'Signed in. Your original receipts were linked to this account.':'Signed in. Your order history is ready.');
       if(added<proven.length)setAccountError('Some receipts could not be linked automatically. Use My Orders to retry with the private key.');
     }catch(error){setAccountError(error instanceof Error?error.message:'Phone sign-in failed.');}
     finally{setAccountBusy(false);}
@@ -216,9 +216,9 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
           name:customerName.trim(),email:customerEmail.trim(),address:savedAddress.trim()
         });
         setIsEditingProfile(false);
-        setProfileSuccessMsg('Profile saved permanently in Google Sheets.');
+        setProfileSuccessMsg('Profile saved to your bakery account.');
       }catch(error){
-        setProfileSuccessMsg(error instanceof Error?error.message:'Google Sheets profile could not be saved.');
+        setProfileSuccessMsg(error instanceof Error?error.message:'Your account profile could not be saved.');
       }
       return;
     }
@@ -341,13 +341,13 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
               <div className="flex items-center gap-2">
                 <h3 id="profile-title" className="text-xl font-black text-white">{customerName || 'Your cake journal'}</h3>
                 <span className="bg-amber-400 text-slate-900 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 shadow-xs">
-                  <Sparkles className="w-2.5 h-2.5" /> {serverProfile?'Google Sheets profile':'Guest device profile'}
+                  <Sparkles className="w-2.5 h-2.5" /> {serverProfile?'Bakery account profile':'Guest device profile'}
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-0.5 flex items-center gap-2">
                 <span>{customerPhone}</span>
                 <span>•</span>
-                <span className="text-emerald-400 font-semibold">{serverProfile?'Saved in Google Sheets':'Saved on this device'}</span>
+                <span className="text-emerald-400 font-semibold">{serverProfile?'Saved to your account':'Saved on this device'}</span>
               </p>
             </div>
           </div>
@@ -375,7 +375,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
                {accountBusy?'Loading…':'Load my orders'}
              </button>
            </form>}
-           {serverProfile&&<p className="text-xs font-semibold text-emerald-800">Signed in · Order history syncs from Google Sheets every 20 seconds while your profile is open.</p>}
+           {serverProfile&&<p className="text-xs font-semibold text-emerald-800">Signed in · Your order history refreshes every 20 seconds while your profile is open.</p>}
            {accountError&&<p role="alert" className="text-xs bg-red-100 rounded-lg p-2 text-red-800">{accountError}</p>}
            <button type="button" onClick={()=>{onClose();onOpenAccount();}} className="text-xs font-semibold text-rose-900 underline">
              {hasAccountSession?'Manage mobile account & link old receipts':'Create mobile account / recover original receipt'}
@@ -476,7 +476,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
                 <button type="button" disabled={historySyncing} onClick={onSyncHistory}
                   className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 flex gap-1.5 items-center disabled:opacity-60">
                   <RefreshCw className={`w-3.5 h-3.5 ${historySyncing ? 'animate-spin' : ''}`} />
-                  {historySyncing ? 'Checking Google Sheets…' : 'Sync history'}
+                  {historySyncing ? 'Checking order history…' : 'Sync history'}
                 </button>
               </div>
 

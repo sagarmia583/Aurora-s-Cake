@@ -2,8 +2,9 @@
  * AURORA'S CAKE — ONE-FILE Google Apps Script backend.
  * Rebuilt from the individual apps-script modules by scripts/build-apps-script.mjs.
  * Customer accounts, saved delivery profiles and product-email preferences stay private.
- * Replace the complete deployed Code.gs; run setupSheetDatabase(), then setupCampaignTools()
- * as the bakery owner to authorize mail and install the Sheet menu. Neither setup sends email.
+ * Routine update: replace the complete deployed Code.gs and retain existing Script Properties.
+ * Keep the existing database backend. Database initialization is not part of an update.
+ * New Google Sheets installations only: the owner runs setupSheetDatabase(), then setupCampaignTools().
  * Deploy a NEW Web App version using Execute as Me / access Anyone.
  */
 
@@ -15,7 +16,7 @@
 // Leave blank when this script is bound to the intended Sheet through Extensions > Apps Script.
 var AURORA_SPREADSHEET_ID = '18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4';
 var AURORA_SCHEMA_VERSION = 1;
-var AURORA_BACKEND_RELEASE = 'aurora-2026-10-30-supabase-store-r2';
+var AURORA_BACKEND_RELEASE = 'aurora-2026-10-30-supabase-store-r3';
 var PUBLIC_TABLE_SCHEMAS = {
   settings: ['key','value'],
   content: ['key','value'],
@@ -1937,26 +1938,21 @@ function auroraAccountAuthenticate_(kind,value){
   return account;
 }
 function auroraAccountSignOut_(kind,value){
+  if(typeof value!=='string'||! /^[0-9a-f-]{72}$/i.test(value))auroraReject_('unauthorized','A valid account session is required to sign out.');
   var h=auroraAccountDigest_(value),t=auroraPrivateTable_(auroraSpreadsheet_(),'auth_sessions');
-  t.rows.forEach(function(row){if(row.token_hash===h&&row.account_type===kind){
+  t.rows.forEach(function(row){if(row.token_hash===h&&row.account_type===kind&&!(row.revoked===true||String(row.revoked).toLowerCase()==='true')){
     row.revoked=true;auroraAccountSave_(t,row);
   }});
 }
 function auroraAccountRevokeAll_(kind,id){
   var t=auroraPrivateTable_(auroraSpreadsheet_(),'auth_sessions');
-  t.rows.forEach(function(row){if(row.account_type===kind&&row.account_id===id&&!row.revoked){
+  t.rows.forEach(function(row){if(row.account_type===kind&&row.account_id===id&&!(row.revoked===true||String(row.revoked).toLowerCase()==='true')){
     row.revoked=true;auroraAccountSave_(t,row);
   }});
 }
-function auroraAccountLogin_(kind,identifier,password){
-  var name=String(identifier||'').trim().toLowerCase();
-  var isCustomer=kind==='customer';
-  var key=isCustomer?'phone':'username';
-  var accounts=auroraPrivateTable_(auroraSpreadsheet_(),isCustomer?'customer_accounts':'staff_accounts');
-  var person=accounts.rows.filter(function(row){return String(row[key]).toLowerCase()===name;})[0];
-  // Public users cannot enumerate accounts from different responses.
-  if(!person||!(person.active===true||String(person.active).toLowerCase()==='true'))
-    auroraReject_('invalid_credentials','Invalid login details.');
+function auroraAccountVerifyPassword_(accounts,person,password){
+  if(typeof auroraSupabaseHasChanges_==='function'&&auroraSupabaseHasChanges_())
+    throw new Error('Password verification requires a fresh account transaction.');
   if(Number(person.locked_until||0)>Date.now())
     auroraReject_('too_many_attempts','Too many attempts. Try again in 15 minutes.');
   if(typeof password!=='string'||password.length<10||password.length>128||
@@ -1964,14 +1960,31 @@ function auroraAccountLogin_(kind,identifier,password){
     person.failed_attempts=Number(person.failed_attempts||0)+1;
     if(person.failed_attempts>=5){person.locked_until=Date.now()+15*60000;person.failed_attempts=0;}
     auroraAccountSave_(accounts,person);
-    // A rejected login still durably consumes an attempt. Do not roll this
-    // security checkpoint back with the validation-error response.
+    // Callers verify before staging any business changes. Persist ONLY this
+    // security counter checkpoint before the validation-error response.
     if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
     auroraReject_('invalid_credentials','Invalid login details.');
   }
   person.failed_attempts=0;person.locked_until=0;
-  auroraAccountSave_(accounts,person);
-  return {person:person,token:auroraAccountStart_(kind,person.id)};
+}
+function auroraAccountLogin_(kind,identifier,password){
+  var name=String(identifier||'').trim().toLowerCase(),isCustomer=kind==='customer',key=isCustomer?'phone':'username';
+  var lock=LockService.getScriptLock();
+  if(!lock.tryLock(10000))auroraReject_('busy','Another account update is in progress. Retry signing in.');
+  try{
+    // Serialize attempts, then refresh before verification so concurrent guesses
+    // cannot lose their counters through an optimistic revision conflict.
+    if(typeof auroraSupabaseRefresh_==='function')auroraSupabaseRefresh_();
+    var accounts=auroraPrivateTable_(auroraSpreadsheet_(),isCustomer?'customer_accounts':'staff_accounts');
+    var person=accounts.rows.filter(function(row){return String(row[key]).toLowerCase()===name;})[0];
+    if(!person||!(person.active===true||String(person.active).toLowerCase()==='true'))
+      auroraReject_('invalid_credentials','Invalid login details.');
+    auroraAccountVerifyPassword_(accounts,person,password);
+    auroraAccountSave_(accounts,person);
+    var token=auroraAccountStart_(kind,person.id);
+    if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
+    return {person:person,token:token};
+  }finally{lock.releaseLock();}
 }
 function auroraAccountPhone_(value){
   var phone=String(value||'').replace(/[\s()-]/g,'');
@@ -2005,9 +2018,14 @@ function auroraAccountStaffPost_(input) {
     var login=auroraAccountLogin_('staff',input.username,input.password);
     return {ok:true,auth_token:login.token,role:login.person.role,name:login.person.name,username:login.person.username};
   }
+  // Possession of this bearer token is sufficient to revoke ONLY that token.
+  // Already-revoked/expired sessions may retry a lost acknowledgement safely.
+  if(input.action==='staff_password_logout'){
+    auroraAccountSignOut_('staff',input.auth_token);
+    return {ok:true,revoked:true};
+  }
   var actor=auroraStaffAuthenticate_(input);
   if(input.action==='staff_account_create')return auroraAccountCreateStaff_(actor,input);
-  if(input.action==='staff_password_logout'){if(input.auth_token)auroraAccountSignOut_('staff',input.auth_token);return {ok:true};}
   if(input.action==='staff_account_set_active'||input.action==='staff_account_reset_password'){
     if(actor.role!=='super_admin')auroraReject_('forbidden','Only Super Admin can update staff.');
     var username=String(input.username||'').toLowerCase().trim();
@@ -2065,24 +2083,26 @@ function auroraAccountCustomerPost_(input) {
   if(action==='customer_phone_session')return {ok:true,profile:auroraAccountSafeCustomer_(person)};
   if(action==='customer_phone_logout'){auroraAccountSignOut_('customer',input.auth_token);return {ok:true};}
   if(action==='customer_phone_password'||action==='customer_phone_close'){
-    var oldPassword=String(input.current_password||'');
-    if(oldPassword.length<10||auroraAccountHash_(oldPassword,String(person.password_salt))!==person.password_hash)
-      auroraReject_('invalid_credentials','Current password was not accepted.');
+    var oldPassword=input.current_password;
     var accountLock=LockService.getScriptLock();
     if(!accountLock.tryLock(10000))auroraReject_('busy','Another account update is in progress.');
     try{
+      if(typeof auroraSupabaseRefresh_==='function')auroraSupabaseRefresh_();
+      // Revalidate the bearer after waiting: logout/reset/disable may have
+      // revoked it while this request was acquiring the update lock.
+      var freshIdentity=auroraAccountAuthenticate_('customer',input.auth_token);
       var accounts=auroraPrivateTable_(auroraSpreadsheet_(),'customer_accounts');
-      var current=auroraAccountValue_(accounts,person.id);
+      var current=auroraAccountValue_(accounts,freshIdentity.id);
       if(!current||!(current.active===true||String(current.active).toLowerCase()==='true'))
         auroraReject_('unauthorized','Your account is no longer active.');
-      if(auroraAccountHash_(oldPassword,String(current.password_salt))!==current.password_hash)
-        auroraReject_('invalid_credentials','Current password was not accepted.');
+      auroraAccountVerifyPassword_(accounts,current,oldPassword);
       if(action==='customer_phone_close'){
         current.active=false;
         current.name='Closed account';current.email='';current.address='';
         current.updated_at=new Date().toISOString();
         auroraAccountSave_(accounts,current);
         auroraAccountRevokeAll_('customer',current.id);
+        if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
         // Financial records/receipts remain unchanged for COD reconciliation.
         return {ok:true,closed:true};
       }
@@ -2094,7 +2114,9 @@ function auroraAccountCustomerPost_(input) {
       current.updated_at=new Date().toISOString();
       auroraAccountSave_(accounts,current);
       auroraAccountRevokeAll_('customer',current.id);
-      return {ok:true,auth_token:auroraAccountStart_('customer',current.id)};
+      var newToken=auroraAccountStart_('customer',current.id);
+      if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
+      return {ok:true,auth_token:newToken};
     }finally{accountLock.releaseLock();}
   }
   if(action==='customer_phone_profile'){
@@ -2643,6 +2665,7 @@ function auroraCatalogPost_(input) {
 var AURORA_CMS_TABLES_=['settings','content','hero_slides','highlights','faqs','links','categories','products','product_variants','flavors','product_addons','banners','delivery_zones','delivery_slots','coupons','reviews'];
 var AURORA_CMS_BOOLEAN_FIELDS_=['is_active','is_featured','accepting_orders','delivery_enabled'];
 var AURORA_CMS_NUMBER_FIELDS_=['sort_order','base_price','sale_price','price','weight_grams','rating','review_count','delivery_fee','discount_value','min_order_amount','max_discount_amount','usage_count'];
+var AURORA_CMS_OPTIONAL_NUMBER_FIELDS_=['sale_price','max_discount_amount','rating'];
 var AURORA_CMS_URL_FIELDS_=['image_url','logo_url','profile_image_url','facebook_url','instagram_url','youtube_url','tiktok_url','website_url','button_link','url','whatsapp_url','maps_url'];
 function auroraCmsTable_(name) {
   if(AURORA_CMS_TABLES_.indexOf(name)===-1)auroraReject_('forbidden','This table is not editable through the website.');
@@ -2678,7 +2701,7 @@ function auroraCmsValidate_(name,field,value){
     return value;
   }
   if(AURORA_CMS_NUMBER_FIELDS_.indexOf(field)!==-1){
-    if(value===''&&['sale_price','max_discount_amount','rating'].indexOf(field)!==-1)return '';
+    if(value===''&&AURORA_CMS_OPTIONAL_NUMBER_FIELDS_.indexOf(field)!==-1)return '';
     if(typeof value!=='number'||!isFinite(value)||value<0||value>10000000)
       auroraReject_('invalid_value','Enter a valid non-negative number for '+field);
     return Math.round(value*100)/100;
@@ -2803,6 +2826,7 @@ function auroraCmsPost_(input){
       table.columns.forEach(function(field){
         row[field]=existing?existing[field]:field===table.key?nowId:
           AURORA_CMS_BOOLEAN_FIELDS_.indexOf(field)!==-1?false:
+          AURORA_CMS_OPTIONAL_NUMBER_FIELDS_.indexOf(field)!==-1?'':
           AURORA_CMS_NUMBER_FIELDS_.indexOf(field)!==-1?0:'';
       });
       if(action==='staff_cms_delete'){

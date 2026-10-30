@@ -18,7 +18,9 @@ import { calculateSheetOrderEstimate, createSheetOrderAttempt, submitSheetOrder,
 import { getPhoneCustomerProfile } from '../services/phoneCustomerApi';
 import { matchCheckoutCustomer, normalizeCheckoutPhone } from '../services/customerPhoneLookup';
 import type { CheckoutCustomerInfo } from '../services/customerPhoneLookup';
-import type { SheetOrderAttempt } from '../services/googleSheetOrders';
+import type { SheetOrderAttempt, SheetOrderDraft } from '../services/googleSheetOrders';
+import { captureCheckoutCart, inspectPendingCheckout, preservePendingCheckout, releasePendingCheckout, PendingCheckoutConflict } from '../services/checkoutRecovery';
+import type { CheckoutCompletion, CheckoutRecovery, PendingCheckout } from '../services/checkoutRecovery';
 
 const localDate = () => {
   const date = new Date();
@@ -32,7 +34,7 @@ interface CheckoutModalProps {
   currency: string;
   zones: DeliveryZone[];
   slots: DeliverySlot[];
-  onOrderSuccess: (order: Order) => void;
+  onOrderSuccess: (order: Order, completion?: CheckoutCompletion) => void;
   sheetOrderEndpoint?: string;
   orderingPaused?: boolean;
 }
@@ -51,6 +53,9 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   sheetOrderEndpoint,
   orderingPaused = false,
 }) => {
+  const [initialRecovery] = useState<CheckoutRecovery>(() => sheetOrderEndpoint ? inspectPendingCheckout(sheetOrderEndpoint) : { status: 'empty' });
+  const recovered = initialRecovery.status === 'ready' ? initialRecovery.pending : null;
+  const recoveredDraft = recovered ? JSON.parse(recovered.attempt.body) as SheetOrderDraft : null;
   // Capture the intent on first opening. Losing the public enabled flag must never
   // turn an existing real order into a successful device-only demo.
   const checkoutTargetRef = useRef<{ endpoint?: string } | null>(null);
@@ -60,31 +65,50 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const liveOrderingPaused = isLiveOrder && (orderingPaused || !sheetOrderEndpoint);
 
   // Form State
-  const [customerName, setCustomerName] = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerName, setCustomerName] = useState(recoveredDraft?.customer_name || '');
+  const [customerPhone, setCustomerPhone] = useState(recoveredDraft?.customer_phone || '');
   const currentPhoneRef = useRef(customerPhone);
   currentPhoneRef.current=customerPhone;
   const [autofillNotice, setAutofillNotice] = useState('');
   const ownedCustomerRef = useRef<CheckoutCustomerInfo | null>(null);
-  const [deliveryAddress, setDeliveryAddress] = useState('');
-  const [selectedZoneId, setSelectedZoneId] = useState(zones[0]?.id || '');
-  const [selectedSlot, setSelectedSlot] = useState(slots.find((slot) => slot.is_active)?.slot_label || '');
-  const [deliveryDate, setDeliveryDate] = useState(() => localDate());
-  const [orderNote, setOrderNote] = useState('');
+  const [deliveryAddress, setDeliveryAddress] = useState(recoveredDraft?.delivery_address || '');
+  const [selectedZoneId, setSelectedZoneId] = useState(recoveredDraft?.delivery_zone_id || zones[0]?.id || '');
+  const [selectedSlot, setSelectedSlot] = useState(recoveredDraft?.delivery_slot || slots.find((slot) => slot.is_active)?.slot_label || '');
+  const [deliveryDate, setDeliveryDate] = useState(() => recoveredDraft?.delivery_date || localDate());
+  const [orderNote, setOrderNote] = useState(recoveredDraft?.order_note || '');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cod');
 
   // Coupon
   const [couponInput, setCouponInput] = useState('');
-  const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
+  const [appliedCoupon, setAppliedCoupon] = useState<string | null>(recoveredDraft?.coupon_code || null);
   const [couponError, setCouponError] = useState<string | null>(null);
 
   // Submitting
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [unconfirmed, setUnconfirmed] = useState(false);
-  const orderAttemptRef = useRef<SheetOrderAttempt | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(recovered ? 'An earlier order is still unconfirmed. Check the original order with its saved reference below.' : null);
+  const [unconfirmed, setUnconfirmed] = useState(!!recovered);
+  const orderAttemptRef = useRef<SheetOrderAttempt | null>(recovered?.attempt || null);
+  const pendingCheckoutRef = useRef<PendingCheckout | null>(recovered);
   const submissionInFlight = useRef(false);
   const currentPrefillRef = useRef<{name:string;address:string}|null>(null);
+  const adoptPending = (pending: PendingCheckout) => {
+    const original = JSON.parse(pending.attempt.body) as SheetOrderDraft;
+    pendingCheckoutRef.current = pending; orderAttemptRef.current = pending.attempt;
+    setCustomerName(original.customer_name); setCustomerPhone(original.customer_phone);
+    currentPhoneRef.current = original.customer_phone;
+    setDeliveryAddress(original.delivery_address); setSelectedZoneId(original.delivery_zone_id);
+    setSelectedSlot(original.delivery_slot); setDeliveryDate(original.delivery_date);
+    setOrderNote(original.order_note || ''); setAppliedCoupon(original.coupon_code || null);
+    currentPrefillRef.current = null; setAutofillNotice(''); setUnconfirmed(true);
+  };
+  useEffect(() => {
+    if (!isOpen || !liveOrderEndpoint || pendingCheckoutRef.current) return;
+    const recovery = inspectPendingCheckout(liveOrderEndpoint);
+    if (recovery.status === 'ready') {
+      adoptPending(recovery.pending);
+      setErrorMessage('An earlier order is still unconfirmed. Retry the original order with its saved reference below.');
+    } else if (recovery.status === 'blocked') setErrorMessage(recovery.message);
+  }, [isOpen, liveOrderEndpoint]);
   const loadLocalProfile = () => {
     try { const value=JSON.parse(localStorage.getItem('aurora_customer_profile_v1')||'{}');
       if(!value||typeof value!=='object'||Array.isArray(value))return null;
@@ -100,7 +124,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     setCustomerName(previous=>!previous||previous===previousFill?.name?customer.name:previous);
     setDeliveryAddress(previous=>!previous||previous===previousFill?.address?customer.address:previous);
     currentPrefillRef.current={name:customer.name,address:customer.address};
-    setAutofillNotice(customer.source==='account'?'Saved phone-account details loaded from Google Sheets.':
+    setAutofillNotice(customer.source==='account'?'Your saved account details were loaded.':
       'Your previously saved contact details were found on this device.');
   };
   const onPhoneChanged = (value:string) => {
@@ -178,21 +202,40 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     setAppliedCoupon(code);
   };
 
+  const finishLiveOrder = async (order: Order, pending: PendingCheckout) => {
+    try {
+      onOrderSuccess(order, { request_id: pending.attempt.request_id, cart_lines: pending.cart_lines });
+    } catch (error) {
+      throw new SheetOrderSubmissionError(error instanceof Error ? error.message : 'Your order is saved, but this browser could not finish confirmation. Retry the original reference.', true, pending.attempt.request_id);
+    }
+    await releasePendingCheckout(pending);
+    pendingCheckoutRef.current = null;
+    orderAttemptRef.current = null;
+    setUnconfirmed(false);
+    onClose();
+  };
+  const handleSubmissionFailure = async (error: unknown) => {
+    if (error instanceof PendingCheckoutConflict) {
+      adoptPending(error.pending);
+    } else if (error instanceof SheetOrderSubmissionError && !error.ambiguous && pendingCheckoutRef.current) {
+      const released = await releasePendingCheckout(pendingCheckoutRef.current);
+      if (released) { pendingCheckoutRef.current = null; orderAttemptRef.current = null; }
+      setUnconfirmed(!released);
+    } else setUnconfirmed(error instanceof SheetOrderSubmissionError && error.ambiguous);
+    setErrorMessage(error instanceof Error ? error.message : 'The order could not be confirmed. Your bag has been kept.');
+  };
   const retryOriginalOrder = async () => {
     const originalAttempt = orderAttemptRef.current;
-    if (!originalAttempt || submissionInFlight.current) return;
+    const pending = pendingCheckoutRef.current;
+    if (!originalAttempt || !pending || submissionInFlight.current) return;
     submissionInFlight.current = true;
     setIsSubmitting(true);
     setErrorMessage(null);
     try {
-      const confirmedOrder = await submitSheetOrder(originalAttempt);
-      orderAttemptRef.current = null;
-      setUnconfirmed(false);
-      onOrderSuccess(confirmedOrder);
-      onClose();
+      const confirmedOrder = await submitSheetOrder(originalAttempt, { recoverOriginal: true });
+      await finishLiveOrder(confirmedOrder, pending);
     } catch (error: unknown) {
-      setErrorMessage(error instanceof Error ? error.message : 'The original order could not be confirmed.');
-      setUnconfirmed(error instanceof SheetOrderSubmissionError && error.ambiguous);
+      await handleSubmissionFailure(error);
     } finally {
       submissionInFlight.current = false;
       setIsSubmitting(false);
@@ -251,10 +294,10 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
           payment_method: 'cod',
           expected_total: estimatedTotal,
         }, orderAttemptRef.current);
-        const confirmedOrder = await submitSheetOrder(orderAttemptRef.current);
-        orderAttemptRef.current = null;
-        onOrderSuccess(confirmedOrder);
-        onClose();
+        const pending = await preservePendingCheckout(orderAttemptRef.current, captureCheckoutCart(items));
+        pendingCheckoutRef.current = pending;
+        const confirmedOrder = await submitSheetOrder(pending.attempt);
+        await finishLiveOrder(confirmedOrder, pending);
       } else {
         const result = await mockDb.createSecureOrder({
           customer_name: customerName.trim(), customer_phone: customerPhone.trim(), delivery_address: deliveryAddress.trim(),
@@ -263,12 +306,11 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
           payment_method: paymentMethod,
         });
         if (!result.success) throw new Error(result.error || 'The demo order could not be saved on this device.');
-        onOrderSuccess({ ...result.order, persistence: 'local_demo' });
+        onOrderSuccess({ ...result.order, persistence: 'local_demo' }, { request_id: 'demo-' + result.order.id, cart_lines: captureCheckoutCart(items) });
         onClose();
       }
     } catch (error: unknown) {
-      setErrorMessage(error instanceof Error ? error.message : 'The order could not be confirmed. Your bag has been kept.');
-      setUnconfirmed(error instanceof SheetOrderSubmissionError && error.ambiguous);
+      await handleSubmissionFailure(error);
     } finally {
       submissionInFlight.current = false;
       setIsSubmitting(false);
@@ -303,11 +345,11 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
         <form onSubmit={handlePlaceOrder} className="overflow-y-auto p-6 space-y-6 flex-1">
           {liveOrderingPaused && <p role="status" className="text-xs text-amber-950 bg-amber-50 p-3 rounded-xl">Online ordering is temporarily paused. Your checkout stays with the bakery; it has not been changed to a demo. If an earlier attempt is unconfirmed, use “Retry original order” with its saved reference below.</p>}
           <fieldset disabled={isSubmitting || unconfirmed} className="min-w-0 space-y-6 border-0 p-0 m-0">
-          <p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">{isLiveOrder ? 'Place your order with the bakery and pay cash on delivery. No online payment is collected. Confirmation appears only after Google Sheets confirms your order was saved.' : 'Live Google Sheets ordering is not activated yet. This demo checkout stays on this device; it is not sent to the bakery and no payment is collected.'}</p>
+          <p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">{isLiveOrder ? 'Place your order with the bakery and pay cash on delivery. No online payment is collected. Confirmation appears only after the bakery confirms your order was saved.' : 'Live ordering is not activated yet. This demo checkout stays on this device; it is not sent to the bakery and no payment is collected.'}</p>
           {errorMessage && (
             <div role="alert" className="bg-red-50 text-red-700 p-3.5 rounded-xl border border-red-200 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
-              <div><span>{errorMessage}</span>{unconfirmed && orderAttemptRef.current && <p className="mt-2 text-[11px]">Order reference: <span className="font-mono">{orderAttemptRef.current.request_id}</span>. Use “Retry original order” below to send the exact original cakes, delivery details, quote and reference. Editing is paused until Google Sheets confirms the order or explicitly rejects it.</p>}</div>
+              <div><span>{errorMessage}</span>{unconfirmed && orderAttemptRef.current && <p className="mt-2 text-[11px]">Order reference: <span className="font-mono">{orderAttemptRef.current.request_id}</span>. Use “Retry original order” below to send the exact original cakes, delivery details, quote and reference. Editing is paused until the bakery confirms the order or explicitly rejects it.</p>}</div>
             </div>
           )}
 
@@ -350,7 +392,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
             {isLiveOrder&&<p className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-950">
               <ShieldCheck size={14} className="inline mr-1"/>
               No customer password needed. Your details from this device can autofill.
-              After checkout, your name, number, address and COD order are saved to the private bakery Google Sheet.
+              After checkout, your name, number, address and COD order are saved to the bakery’s private order records.
               For privacy, entering someone else's phone number never loads their address.
             </p>}
             <div>
@@ -560,7 +602,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
           </button>
           </fieldset>
           {unconfirmed && orderAttemptRef.current && <div className="space-y-3">
-            <p role="status" className="text-xs text-slate-600">The original order is still unconfirmed. This retry uses its saved details and reference even if the current cake collection or delivery options have changed. You can close this window and return without losing that reference.</p>
+            <p role="status" className="text-xs text-slate-600">The original order is still unconfirmed. This retry uses its saved details and reference even if the current cake collection or delivery options have changed. The reference is kept on this device across closing this window or reloading the page.</p>
             <button type="button" onClick={() => { void retryOriginalOrder(); }} disabled={isSubmitting} className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-3.5 px-4 rounded-2xl disabled:opacity-50">{isSubmitting ? 'Checking the original order...' : 'Retry original order'}</button>
           </div>}
         </form>

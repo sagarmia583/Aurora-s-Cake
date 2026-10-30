@@ -163,7 +163,7 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
     try{
       const profile=await updatePhoneCustomerProfile(endpoint,phoneAccount.token,phoneProfileDraft);
       setPhoneAccount(previous=>previous?{...previous,profile}:previous);
-    }catch(e){setError(e instanceof Error?e.message:'Could not save profile to Google Sheets.');}
+    }catch(e){setError(e instanceof Error?e.message:'Could not save your account profile.');}
     finally{setBusy(false);}
   };
   const linkPhone=async(order:Order)=>{
@@ -231,7 +231,7 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
     <div className="mx-auto max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden">
       <header className="flex items-start justify-between gap-3 bg-emerald-950 text-white p-5">
         <div><h2 id="customer-google-title" className="flex items-center gap-2 text-xl font-black"><ShieldCheck/> My bakery orders</h2>
-          <p className="text-sm text-emerald-100">Phone + password account · Private order history saved in Google Sheets</p></div>
+          <p className="text-sm text-emerald-100">Phone + password account · Private order history saved to your bakery account</p></div>
         <button type="button" aria-label="Close customer account" onClick={onClose} className="p-2 rounded-full hover:bg-emerald-800"><X/></button>
       </header>
       <section className="space-y-5 p-5">
@@ -271,7 +271,7 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
               <button type="button" onClick={()=>void signOutPhone()} className="text-sm bg-white border rounded-xl p-2">Sign out</button>
             </div>
             <form onSubmit={savePhoneProfile} className="grid gap-3">
-              <h4 className="font-bold">Profile saved in Google Sheets</h4>
+              <h4 className="font-bold">Your saved account profile</h4>
               <input aria-label="Profile name" required value={phoneProfileDraft.name} onChange={e=>setPhoneProfileDraft(p=>({...p,name:e.target.value}))} className="border rounded-xl p-2"/>
               <input aria-label="Profile email optional" type="email" placeholder="Email (optional)" value={phoneProfileDraft.email} onChange={e=>setPhoneProfileDraft(p=>({...p,email:e.target.value}))} className="border rounded-xl p-2"/>
               <textarea aria-label="Delivery address" placeholder="Saved delivery address" value={phoneProfileDraft.address} onChange={e=>setPhoneProfileDraft(p=>({...p,address:e.target.value}))} className="border rounded-xl p-2"/>

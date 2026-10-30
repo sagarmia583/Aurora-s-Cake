@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test, { type TestContext } from 'node:test';
+import test, { beforeEach, afterEach, type TestContext } from 'node:test';
 import React, { act } from 'react';
 import { create, type ReactTestRenderer, type ReactTestInstance } from 'react-test-renderer';
 import { CheckoutModal } from '../src/components/CheckoutModal';
@@ -7,6 +7,27 @@ import { mockDb } from '../src/services/mockDatabase';
 import type { CartItem, Order, Product } from '../src/types';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+let previousStorageDescriptor: PropertyDescriptor | undefined;
+let originalNavigator: PropertyDescriptor | undefined;
+beforeEach(() => {
+  originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  let queue: Promise<unknown> = Promise.resolve();
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { locks: {
+    request: (_name: string, callback: () => unknown) => { const result = queue.then(callback); queue = result.catch(() => {}); return result; },
+  } } });
+});
+afterEach(() => { if (originalNavigator) Object.defineProperty(globalThis, 'navigator', originalNavigator); else Reflect.deleteProperty(globalThis, 'navigator'); });
+beforeEach(() => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const values = new Map<string, string>();
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { values.set(key, value); },
+    removeItem: (key: string) => { values.delete(key); },
+  } });
+  previousStorageDescriptor = descriptor;
+});
+afterEach(() => { if (previousStorageDescriptor) Object.defineProperty(globalThis, 'localStorage', previousStorageDescriptor); else Reflect.deleteProperty(globalThis, 'localStorage'); });
 
 const endpoint = 'https://script.google.com/macros/s/test_deployment/exec';
 const variant = { id: 'v1', product_id: 'p1', name: 'Small', weight_grams: 500, price: 200, is_active: true };
@@ -34,6 +55,7 @@ function propsFor(t: TestContext, changes: Partial<Props> = {}) {
     sheetOrderEndpoint: endpoint, ...changes, onClose: t.mock.fn(() => {}), onOrderSuccess: t.mock.fn((_order: Order) => {}) };
 }
 async function mount(t: TestContext, props: Props) {
+  if (props.sheetOrderEndpoint && props.items.length && !localStorage.getItem('cake_cart_items_v1')) localStorage.setItem('cake_cart_items_v1', JSON.stringify(props.items));
   let renderer!: ReactTestRenderer;
   await act(async () => { renderer = create(React.createElement(CheckoutModal, props)); });
   t.after(async () => { await act(async () => renderer.unmount()); });
@@ -85,7 +107,13 @@ test('migration freeze keeps an ambiguous attempt, and retries replay the same b
   let confirm = false;
   const fetcher: typeof fetch = async (url, options) => {
     calls.push({ url: String(url), body: String(options?.body) });
-    return new Response(JSON.stringify(confirm ? { success: true, persisted: true, order: receipt() }
+    const input = JSON.parse(String(options?.body)), id = 'ord_' + input.request_id;
+    const confirmed = { ...receipt(), id, order_number: 'AC-20991201-' + input.request_id.replaceAll('-', '').toUpperCase(),
+      customer_access_token: 'a'.repeat(72), customer_name: input.customer_name, customer_phone: input.customer_phone,
+      delivery_address: input.delivery_address, delivery_date: input.delivery_date, delivery_slot: input.delivery_slot,
+      items: receipt().items.map((item, i) => ({ ...item, order_id: id, variant_id: input.cart_items[i].variant_id,
+        flavor_id: input.cart_items[i].flavor_id || '', writing_message: input.cart_items[i].writing_message })) };
+    return new Response(JSON.stringify(confirm ? { success: true, persisted: true, order: confirmed }
       : { success: false, code: 'migration_frozen', retryable: true }), { status: 200 });
   };
   t.mock.method(globalThis, 'fetch', fetcher);
