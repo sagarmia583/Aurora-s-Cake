@@ -3,6 +3,7 @@ import { ArrowRight, ArrowUpRight, ChevronDown, Clock, Database, Menu, Search, S
 import { ShopSettings, StaffRole } from '../types';
 import type { PublicSiteData } from '../types/siteContent';
 import { DEFAULT_PUBLIC_SITE_DATA } from '../content/defaultSiteData';
+import { BrandImage } from './BrandImage';
 
 export type ViewMode = 'web' | 'mobile_app';
 
@@ -162,7 +163,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       </div>
       <div className="ac-nav-main">
         <a className="ac-nav-brand" href="#top" onClick={openStorefront} aria-label={settings.shop_name + ' home'}>
-          {logoUrl ? <img className="ac-nav-brand-symbol" src={logoUrl} alt="" width="42" height="45" style={{ objectFit: 'contain' }} /> : <svg className="ac-nav-brand-symbol" viewBox="0 0 42 48" fill="none" aria-hidden="true">
+          {logoUrl ? <BrandImage className="ac-nav-brand-symbol" src={logoUrl} alt="" brandName={settings.shop_name} width="42" height="45" style={{ objectFit: 'contain' }} /> : <svg className="ac-nav-brand-symbol" viewBox="0 0 42 48" fill="none" aria-hidden="true">
             <path d="M5 39h32M8 36V23c4 0 4 5 8 5s4-5 8-5 4 5 10 5v8H8Zm0-13v-4h26v4M12 19v-6h18v6M21 12V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
             <path d="M21 6c-4-3 0-6 0-6s4 3 0 6Z" fill="currentColor" transform="translate(0 2)" />
             <path d="M4 44c8-2 26-2 34 0" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
