@@ -34,7 +34,9 @@ function auroraAccountSave_(table,record) {
   var vals=table.sheet.getRange(2,col,rows-1,1).getValues();
   var i=vals.findIndex(function(row){return String(row[0])===String(record[key]);});
   if(i<0)auroraReject_('not_found','Account record was not found.');
-  table.sheet.getRange(i+2,1,1,table.headers.length).setValues([table.headers.map(function(k){return auroraSheetCell_(record[k]);})]);
+  var original=table.sheet.getRange(i+2,1,1,table.headers.length).getValues()[0];
+  table.headers.forEach(function(k,column){if(Object.prototype.hasOwnProperty.call(record,k))original[column]=auroraSheetCell_(record[k]);});
+  table.sheet.getRange(i+2,1,1,table.headers.length).setValues([original]);
 }
 function auroraAccountProfiles_() {
   var table=auroraPrivateTable_(auroraSpreadsheet_(),'staff_accounts');
@@ -90,6 +92,9 @@ function auroraAccountLogin_(kind,identifier,password){
     person.failed_attempts=Number(person.failed_attempts||0)+1;
     if(person.failed_attempts>=5){person.locked_until=Date.now()+15*60000;person.failed_attempts=0;}
     auroraAccountSave_(accounts,person);
+    // A rejected login still durably consumes an attempt. Do not roll this
+    // security checkpoint back with the validation-error response.
+    if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
     auroraReject_('invalid_credentials','Invalid login details.');
   }
   person.failed_attempts=0;person.locked_until=0;

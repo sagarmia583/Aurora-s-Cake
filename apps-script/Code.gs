@@ -5,7 +5,7 @@
 // Leave blank when this script is bound to the intended Sheet through Extensions > Apps Script.
 var AURORA_SPREADSHEET_ID = '18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4';
 var AURORA_SCHEMA_VERSION = 1;
-var AURORA_BACKEND_RELEASE = 'aurora-2026-10-30-profiles-email-r1';
+var AURORA_BACKEND_RELEASE = 'aurora-2026-10-30-supabase-store-r1';
 var PUBLIC_TABLE_SCHEMAS = {
   settings: ['key','value'],
   content: ['key','value'],
@@ -31,16 +31,24 @@ function auroraConfiguredId_() {
   return PropertiesService.getScriptProperties().getProperty('AURORA_SPREADSHEET_ID') || AURORA_SPREADSHEET_ID || '';
 }
 function auroraSpreadsheet_() {
+  if (typeof auroraSupabaseEnabled_ === 'function' && auroraSupabaseEnabled_()) return auroraSupabaseBook_();
   var id = auroraConfiguredId_();
   var book = id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
   if (!book) throw new Error('Bind the script to the intended Sheet or set AURORA_SPREADSHEET_ID in Script Properties.');
   return book;
 }
 function auroraCacheKey_() {
-  return 'aurora_public_profiles_email_v1_'  + (auroraConfiguredId_() || 'bound');
+  return 'aurora_public_profiles_email_v1_' + (typeof auroraSupabaseEnabled_ === 'function' && auroraSupabaseEnabled_() ? 'supabase_' : 'sheets_') + (auroraConfiguredId_() || 'bound');
 }
 
 function doGet(e) {
+  try {
+    if (typeof auroraSupabaseBegin_ === 'function') auroraSupabaseBegin_();
+    return auroraDoGet_(e);
+  } catch (_) { return auroraResponse_({ok:false,error:'The bakery database is temporarily unavailable.'}); }
+  finally { if (typeof auroraSupabaseDiscard_ === 'function') auroraSupabaseDiscard_(); }
+}
+function auroraDoGet_(e) {
   var params = e && e.parameter ? e.parameter : {};
   var callback = params.callback || '';
   if (callback && !/^auroraSheets_[a-zA-Z0-9_]+$/.test(callback)) {
@@ -57,7 +65,8 @@ function doGet(e) {
   }
   try {
     if (action === 'health') {
-      return auroraResponse_({ok:true,schema_version:AURORA_SCHEMA_VERSION,service:'aurora_public_content',release:AURORA_BACKEND_RELEASE}, callback);
+      return auroraResponse_({ok:true,schema_version:AURORA_SCHEMA_VERSION,service:'aurora_public_content',release:AURORA_BACKEND_RELEASE,
+        database_backend:typeof auroraSupabaseEnabled_ === 'function' && auroraSupabaseEnabled_()?'supabase':'google_sheets'}, callback);
     }
     var cache = CacheService.getScriptCache();
     var cacheKey = auroraCacheKey_();
@@ -91,6 +100,13 @@ var PRIVATE_ORDER_SCHEMAS = {
 
 // This handler creates a private COD receipt. GET never calls these functions.
 function doPost(e) {
+  try {
+    if (typeof auroraSupabaseBegin_ === 'function') auroraSupabaseBegin_();
+    return auroraDoPost_(e);
+  } catch (_) { return auroraResponse_({ok:false,success:false,code:'submission_uncertain',error:'Order confirmation is unavailable. Retry with the same request ID; do not create a new request.'}); }
+  finally { if (typeof auroraSupabaseDiscard_ === 'function') auroraSupabaseDiscard_(); }
+}
+function auroraDoPost_(e) {
   var lock;
   var locked = false;
   try {
@@ -395,6 +411,10 @@ function auroraRepairOrderItems_(table,order) {
 }
 
 function auroraResponse_(payload, callback) {
+  // A successful API acknowledgement MUST follow the atomic persistence commit.
+  // Validation errors discard uncommitted work at the outer request boundary;
+  // security counters and external-send claims use explicit checkpoints.
+  if (payload && (payload.ok === true || payload.success === true) && typeof auroraSupabaseFlush_ === 'function') auroraSupabaseFlush_();
   var json = JSON.stringify(payload).replace(/</g,'\\u003c').replace(/>/g,'\\u003e').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');
   if (callback) return ContentService.createTextOutput(callback + '(' + json + ');').setMimeType(ContentService.MimeType.JAVASCRIPT);
   return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
@@ -515,6 +535,7 @@ function auroraRequireInteractiveSetup_() {
   return effective;
 }
 function setupSheetDatabase() {
+  if(typeof auroraSupabaseEnabled_==='function'&&auroraSupabaseEnabled_())throw new Error('Supabase runtime schemas are owner-managed in SQL. Do not seed or rebuild the migrated database from Sheet setup.');
   auroraRequireInteractiveSetup_();
   var book = auroraSpreadsheet_();
   var seed = typeof AURORA_SEED_DATA !== 'undefined' ? AURORA_SEED_DATA : {};

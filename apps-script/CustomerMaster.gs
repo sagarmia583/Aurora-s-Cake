@@ -109,6 +109,7 @@ function backfillCustomerMasterOnce(){
   var lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))throw new Error('Other bakery updates are running. Retry.');
   try{
+    if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();
     var book=auroraSpreadsheet_(),orders=auroraPrivateTable_(book,'orders');
     var table=auroraPrivateTable_(book,'customer_master');
     var known=Object.create(null),newCount=0,updatedCount=0,skipped=0;
@@ -131,6 +132,7 @@ function backfillCustomerMasterOnce(){
       // Keep the in-memory copy current to avoid duplicates within the same run.
       table=auroraPrivateTable_(book,'customer_master');
     });
+    if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
     return {created:newCount,updated:updatedCount,skipped:skipped,total_customers:Object.keys(known).length};
-  }finally{lock.releaseLock();}
+  }finally{lock.releaseLock();if(typeof auroraSupabaseDiscard_==='function')auroraSupabaseDiscard_();}
 }

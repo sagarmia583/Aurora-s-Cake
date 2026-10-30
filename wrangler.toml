@@ -28,6 +28,15 @@ FIREBASE_PRIMARY_STAFF_ENABLED = "false"
 D1_PREVIEW_ENABLED = "false"
 D1_MUTATIONS_ENABLED = "false"
 
+# Supabase migration target. A URL is public; the server key must be an encrypted
+# Worker secret named SUPABASE_SERVER_KEY, entered only in Cloudflare Dashboard.
+# Set SUPABASE_HEALTH_ENABLED=true in Dashboard after SQL verification.
+# Leave that flag out of tracked vars so future Git builds preserve the choice.
+SUPABASE_URL = "https://dtvefwpaxwffxglqbfoo.supabase.co"
+
+[triggers]
+crons = ["7,22,37,52 * * * *"]
+
 # Existing owner-created D1 database. This ID is a non-secret resource identifier.
 # Applying this binding does NOT apply migrations or transfer historical data.
 [[d1_databases]]

@@ -23,7 +23,7 @@ const SupabaseSyncModal = lazy(() => import('./components/SupabaseSyncModal').th
 const CustomCakeModal = lazy(() => import('./components/CustomCakeModal').then(m=>({default:m.CustomCakeModal})));
 const CustomerProfileModal = lazy(() => import('./components/CustomerProfileModal').then(m=>({default:m.CustomerProfileModal})));
 import { mockDb } from './services/mockDatabase';
-import { supabaseDataService } from './services/supabaseDataService';
+import { loadBackendDatabaseStatus, unknownBackendDatabaseStatus } from './services/backendDatabaseStatus';
 import { useGoogleSheetContent } from './hooks/useGoogleSheetContent';
 const SheetContentPanel = lazy(() => import('./components/SheetContentPanel').then(m=>({default:m.SheetContentPanel})));
 import { loadConfirmedSheetOrders, rememberConfirmedSheetOrder, removeConfirmedSheetOrdersById } from './services/googleSheetOrders';
@@ -69,8 +69,11 @@ export default function App() {
   // Active Role / Persona (Web View)
   const [activeRole, setActiveRole] = useState<StaffRole | 'customer'>('customer');
 
-  // Supabase Connection Status
-  const [isSupabaseConnected, setIsSupabaseConnected] = useState<boolean>(false);
+  // Database mode is reported by the production backend, not browser credentials.
+  const [databaseStatus, setDatabaseStatus] = useState(unknownBackendDatabaseStatus);
+  const [databaseStatusLoading, setDatabaseStatusLoading] = useState(true);
+  const [databaseStatusRefresh, setDatabaseStatusRefresh] = useState(0);
+  const isSupabaseConnected = databaseStatus.available && databaseStatus.backend === 'supabase';
 
   // Public website content comes from the validated Sheet snapshot.
   const [settings, setSettings] = useState<ShopSettings>(publicData.settings);
@@ -174,19 +177,22 @@ export default function App() {
       refreshData();
     });
 
-    // Listen to Supabase connection & live events
-    const unsubSupabase = supabaseDataService.subscribe((status) => {
-      setIsSupabaseConnected(status.isConnected);
-      if (status.isConnected) {
-        refreshData();
-      }
-    });
-
     return () => {
       unsubDb();
-      unsubSupabase();
     };
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setDatabaseStatusLoading(true);
+    void loadBackendDatabaseStatus({ signal: controller.signal }).then(status => {
+      if (!controller.signal.aborted) {
+        setDatabaseStatus(status);
+        setDatabaseStatusLoading(false);
+      }
+    });
+    return () => controller.abort();
+  }, [databaseStatusRefresh]);
 
   // Cart operations
   const handleAddToCart = (item: CartItem) => {
@@ -415,6 +421,7 @@ export default function App() {
         onOpenDbViewer={() => setIsDbViewerOpen(true)}
         onOpenSupabaseSync={() => setIsSupabaseSyncOpen(true)}
         isSupabaseConnected={isSupabaseConnected}
+        databaseBackend={databaseStatus.backend}
         onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
         onOpenCustomCake={() => setIsCustomCakeOpen(true)}
         searchQuery={searchQuery}
@@ -464,6 +471,7 @@ export default function App() {
             onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
             onOpenSupabaseSync={() => setIsSupabaseSyncOpen(true)}
             isSupabaseConnected={isSupabaseConnected}
+            databaseBackend={databaseStatus.backend}
           />
         ) : (
           /* RESPONSIVE WEBSITE VIEW */
@@ -663,17 +671,9 @@ export default function App() {
       {isSupabaseSyncOpen && <SupabaseSyncModal
         isOpen={isSupabaseSyncOpen}
         onClose={() => setIsSupabaseSyncOpen(false)}
-        settings={settings}
-        categories={categories}
-        products={products}
-        flavors={flavors}
-        addons={addons}
-        banners={banners}
-        zones={zones}
-        slots={slots}
-        coupons={coupons}
-        reviews={reviews}
-        onDataRefreshed={refreshData}
+        status={databaseStatus}
+        loading={databaseStatusLoading}
+        onRefresh={() => setDatabaseStatusRefresh(version => version + 1)}
       />}
 
       {isCacheHubOpen && <CachePerformanceHub

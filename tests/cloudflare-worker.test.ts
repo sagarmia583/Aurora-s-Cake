@@ -32,6 +32,20 @@ test('Worker exposes API Firebase status and keeps server secrets out of respons
   assert.equal(body.deployment_platform,'cloudflare_worker');
   assert.equal(JSON.stringify(body).includes(script),false);
 });
+
+test('Worker exposes Supabase configuration and dispatches its disabled scheduler without network activity',async()=>{
+  const response=await worker.fetch(make('/api/supabase-health'),env);
+  assert.equal(response.status,200);
+  const status=await response.json() as Record<string,unknown>;
+  assert.equal(status.provider,'supabase');
+  assert.equal(status.enabled,false);
+  assert.equal(status.configured,false);
+  assert.equal((await worker.fetch(make('/api/supabase-health','POST'),env)).status,405);
+  const pending:Promise<unknown>[]=[];
+  worker.scheduled({scheduledTime:Date.now()},env,{waitUntil:(task:Promise<unknown>)=>pending.push(task)});
+  assert.equal(pending.length,1);
+  assert.deepEqual(await pending[0],{status:'disabled'});
+});
 test('Worker checkout endpoint rejects hostile origins, invalid actions and GET',async()=>{
   assert.equal((await worker.fetch(make('/api/operations'),env)).status,405);
   assert.equal((await worker.fetch(make('/api/operations','POST',{action:'get_private_staff'}),env)).status,400);

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
-const files=['Code.gs','SeedData.gs','StaffOperations.gs','AccountAuth.gs','CustomerMaster.gs','CustomerAccounts.gs','CustomCakeRequests.gs','LiveCatalog.gs','PublicCms.gs','PublicImages.gs','CustomerSubscriptions.gs','Campaigns.gs'];
+const files=['Code.gs','SeedData.gs','StaffOperations.gs','AccountAuth.gs','CustomerMaster.gs','CustomerAccounts.gs','CustomCakeRequests.gs','LiveCatalog.gs','PublicCms.gs','PublicImages.gs','CustomerSubscriptions.gs','Campaigns.gs','SupabaseStore.gs'];
 const banner=`/**
  * AURORA'S CAKE — ONE-FILE Google Apps Script backend.
  * Rebuilt from the individual apps-script modules by scripts/build-apps-script.mjs.

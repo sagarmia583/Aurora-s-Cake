@@ -2,7 +2,7 @@
  * Read-only check for whether the owner actually redeployed Apps Script.
  * Never accepts arbitrary target URLs, tokens or credentials.
  */
-const EXPECTED_RELEASE='aurora-2026-10-30-profiles-email-r1';
+const EXPECTED_RELEASE='aurora-2026-10-30-supabase-store-r1';
 const JSON_HEADERS={'Content-Type':'application/json; charset=utf-8',
   'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
 export default async function handler(req,res){
@@ -29,8 +29,11 @@ export default async function handler(req,res){
     if(json?.ok!==true||json?.service!=='aurora_public_content')
       return respond(502,{ok:false,error:'Apps Script health response was invalid'});
     const installed=typeof json.release==='string'?json.release:'older-or-unknown';
+    const databaseBackend=['google_sheets','supabase'].includes(json.database_backend)
+      ? json.database_backend : 'unknown';
     return respond(200,{ok:true,expected_release:EXPECTED_RELEASE,
-      installed_release:installed,up_to_date:installed===EXPECTED_RELEASE});
+      installed_release:installed,up_to_date:installed===EXPECTED_RELEASE,
+      database_backend:databaseBackend});
   }catch{return respond(504,{ok:false,error:'Apps Script health request timed out or failed'});}
   finally{clearTimeout(timer);}
 }

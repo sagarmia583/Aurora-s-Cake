@@ -22,7 +22,7 @@ const STAFF_CONFIG=JSON.stringify({
   'rider@example.com':{role:'delivery_man',name:'Rider'},
 });
 const request=(patch:Record<string,unknown>={})=>({action:'create_order',request_id:'a1111111-2222-4333-8444-555555555555',checkout_proof:'aaaaaaaa-1111-4111-8111-111111111111bbbbbbbb-2222-4222-8222-222222222222',customer_name:'Test Customer',customer_phone:'+880 1700 000000',delivery_address:'Test delivery address',delivery_zone_id:'z1',delivery_slot:'10 AM - 12 PM',delivery_date:futureDate(),cart_items:[{product_id:'p1',variant_id:'v1',flavor_id:'f1',addon_ids:['a1'],writing_message:'Happy birthday',quantity:2}],coupon_code:'SAVE10',order_note:'Call before delivery',payment_method:'cod',...patch});
-function harness(options:{withoutPrivate?:boolean;singleFile?:boolean}={}) {
+function harness(options:{withoutPrivate?:boolean;singleFile?:boolean;supabase?:boolean}={}) {
   const tables:Record<string,Row[]>={
     Sheet1:[['existing'],['preserve me']],
     settings:[['key','value'],['shop_name','Test Bakery'],['accepting_orders',true],['delivery_enabled',true]],
@@ -39,6 +39,7 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean}={}) {
   const reads:string[]=[];const writes:string[]=[];const rangeReads:{name:string,row:number,col:number,height:number,width:number}[]=[];
   const throttles=new Map<string,string>();
   let failNextItemWrite=false;let failAfterOrderWrite=false;let acquired=0;
+  let revision=1,conflictCommit=false,lostCommitAck=false;const runtimeCommits=new Map<string,{payload:string;reply:unknown}>();
   const sheet=(name:string):any=>({
     getLastRow:()=>tables[name].length,
     getLastColumn:()=>Math.max(0,...tables[name].map(row=>row.length)),
@@ -67,13 +68,29 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean}={}) {
     console:{log:()=>{},error:()=>{}},Date,JSON,Object,Array,String,Math,
     Session:{getActiveUser:()=>({getEmail:()=> 'owner@example.com'}),getEffectiveUser:()=>({getEmail:()=> 'owner@example.com'})},
     SpreadsheetApp:{openById:()=>book,getActiveSpreadsheet:()=>book},
-    PropertiesService:{getScriptProperties:()=>({getProperty:(key:string)=>key==='AURORA_GOOGLE_CLIENT_ID'?'test-client.apps.googleusercontent.com':key==='AURORA_STAFF_USERS'?STAFF_CONFIG:null})},
+    PropertiesService:{getScriptProperties:()=>({getProperty:(key:string)=>key==='AURORA_GOOGLE_CLIENT_ID'?'test-client.apps.googleusercontent.com':key==='AURORA_STAFF_USERS'?STAFF_CONFIG:options.supabase&&key==='AURORA_DATABASE_BACKEND'?'supabase':options.supabase&&key==='AURORA_SUPABASE_SERVICE_KEY'?'sb_secret_'+ 'private-test-fixture'.repeat(3):null})},
     UrlFetchApp:{fetch:(url:string)=>({getResponseCode:()=>200,getContentText:()=>JSON.stringify({aud:'test-client.apps.googleusercontent.com',iss:'https://accounts.google.com',sub:url.includes('intruder_')?'other-google-user':'verified-google-user',exp:Math.floor(Date.now()/1000)+3600,email_verified:'true',email:url.includes('rider_')?'rider@example.com':url.includes('intruder_')?'intruder@example.com':'owner@example.com'})})},
     CacheService:{getScriptCache:()=>({get:(key:string)=>(key.startsWith('aurora_cod_')||key.startsWith('aurora_custom_')||key.startsWith('aurora_auth_'))?throttles.get(key)||null:null,put:(key:string,value:string)=>{if((key.startsWith('aurora_cod_')||key.startsWith('aurora_custom_')||key.startsWith('aurora_auth_')))throttles.set(key,value);},remove:()=>{}})},
     LockService:{getScriptLock:()=>({tryLock:()=>{acquired++;return true;},releaseLock:()=>{acquired--;}})},
     Utilities:{DigestAlgorithm:{SHA_256:'sha256'},Charset:{UTF_8:'utf8'},computeDigest:(_algorithm:string,value:string)=>Array.from(createHash('sha256').update(value).digest()),formatDate:(date:Date)=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Dhaka',year:'numeric',month:'2-digit',day:'2-digit'}).format(date),getUuid:()=>randomUUID(),base64Decode:(str:string)=>Array.from(Buffer.from(str,'base64')).map(n=>n>127?n-256:n)},
     ContentService:{MimeType:{JSON:'json',JAVASCRIPT:'js'},createTextOutput:(content:string)=>({content,setMimeType(){return this;}})},
   };
+  if(options.supabase){
+    const googleFetch=context.UrlFetchApp.fetch;
+    context.UrlFetchApp.fetch=(url:string,config:any)=>{
+      if(!url.includes('/rest/v1/rpc/'))return googleFetch(url,config);
+      const input=JSON.parse(config.payload);assert.equal(input.p_project_ref,'dtvefwpaxwffxglqbfoo');
+      const response=(status:number,value:unknown)=>({getResponseCode:()=>status,getContentText:()=>JSON.stringify(value)});
+      if(url.endsWith('aurora_runtime_snapshot'))return response(200,{project_ref:input.p_project_ref,revision:String(revision),tables:Object.fromEntries(Object.entries(tables).map(([name,rows])=>[name,{headers:rows[0],rows:rows.slice(1).map((cells,index)=>({sheet_row:index+2,cells}))}]))});
+      const old=runtimeCommits.get(input.p_operation_id);if(old){assert.equal(old.payload,JSON.stringify(input));return response(200,old.reply);}
+      if(conflictCommit){conflictCommit=false;revision++;}
+      if(input.p_expected_revision!==String(revision))return response(409,{code:'40001',message:'revision_conflict'});
+      const next=structuredClone(tables);input.p_changes.forEach((change:any)=>{next[change.table][change.row-1]=change.cells;});
+      Object.assign(tables,next);revision++;const reply={ok:true,revision:String(revision)};
+      runtimeCommits.set(input.p_operation_id,{payload:JSON.stringify(input),reply});
+      if(lostCommitAck){lostCommitAck=false;throw new Error('lost database ack');}return response(200,reply);
+    };
+  }
   vm.createContext(context);
   if (options.singleFile) {
     vm.runInContext(fs.readFileSync(new URL('../apps-script/Code.AllInOne.gs',import.meta.url),'utf8'),context);
@@ -85,13 +102,53 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean}={}) {
   vm.runInContext(fs.readFileSync(new URL('../apps-script/CustomerAccounts.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/LiveCatalog.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/CustomCakeRequests.gs',import.meta.url),'utf8'),context);
+  if(options.supabase)vm.runInContext(fs.readFileSync(new URL('../apps-script/SupabaseStore.gs',import.meta.url),'utf8'),context);
   }
   const post=(payload:unknown)=>JSON.parse(context.doPost({postData:{type:'text/plain',contents:JSON.stringify(payload)}}).content);
   const get=(action:string)=>JSON.parse(context.doGet({parameter:{action}}).content);
   const records=(name:string)=>tables[name].slice(1).map(row=>Object.fromEntries(tables[name][0].map((key,index)=>[String(key),row[index]])));
   const change=(name:string,key:string,value:unknown)=>{const col=tables[name][0].indexOf(key);tables[name][1][col]=value;};
-  return {tables,reads,writes,rangeReads,context,post,get,records,change,failItems:()=>{failNextItemWrite=true;},failOrderAck:()=>{failAfterOrderWrite=true;},lockCount:()=>acquired};
+  return {tables,reads,writes,rangeReads,context,post,get,records,change,failItems:()=>{failNextItemWrite=true;},failOrderAck:()=>{failAfterOrderWrite=true;},conflictCommit:()=>{conflictCommit=true;},loseCommitAck:()=>{lostCommitAck=true;},lockCount:()=>acquired};
 }
+
+test('active private Supabase adapter commits checkout once, survives lost acknowledgement and preserves receipt compatibility',()=>{
+  const h=harness({supabase:true});h.loseCommitAck();const first=h.post(request());
+  assert.equal(first.persisted,true);assert.equal(first.order.persistence,'google_sheets');assert.equal(first.order.total_amount,1680);
+  assert.equal(h.records('orders').length,1);assert.equal(h.records('order_items').length,1);assert.equal(h.records('customer_master').length,1);
+  assert.deepEqual(h.post(request()),first);assert.equal(h.records('orders').length,1);
+  assert.equal(h.post(request({delivery_address:'Different address'})).code,'idempotency_conflict');assert.equal(h.get('health').database_backend,'supabase');
+});
+test('active adapter never acknowledges a conflicted checkout or persists its partial row delta',()=>{
+  const h=harness({supabase:true});h.conflictCommit();const response=h.post(request());
+  assert.equal(response.success,false);assert.equal(response.code,'submission_uncertain');assert.equal('persisted' in response,false);
+  assert.equal(h.records('orders').length,0);assert.equal(h.records('order_items').length,0);assert.equal(h.records('customer_master').length,0);
+  assert.equal(h.post(request()).persisted,true);assert.equal(h.records('orders').length,1);
+});
+test('active adapter preserves cross-device phone login, lockout counters, owner columns and receipt linking',()=>{
+  const h=harness({supabase:true});
+  h.tables.customer_accounts[0].push('owner_extra');
+  const signup=h.post({action:'customer_phone_signup',phone:'01700000000',name:'Account customer',password:'test-password-long'});assert.equal(signup.ok,true);
+  h.tables.customer_accounts[1][h.tables.customer_accounts[0].indexOf('owner_extra')]='keep-this';
+  assert.equal(h.post({action:'customer_phone_login',phone:'01700000000',password:'incorrect-password'}).code,'invalid_credentials');
+  assert.equal(h.records('customer_accounts')[0].failed_attempts,1);assert.equal(h.records('customer_accounts')[0].owner_extra,'keep-this');
+  const secondDevice=h.post({action:'customer_phone_login',phone:'01700000000',password:'test-password-long'});assert.equal(secondDevice.ok,true);
+  assert.equal(h.post({action:'customer_phone_profile',auth_token:secondDevice.auth_token,name:'Edited profile',address:'Saved delivery address',email:'saved@example.test'}).ok,true);
+  assert.equal(h.post({action:'customer_phone_session',auth_token:signup.auth_token}).profile.address,'Saved delivery address');
+  const order=h.post(request({customer_phone:'01700000000'})).order;
+  assert.equal(h.post({action:'customer_phone_claim',auth_token:secondDevice.auth_token,order_id:order.id,customer_access_token:order.customer_access_token}).ok,true);
+  assert.equal(h.post({action:'customer_phone_orders',auth_token:signup.auth_token}).orders[0].id,order.id);
+  assert.equal(h.records('customer_accounts')[0].owner_extra,'keep-this');
+});
+test('active adapter preserves authorized staff transitions and durably counts invalid delivery OTPs',()=>{
+  const h=harness({supabase:true});const order=h.post(request()).order;
+  const update=(operation:string,id_token=ADMIN_TOKEN,extra:Record<string,unknown>={})=>h.post({action:'staff_mutate',id_token,operation,order_id:order.id,...extra});
+  for(const op of ['confirm','start_baking','mark_ready'])assert.equal(update(op).ok,true);
+  assert.equal(update('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);assert.equal(update('pick_up',RIDER_TOKEN).ok,true);assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
+  assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:'wrong',cash_collected:true}).code,'invalid_otp');
+  let receipt=JSON.parse(String(h.records('orders')[0].receipt_json));assert.equal(receipt.otp_failed_attempts,1);
+  assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:receipt.delivery_otp,cash_collected:true}).ok,true);
+  receipt=JSON.parse(String(h.records('orders')[0].receipt_json));assert.equal(receipt.status,'delivered');assert.equal(receipt.payment_status,'paid');assert.equal(receipt.delivery_otp,'');assert.equal(h.lockCount(),0);
+});
 
 test('private COD submission recomputes Sheet sale price, add-ons per quantity, fee and capped coupon',()=>{
   const h=harness();
