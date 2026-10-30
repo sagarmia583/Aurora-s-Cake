@@ -13,6 +13,12 @@
     },
     "api/backend-health.js": {
       "maxDuration": 30
+    },
+    "api/firebase-operations.js": {
+      "maxDuration": 30
+    },
+    "api/firebase-health.js": {
+      "maxDuration": 15
     }
   },
   "rewrites": [
@@ -31,6 +37,14 @@
     {
       "source": "/api/backend-health",
       "destination": "/api/backend-health"
+    },
+    {
+      "source": "/api/firebase-health",
+      "destination": "/api/firebase-health"
+    },
+    {
+      "source": "/api/firebase-operations",
+      "destination": "/api/firebase-operations"
     },
     {
       "source": "/(.*)",

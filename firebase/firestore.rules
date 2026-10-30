@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // All Aurora private business data is server-only.
+    // Do not open write access based solely on user role claims.
+    // Firebase Admin SDK uses IAM, not Firestore client Security Rules.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
