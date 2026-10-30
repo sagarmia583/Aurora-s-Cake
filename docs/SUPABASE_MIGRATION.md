@@ -158,6 +158,28 @@ Prepare/import/reconcile the **new final run**, then explicitly review its own o
 
 While still frozen, verify the promoted runtime's `import_run_id`, complete table/row parity and private connection. Select exact `supabase`, check the backend health and private snapshot, then use the reviewed owner freeze-end workflow. SQL 008 supplies server-only lineage for the guard: the promoted source export must be at least seven minutes after `frozen_at` and cannot be in the future. Keep the explicit final run/checksum check as well. Cancellation back to Sheet writes invalidates that final export. After new Supabase writes exist, clearing a flag or switching back alone is not a rollback; target writes require reconciliation.
 
+### Prepare the single owner SQL file
+
+`beginMigrationFreeze()`, `verifySupabaseConnection()` and `endMigrationFreeze()` are Apps Script editor functions: select the function name in that editor's dropdown and press **Run**. They are not SQL and cannot be run in Supabase's SQL Editor. The generated `.sql` artifact below is run in **Supabase Dashboard → SQL Editor** only.
+
+Before asking the owner to freeze, validate this tooling and review the known findings against the preparation baseline. Once the freeze and full drain are verified, use the fresh complete snapshot and before/after freeze evidence:
+
+```powershell
+node scripts/prepare-supabase-cutover.mjs --input ../private-aurora-migration/final-source.json --evidence ../private-aurora-migration/freeze-evidence.json --baseline ../private-aurora-migration/source.json --project-ref dtvefwpaxwffxglqbfoo --pglite-module ../health-sql-runtime/node_modules/@electric-sql/pglite/dist/index.js
+```
+
+The default is a dry run with counts/checksums only and no files or network calls. It computes the exact PostgreSQL JSONB audit hash in a disposable PGlite database. It recognizes only the unchanged baseline orphan `order_items` row and the unchanged constant numeric `settings.phone` formula/value. A new/changed orphan, unknown finding, volatile or changed formula, changed computed phone value, missing formula metadata, stale snapshot or unfrozen evidence stops preparation until separate review.
+
+To prepare the owner artifact after explicit review, provide a private note of 20–2,000 characters describing preservation of those findings and both named acknowledgments:
+
+```powershell
+node scripts/prepare-supabase-cutover.mjs --input ../private-aurora-migration/final-source.json --evidence ../private-aurora-migration/freeze-evidence.json --baseline ../private-aurora-migration/source.json --project-ref dtvefwpaxwffxglqbfoo --pglite-module ../health-sql-runtime/node_modules/@electric-sql/pglite/dist/index.js --acknowledge-known-legacy-orphan --accept-constant-phone-formula --review-note-file ../private-aurora-migration/owner-review.txt --out ../private-aurora-migration/final-owner.sql
+```
+
+This creates the sensitive `.sql`, `.review.json`, `.manifest.json` and `.backup.json` once, outside the repository. Nothing is overwritten. Review the companion acceptance record before execution. Running the complete SQL means accepting its listed source findings; it neither discards the orphan nor invents a parent, and it retains the original formula while using its scalar value.
+
+The SQL contains one outer transaction: acquire the promotion advisory lock, refuse any initialized runtime **before writing**, install read-only SQL 008, import/reconcile the exact pinned source, promote the literal final run/checksum with the literal reviewed audit hash/note, then compare every runtime header/cell/formula against the complete expected source. A failed promotion or readback rolls the whole transaction back. The final result returns private lineage metadata. It never selects the website backend, unfreezes writes or sends mail. Keep the same freeze active through the final owner checks and activation workflow.
+
 ## Local checks
 
 ```powershell
@@ -185,3 +207,5 @@ node scripts/verify-supabase-runtime.mjs --input ../private-aurora-migration/sou
 ```
 
 It applies 006, the exact import, 007 and 008 to a new in-memory database, verifies source/audit/formula promotion gates and complete snapshot parity, then tests service-only RPC permissions, exact private lineage metadata, revision conflicts, operation replay, multirow rollback and immutable/unique keys. Its test-only acknowledgment of source audits never reaches the real database. Apps Script transaction/auth/email tests and live activation checks remain separate.
+
+For the final owner SQL's actual PostgreSQL tests, set `AURORA_TEST_PGLITE_MODULE` to the trusted local PGlite `dist/index.js`, then run `node --import tsx --test tests/supabase-cutover.test.ts`. Without that optional runtime the pure finding-classification tests run and PostgreSQL tests are explicitly skipped. The executed tests cover exact audit hashing, complete atomic promotion/readback, refusal to overwrite an initialized runtime, rollback after deliberate readback corruption, stale/unfrozen evidence and dry-run/private/no-overwrite output behavior.
