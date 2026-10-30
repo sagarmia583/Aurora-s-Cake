@@ -14,12 +14,13 @@ test('new backend health check confirms exact Apps Script version without privat
   process.env.AURORA_SCRIPT_POST_URL=SCRIPT;
   globalThis.fetch=(async()=>({ok:true,url:'https://script.googleusercontent.com/macros/echo',
     json:async()=>({ok:true,service:'aurora_public_content',schema_version:1,
-      release:'aurora-2026-10-30-profiles-email-r1',private_key:'never-output'})})) as unknown as typeof fetch;
+      release:'aurora-2026-10-30-supabase-store-r1',database_backend:'supabase',private_key:'never-output'})})) as unknown as typeof fetch;
   try{
     const result=await check();
     assert.equal(result.status,200);
     assert.equal(result.body.up_to_date,true);
-    assert.equal(result.body.installed_release,'aurora-2026-10-30-profiles-email-r1');
+    assert.equal(result.body.installed_release,'aurora-2026-10-30-supabase-store-r1');
+    assert.equal(result.body.database_backend,'supabase');
     assert.equal('private_key' in result.body,false);
     assert.equal(result.headers['Cache-Control'],'no-store');
     assert.equal((await check('POST')).status,405);
@@ -33,12 +34,14 @@ test('old Apps Script deployment is reported as outdated, not mistakenly marked 
   const old=process.env.AURORA_SCRIPT_POST_URL,fetchBefore=globalThis.fetch;
   process.env.AURORA_SCRIPT_POST_URL=SCRIPT;
   globalThis.fetch=(async()=>({ok:true,url:'https://script.googleusercontent.com/macros/echo',
-    json:async()=>({ok:true,service:'aurora_public_content',schema_version:1})})) as unknown as typeof fetch;
+    json:async()=>({ok:true,service:'aurora_public_content',schema_version:1,database_backend:'sb_secret_never_disclose'})})) as unknown as typeof fetch;
   try{
     const status=await check();
     assert.equal(status.status,200);
     assert.equal(status.body.up_to_date,false);
     assert.equal(status.body.installed_release,'older-or-unknown');
+    assert.equal(status.body.database_backend,'unknown');
+    assert.equal(JSON.stringify(status.body).includes('sb_secret_'),false);
   }finally{
     globalThis.fetch=fetchBefore;
     if(old===undefined)delete process.env.AURORA_SCRIPT_POST_URL;

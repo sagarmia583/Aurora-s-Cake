@@ -46,6 +46,7 @@ import {
 import { mockDb } from '../services/mockDatabase';
 import type { PublicSiteData } from '../types/siteContent';
 import { DEFAULT_PUBLIC_SITE_DATA } from '../content/defaultSiteData';
+import { databaseBackendLabel, type DatabaseBackend } from '../services/backendDatabaseStatus';
 
 interface MobileAppExperienceProps {
   settings: ShopSettings;
@@ -69,6 +70,7 @@ interface MobileAppExperienceProps {
   onOpenTrackOrder: () => void;
   onOpenSupabaseSync: () => void;
   isSupabaseConnected: boolean;
+  databaseBackend?: DatabaseBackend;
 }
 
 export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
@@ -92,6 +94,7 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
   onOpenTrackOrder,
   onOpenSupabaseSync,
   isSupabaseConnected,
+  databaseBackend,
   publicData,
 }) => {
   const text = (key: string) => publicData?.content[key] ?? DEFAULT_PUBLIC_SITE_DATA.content[key] ?? '';
@@ -191,14 +194,14 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
           <button
             onClick={onOpenSupabaseSync}
             className={`px-3 py-1.5 text-xs font-bold rounded-xl flex items-center gap-1.5 border cursor-pointer transition-colors ${
-              isSupabaseConnected
+              isSupabaseConnected || databaseBackend === 'google_sheets'
                 ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
                 : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
             }`}
           >
             <Database className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Supabase:</span>
-            <span>{isSupabaseConnected ? 'Live' : 'Local DB'}</span>
+            <span className="hidden sm:inline">Database:</span>
+            <span>{databaseBackendLabel(databaseBackend ?? (isSupabaseConnected ? 'supabase' : 'unknown'))}</span>
           </button>
 
           <button

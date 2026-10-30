@@ -78,6 +78,7 @@ function auroraSubscriptionPost_(input) {
   var lock=LockService.getScriptLock();if(!lock.tryLock(10000))auroraReject_('busy','Please retry your email preference shortly.');
   var locked=true,message,row;
   try{
+    if(typeof auroraSupabaseRefresh_==='function')auroraSupabaseRefresh_();
     person=auroraAccountAuthenticate_('customer',input.auth_token);
     var table=auroraSubscriptionTable_(book);row=auroraSubscriptionRow_(table,person.id);
     if(input.action==='customer_email_unsubscribe'){
@@ -102,7 +103,7 @@ function auroraSubscriptionPost_(input) {
     auroraSubscriptionSave_(table,row,{marketing_consent:false,email_verified:false,status:'pending_confirmation',email:email,consent_requested_at:now,confirmed_at:'',updated_at:now,confirmation_nonce_hash:auroraAccountDigest_(nonce),confirmation_expires_at:new Date(expires).toISOString(),confirmation_version:version,unsubscribed_at:'',last_confirmation_at:now});
     var token=auroraSubscriptionToken_(['confirm',row.id,version,nonce,expires]),link=base+'?action=email_confirm&token='+encodeURIComponent(token);
     message={to:email,subject:'Confirm Aurora’s Cake product updates',body:'You asked to receive new cake and product announcements from Aurora’s Cake.\n\nConfirm your email preference: '+link+'\n\nThis link expires in 24 hours. If you did not request this, ignore the message; you will not be subscribed.',name:'Aurora’s Cake'};
-    SpreadsheetApp.flush();lock.releaseLock();locked=false;
+    if(typeof auroraPersistenceFlush_==='function')auroraPersistenceFlush_();else SpreadsheetApp.flush();lock.releaseLock();locked=false;
     try{MailApp.sendEmail(message);}catch(_){auroraReject_('email_unconfirmed','We could not confirm delivery of the verification email. Check your inbox before requesting another.');}
     return {ok:true,subscription:auroraSubscriptionSafe_(row),confirmation_sent:true};
   }finally{if(locked)lock.releaseLock();}
@@ -126,16 +127,18 @@ function auroraSubscriptionLinkPost_(action,token) {
   try{
     var parts=auroraSubscriptionParseToken_(token,action==='email_confirm'?'confirm':'unsubscribe');
     if(!lock.tryLock(10000))return auroraSubscriptionLinkPage_('Please try again','Another update is in progress. Press the button again.',action,token);locked=true;
+    if(typeof auroraSupabaseRefresh_==='function')auroraSupabaseRefresh_();
     var book=auroraSpreadsheet_(),table=auroraSubscriptionTable_(book),matches=table.rows.filter(function(row){return String(row.id)===parts[1];});
     if(matches.length!==1)throw new Error('Unknown link');var row=matches[0];
     if(action==='email_unsubscribe'){
       if(parts[2]!==auroraAccountDigest_(String(row.email).trim().toLowerCase()))throw new Error('Email changed');
-      auroraSubscriptionOptOutEmail_(table,String(row.email));return auroraSubscriptionLinkPage_('You are unsubscribed','Product announcements to this email address have been stopped. Order messages and account access are unchanged.');
+      auroraSubscriptionOptOutEmail_(table,String(row.email));if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();return auroraSubscriptionLinkPage_('You are unsubscribed','Product announcements to this email address have been stopped. Order messages and account access are unchanged.');
     }
     if(Number(row.confirmation_version)!==Number(parts[2])||!auroraSubscriptionEqual_(String(row.confirmation_nonce_hash),auroraAccountDigest_(parts[3]))||Date.parse(String(row.confirmation_expires_at))<Date.now())throw new Error('Expired confirmation');
     var account=auroraAccountValue_(auroraPrivateTable_(book,'customer_accounts'),row.customer_id);if(!account||!auroraSubscriptionTrue_(account.active))throw new Error('Closed account');
     if(row.status==='subscribed')return auroraSubscriptionLinkPage_('Email already confirmed','Your product email preference is active. You can change it in your bakery account.');
     var now=new Date().toISOString();auroraSubscriptionSave_(table,row,{marketing_consent:true,email_verified:true,status:'subscribed',confirmed_at:now,updated_at:now});
+    if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
     return auroraSubscriptionLinkPage_('Email confirmed','You can now receive Aurora’s Cake product announcements. Every announcement includes an unsubscribe link.');
   }catch(_){return auroraSubscriptionLinkPage_('This link is unavailable','The link is invalid or expired. Open your bakery account to manage email preferences.');}
   finally{if(locked)lock.releaseLock();}

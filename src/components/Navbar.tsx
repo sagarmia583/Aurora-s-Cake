@@ -4,6 +4,7 @@ import { ShopSettings, StaffRole } from '../types';
 import type { PublicSiteData } from '../types/siteContent';
 import { DEFAULT_PUBLIC_SITE_DATA } from '../content/defaultSiteData';
 import { BrandImage } from './BrandImage';
+import { databaseBackendLabel, type DatabaseBackend } from '../services/backendDatabaseStatus';
 
 export type ViewMode = 'web' | 'mobile_app';
 
@@ -26,6 +27,7 @@ interface NavbarProps {
   onOpenDbViewer: () => void;
   onOpenSupabaseSync: () => void;
   isSupabaseConnected: boolean;
+  databaseBackend?: DatabaseBackend;
   onOpenTrackOrder: () => void;
   onOpenCustomCake: () => void;
   searchQuery: string;
@@ -46,7 +48,7 @@ const staffRoles: { value: StaffRole | 'customer'; label: string }[] = [
 export const Navbar: React.FC<NavbarProps> = ({
   settings: suppliedSettings, activeRole, onRoleChange, viewMode, onViewModeChange, cartCount,
   onOpenCart, onOrderNow, onOpenProfile, onOpenCacheHub, onOpenDbViewer, onOpenSupabaseSync,
-  isSupabaseConnected, onOpenTrackOrder, onOpenCustomCake, searchQuery, onSearchChange,
+  isSupabaseConnected, databaseBackend, onOpenTrackOrder, onOpenCustomCake, searchQuery, onSearchChange,
   publicData, onOpenSheetSettings, isSheetConnected, onOpenStaffPortal,
 }) => {
   const data: PublicSiteData = publicData ?? DEFAULT_PUBLIC_SITE_DATA;
@@ -224,7 +226,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
         <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenTrackOrder)}><Clock size={14} /> Track an order</button>
         {onOpenSheetSettings && <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenSheetSettings)}><Database size={14} /> Google Sheets content <span className="ac-nav-status" data-connected={isSheetConnected} title={isSheetConnected ? 'Connected to Google Sheets' : 'Google Sheets is not connected'} /></button>}
-        <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenSupabaseSync)}><Database size={14} /> Database connection <span className="ac-nav-status" data-connected={isSupabaseConnected} title={isSupabaseConnected ? 'Connected' : 'Local preview'} /></button>
+        <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenSupabaseSync)}><Database size={14} /> Database connection <span className="ac-nav-status" data-connected={isSupabaseConnected || databaseBackend === 'google_sheets'} title={databaseBackendLabel(databaseBackend ?? (isSupabaseConnected ? 'supabase' : 'unknown'))} /></button>
         <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenCacheHub)}><Zap size={14} /> Cache performance</button>
         <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenDbViewer)}><Database size={14} /> Database schema</button>
       </div>}

@@ -86,10 +86,13 @@ test('Cloudflare public proxy validates structured Apps Script response',async()
 test('Cloudflare health check follows release semantics',async()=>{
   const previous=globalThis.fetch;
   globalThis.fetch=(async()=>({ok:true,url:'https://script.googleusercontent.com/macros/echo',
-    json:async()=>({ok:true,service:'aurora_public_content',release:'old-release'})}) as Response) as typeof fetch;
+    json:async()=>({ok:true,service:'aurora_public_content',release:'old-release',database_backend:'google_sheets',private_key:'never-output'})}) as Response) as typeof fetch;
   try{
     const r=await backendHealth({request:request('/api/backend-health'),env});
-    assert.equal((await jsonOf(r)).up_to_date,false);
+    const result=await jsonOf(r);
+    assert.equal(result.up_to_date,false);
+    assert.equal(result.database_backend,'google_sheets');
+    assert.equal(JSON.stringify(result).includes('never-output'),false);
   }finally{globalThis.fetch=previous;}
 });
 test('Cloudflare image refuses unknown IDs, missing configuration and untrusted hosts',async()=>{

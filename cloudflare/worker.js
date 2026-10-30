@@ -16,12 +16,15 @@ import { handleFirebaseStaffApi } from './firebaseStaffApi.js';
 import {firebaseWebConfigHandler} from './firebaseWebConfig.js';
 import {d1ApiHandler} from './d1/api.js';
 import {d1MediaHandler} from './d1/media.js';
+import {runSupabaseScheduledHealth} from './supabaseHealth.js';
+import {supabaseHealthStatusHandler} from './supabaseHealthStatus.js';
 
 const routes = new Map([
   ['/api/operations', operations],
   ['/api/public', publicData],
   ['/api/image', image],
   ['/api/backend-health', backendHealth],
+  ['/api/supabase-health', supabaseHealthStatusHandler],
   ['/api/firebase-sync-status', firebaseStatus],
   ['/api/firebase-primary/catalog', firebasePrimaryCatalogHandler],
   ['/api/firebase-primary/web-config', firebaseWebConfigHandler],
@@ -30,6 +33,9 @@ const routes = new Map([
 ]);
 
 export default {
+  scheduled(event, env, ctx) {
+    ctx.waitUntil(runSupabaseScheduledHealth(event, env));
+  },
   async fetch(request, env) {
     const pathname = new URL(request.url).pathname;
     // D1+R2 preview routes are isolated. No legacy checkout override.

@@ -318,6 +318,7 @@ function auroraOperationsPost_(input) {
           order.otp_failed_attempts = 0;
         }
         auroraPrivateSaveReceipt_(table,rowNumber,order);
+        if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
         auroraReject_('invalid_otp','Delivery code is incorrect or temporarily locked.');
       }
       if (order.payment_method === 'cod' && input.cash_collected !== true) {
