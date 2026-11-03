@@ -1,3 +1,4 @@
+import { shopErrorMessage } from '../utils/shopErrorMessage';
 import {formatShortOrderNumber} from '../utils/orderUtils';
 import React, { useState, useEffect, useRef } from 'react';
 import { useCakeDialog } from './useCakeDialog';
@@ -272,7 +273,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
           setProfileSuccessMsg(added ? 'Signed in. Your original receipts were linked to this account.' : 'Signed in. Your order history is ready.');
           return;
         } catch (pwErr) {
-          setAccountError(pwErr instanceof Error ? pwErr.message : 'Phone sign-in failed.');
+          setAccountError(shopErrorMessage(pwErr, 'Phone sign-in failed.'));
           return;
         }
       }
@@ -316,7 +317,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
         setProfileSuccessMsg(`মোবাইল নম্বর ${accountPhone} এ পূর্বের কোনো অর্ডার নেই। এখনই কেক মেনু থেকে অর্ডার করতে পারেন!`);
       }
     } catch (error) {
-      setAccountError(error instanceof Error ? error.message : 'অর্ডার লোড করতে সমস্যা হয়েছে।');
+      setAccountError(shopErrorMessage(error, 'অর্ডার লোড করতে সমস্যা হয়েছে।'));
     } finally {
       setAccountBusy(false);
     }
@@ -418,7 +419,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
         setProfileSuccessMsg('Profile saved to your bakery account. (আপনার তথ্য সফলভাবে সংরক্ষিত হয়েছে)');
         return;
       } catch (error) {
-        setProfileSuccessMsg(error instanceof Error ? error.message : 'Your account profile could not be saved.');
+        setProfileSuccessMsg(shopErrorMessage(error, 'Your account profile could not be saved.'));
         return;
       }
     }
@@ -460,7 +461,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
       setReviewComment('');
       setReviewImage('');
     }, 1500);
-    } catch(error) {setReviewError(error instanceof Error?error.message:'Review could not be saved.');}
+    } catch(error) {setReviewError(shopErrorMessage(error, 'Review could not be saved.'));}
     finally {setReviewBusy(false);}
   };
 

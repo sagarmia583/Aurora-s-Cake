@@ -1,3 +1,4 @@
+import { shopErrorMessage } from '../utils/shopErrorMessage';
 import React, { useEffect, useRef, useState } from 'react';
 import { Mail, RefreshCw } from 'lucide-react';
 import { getEmailSubscription, isEmailSetupUnavailable, requestEmailSubscription, unsubscribeEmail } from '../services/emailSubscriptions';
@@ -19,7 +20,7 @@ export function EmailSubscriptionPanel({endpoint,authToken,initialEmail='',onSig
     if(!authToken)return;
     let active=true;setBusy(true);
     getEmailSubscription(endpoint,authToken).then(value=>{if(active){setSubscription(value);if(value.email)setEmail(value.email);}})
-      .catch(e=>{if(active){setSetupUnavailable(isEmailSetupUnavailable(e));setError(isEmailSetupUnavailable(e)?'Product email preferences need the latest bakery backend setup. Your account and orders still work.':e instanceof Error?e.message:'Email preferences are unavailable.');}})
+      .catch(e=>{if(active){setSetupUnavailable(isEmailSetupUnavailable(e));setError(shopErrorMessage(e, 'Email preferences are unavailable.'));}})
       .finally(()=>{if(active)setBusy(false);});
     return()=>{active=false;};
   },[endpoint,authToken]);
@@ -32,7 +33,7 @@ export function EmailSubscriptionPanel({endpoint,authToken,initialEmail='',onSig
       if(identity.current.endpoint!==source.endpoint||identity.current.authToken!==source.authToken)return;
       setSetupUnavailable(false);setSubscription(next);if(next.email)setEmail(next.email);setConsent(false);
       setMessage(kind==='unsubscribe'?'Product emails are turned off.':next.status==='subscribed'?'Your email is confirmed for product announcements.':next.status==='pending_confirmation'?'Check your inbox, open the confirmation link, then press Confirm email updates. You are not subscribed until you confirm.':'Email preference refreshed.');
-    }catch(e){if(identity.current.endpoint===source.endpoint&&identity.current.authToken===source.authToken){setSetupUnavailable(isEmailSetupUnavailable(e));setError(isEmailSetupUnavailable(e)?'Product email preferences need the latest bakery backend setup. Your account and orders still work.':e instanceof Error?e.message:'Email preference could not be updated.');}}
+    }catch(e){if(identity.current.endpoint===source.endpoint&&identity.current.authToken===source.authToken){setSetupUnavailable(isEmailSetupUnavailable(e));setError(shopErrorMessage(e, 'Email preference could not be updated.'));}}
     finally{if(identity.current.endpoint===source.endpoint&&identity.current.authToken===source.authToken)setBusy(false);}
   };
   return <section className="rounded-2xl border border-emerald-200 bg-white p-4 space-y-3" aria-label="Product email preferences">

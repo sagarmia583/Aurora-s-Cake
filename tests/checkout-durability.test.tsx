@@ -229,14 +229,15 @@ test('App preserves an unrelated bag line added while its original checkout is u
     window: { location: { hostname: 'localhost', protocol: 'http:' }, setTimeout: () => 1, clearTimeout() {}, addEventListener() {}, removeEventListener() {} } });
   t.after(() => { for (const key of globals) { const descriptor = previous.get(key); if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); } });
   const stubs: Record<string, string> = {
+    './services/sheetReviews': `export const submitSheetReview=async()=>({review_id:'review-test',status:'pending'});`,
     './hooks/useGoogleSheetContent': `export const useGoogleSheetContent=()=>({data:globalThis.__checkoutAudit.data,endpoint:${JSON.stringify(endpoint)},status:{state:'connected',source:'google_sheets'},refresh:async()=>{},updateEndpoint(){}});`,
     './services/mockDatabase': `export const mockDb={applyPublicSnapshot(){},subscribe:()=>()=>{},getOrders:()=>[],getCustomCakes:()=>[],getAuditLogs:()=>[]};`,
     './services/backendDatabaseStatus': `export const unknownBackendDatabaseStatus={available:false,backend:'unknown'};export const loadBackendDatabaseStatus=async()=>unknownBackendDatabaseStatus;`,
     './services/googleSheetOrders': `export const loadConfirmedSheetOrders=()=>globalThis.__checkoutAudit.receipts;export const rememberConfirmedSheetOrder=o=>{globalThis.__checkoutAudit.receipts.push(o);return true};export const removeConfirmedSheetOrdersById=()=>{};`,
-    './services/sheetStaffApi': `export const fetchCustomerOrderStatus=async(_e,o)=>({...o});export const redeemLegacyReceiptAccess=async()=>({});`,
+    './services/sheetStaffApi': `export const fetchCustomerOrderStatus=async(_e,o)=>({...o});export const redeemLegacyReceiptAccess=async()=>({});export const getStaffOrders=async()=>[];export const staffOrderToOrder=o=>o;`,
     './services/sheetOrderHistorySync': `export const isConfirmedDeletedSheetOrder=()=>false;export const verifyStoredOrderHistory=async()=>({current:[],deletedIds:[],failedIds:[]});`,
     './services/phoneCustomerApi': `export const syncPhoneCustomerConfirmedOrder=async()=> 'linked_only';`,
-    './services/staffWorkspaceSession': `export const getBrowserWorkspaceStorage=()=>null;export const isStaffWorkspaceOpen=()=>false;export const setStaffWorkspaceOpen=()=>{};`,
+    './services/staffWorkspaceSession': `export const getBrowserWorkspaceStorage=()=>null;export const isStaffWorkspaceOpen=()=>false;export const setStaffWorkspaceOpen=()=>{};export const loadStaffCredential=()=>'';`,
     './services/reconcilePublicCart': `export const reconcilePublicCart=items=>({items,changed:false});export const reorderFromPublicOrder=()=>({items:[],changed:false});`,
     './services/checkoutRecovery': `export const {inspectPendingCheckout,loadCheckoutCart,saveCheckoutCart,settleCheckoutCart}=globalThis.__checkoutAudit.recovery;`,
   };
@@ -244,6 +245,7 @@ test('App preserves an unrelated bag line added while its original checkout is u
     external: ['react', 'lucide-react'], define: { 'import.meta.env.DEV': 'false' }, plugins: [{ name: 'offline-app-boundaries', setup(build) {
       build.onResolve({ filter: /^\.\// }, args => ({ path: args.path, namespace: 'audit' }));
       build.onLoad({ filter: /.*/, namespace: 'audit' }, args => {
+        if (args.path === './utils/shopErrorMessage') return { contents: fs.readFileSync(new URL('../src/utils/shopErrorMessage.ts', import.meta.url), 'utf8'), loader: 'ts' };
         if (stubs[args.path]) return { contents: stubs[args.path], loader: 'js' };
         if (args.path.startsWith('./components/')) { const name = args.path.split('/').at(-1); return { contents: `import React from 'react';export const ${name}=props=>React.createElement('audit-${name}',props);`, loader: 'js' }; }
         throw new Error('Unstubbed audit boundary ' + args.path);

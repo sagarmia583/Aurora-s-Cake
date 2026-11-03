@@ -19,14 +19,35 @@ function navigation(data: PublicSiteData) {
     onOpenSheetSettings={noop} onOpenCustomerAccount={noop} isSheetConnected
   />);
 }
-function storefront(data: PublicSiteData) {
+function storefront(data: PublicSiteData, catalogState?: React.ComponentProps<typeof CustomerStorefront>['catalogState']) {
   return renderToStaticMarkup(<CustomerStorefront
     settings={data.settings} products={data.products} categories={data.categories}
     flavors={data.flavors} banners={data.banners} reviews={data.reviews} currency={data.settings.currency}
     onSelectProduct={noop} onOpenTrackOrder={noop} onOpenCustomCake={noop} onOpenProfile={noop}
-    searchQuery="" publicData={data}
+    searchQuery="" publicData={data} catalogState={catalogState}
   />);
 }
+
+test('catalog loading and failure stay in the menu without exposing connection details',()=>{
+  const data = { ...DEFAULT_PUBLIC_SITE_DATA, products: [] };
+  const pending = storefront(data, 'loading');
+  const failed = storefront(data, 'error');
+  for (const page of [pending, failed]) {
+    assert.doesNotMatch(page, /Google Sheets?|আবার চেষ্টা করুন|ac-results-line/);
+    assert.match(page, /hero-heading/);
+  }
+  assert.doesNotMatch(pending, /The cake menu is temporarily unavailable/);
+  assert.match(failed, /The cake menu is temporarily unavailable/);
+});
+
+test('old checkout FAQ snapshots render the updated customer wording',()=>{
+  const data = structuredClone(DEFAULT_PUBLIC_SITE_DATA);
+  const checkoutFaq = data.faqs.find(item => item.id === 'faq-4')!;
+  checkoutFaq.answer = 'A receipt means your order has reached our Google Sheet.';
+  const page = storefront(data);
+  assert.doesNotMatch(page, /Google Sheet/);
+  assert.match(page, /Your receipt confirms we received your order/);
+});
 function sheetFixture() {
   const data = structuredClone(DEFAULT_PUBLIC_SITE_DATA);
   Object.assign(data.settings,{
@@ -68,7 +89,8 @@ test('Sheet business name, logo, announcement and contact links reach navigation
   assert.ok(!nav.includes('aurorascake26'));
   assert.ok(page.includes('href="tel:+8801700000123"'));
   assert.ok(page.includes('href="mailto:bakery@example.test"'));
-  assert.ok(page.includes('https://wa.me/8801700000124'));
+  assert.ok(page.includes('Facebook page'));
+  assert.ok(!page.includes('https://wa.me/'));
   assert.ok(page.includes('Tangail, College Road 42, Unit 9, Bangladesh'));
   assert.ok(page.includes('https://gallery.example.test/'));
 });

@@ -1,3 +1,4 @@
+import { shopErrorMessage } from '../utils/shopErrorMessage';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, RefreshCw, ShieldCheck, Truck, PackageCheck, LayoutDashboard, ShoppingBag, UsersRound, CakeSlice, Store, Search, ChevronDown, ChevronUp, LogOut, Clock3, BadgeCheck, ArrowRight, AlertCircle, CreditCard, MapPin, Calculator, Printer, Phone, User, FileText, CheckCircle, Eye } from 'lucide-react';
 import { checkStaffSession, getStaffOrders, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, signOutStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword, lookupStaffCustomer, backfillFirebaseOrders, verifyFirebaseMirrorFromStaff } from '../services/sheetStaffApi';
@@ -148,7 +149,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       if('Notification' in window && Notification.permission==='default') {
         void Notification.requestPermission().catch(()=>{});
       }
-    }catch(e){setBeepEnabled(false);setError(e instanceof Error?e.message:'Cannot enable beep.');}
+    }catch(e){setBeepEnabled(false);setError(shopErrorMessage(e, 'Cannot enable beep.'));}
   };
   const disableOrderBeep=()=>{
     setOrderBeepEnabled(false);
@@ -182,7 +183,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       .then(data=>{
         if(controller.signal.aborted)return;
         if(data?.ok===true&&data?.up_to_date===false)
-          setBackendWarning('The Google Apps Script deployment is outdated. Customer links, the Website Manager and faster order updates require the latest All-in-One Code.gs and a New version deployment.');
+          setBackendWarning('Some staff features may be temporarily unavailable.');
         else setBackendWarning('');
       })
       .catch(()=>{});
@@ -195,22 +196,22 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     try{
       const result=await verifyFirebaseMirrorFromStaff(endpoint,identity.token);
       setFirebaseProbeMessage(result.ok
-        ? 'Cloud backup write verified. Private integration document saved successfully.'
-        : 'Cloud connection check: '+result.code+'. Check the server-only secrets and service-account permissions.');
+        ? 'Order backup is working.'
+        : 'Could not verify order backup.');
     }catch(error){
-      setFirebaseProbeMessage(error instanceof Error?error.message:'Cloud write test failed.');
+      setFirebaseProbeMessage(shopErrorMessage(error, 'Cloud write test failed.'));
     }finally{setFirebaseProbeBusy(false);}
   };
   const syncHistoricalFirebaseOrders=async()=>{
     if(!identity||!['super_admin','admin'].includes(identity.role)||firebaseBackfillBusy)return;
-    if(!window.confirm('Sync private, confirmed order records from the active backend to your server-only cloud backup? This keeps the original orders unchanged.'))return;
+    if(!window.confirm('Back up previously confirmed orders?'))return;
     setFirebaseBackfillBusy(true);
     setFirebaseBackfillMessage('');
     try{
       let offset=firebaseBackfillOffset,total=0,saved=0,unchanged=0,failed=0,skipped=0;
       for(let batch=0;batch<5;batch++){
         const result=await backfillFirebaseOrders(endpoint,identity.token,offset);
-        if(!result.configured)throw new Error('Cloud backup mirror is not configured on the server. Set backup configuration and service credentials.');
+        if(!result.configured)throw new Error('Order backup is currently unavailable.');
         saved+=result.saved;unchanged+=result.unchanged;failed+=result.failed;skipped+=result.skipped;
         total=result.total;
         if(result.next_offset<=offset || result.next_offset>=total){offset=result.next_offset;break;}
@@ -220,7 +221,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       setFirebaseBackfillMessage('Cloud backup sync: '+offset+' of '+total+' checked; '+saved+
         ' saved, '+unchanged+' already current, '+skipped+' skipped, '+failed+
         ' failed.'+(offset<total?' Click Sync again to continue.':' Backfill complete.'));
-    }catch(err){setFirebaseBackfillMessage(err instanceof Error?err.message:'Cloud backup sync failed.');}
+    }catch(err){setFirebaseBackfillMessage(shopErrorMessage(err, 'Cloud backup sync failed.'));}
     finally{setFirebaseBackfillBusy(false);}
   };
   const [legacyKey,setLegacyKey]=useState<{orderId:string;key:string}|null>(null);
@@ -231,7 +232,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       const record=await lookupStaffCustomer(endpoint,identity.token,customerLookupPhone);
       setCustomerLookupResult(record);
       setCustomerLookupMessage(record?'Existing Customer Master record found.':'No customer yet; a first confirmed COD order creates one.');
-    }catch(error){setCustomerLookupMessage(error instanceof Error?error.message:'Customer search failed.');}
+    }catch(error){setCustomerLookupMessage(shopErrorMessage(error, 'Customer search failed.'));}
     finally{setCustomerLookupBusy(false);}
   };
   const isActionable=(order:StaffOrder,role:StaffRoleName):boolean=>{
@@ -315,7 +316,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       setIdentity({ ...profile, token: idToken });
       setStaffProfiles(profile.staff_profiles ?? []);
       setRiderEmail(profile.riders[0]?.email || '');
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Staff login failed.'); }
+    } catch (caught) { setError(shopErrorMessage(caught, 'Staff login failed.')); }
     finally { setLoading(false); }
   }, [endpoint]);
 
@@ -365,7 +366,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       setStaffProfiles(profile.staff_profiles??[]);
       setPassword('');
       setRiderEmail(profile.riders[0]?.email||'');
-    }catch(caught){setError(caught instanceof Error?caught.message:'Staff sign-in failed.');}
+    }catch(caught){setError(shopErrorMessage(caught, 'Staff sign-in failed.'));}
     finally{setLoading(false);}
   };
   const signOut=async()=>{
@@ -391,7 +392,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       setNewStaff({name:'',username:'',password:'',role:'kitchen_manager'});
       const result=await checkStaffSession(endpoint,identity.token);
       setStaffProfiles(result.staff_profiles??[]);
-    }catch(caught){setError(caught instanceof Error?caught.message:'Staff account could not be created.');}
+    }catch(caught){setError(shopErrorMessage(caught, 'Staff account could not be created.'));}
     finally{setCreatingStaff(false);}
   };
   const restoreStaffSession=useCallback(async(token:string,isActive:()=>boolean)=>{
@@ -406,13 +407,13 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       setError('');
     }catch(caught){
       if(!isActive())return;
-      const message=caught instanceof Error?caught.message:'Could not restore your staff session.';
+      const message=caught instanceof Error ? caught.message : '';
       // Do not discard credentials during a temporary network failure.
       if(/sign in again|login expired|not authorized|not active|invalid google|token expired/i.test(message)) {
         clearStaffCredential(getBrowserWorkspaceStorage());
         clearStaffOrdersSnapshot(getBrowserWorkspaceStorage());
       }
-      setError('Previous staff session could not be verified: '+message);
+      setError(shopErrorMessage(caught, 'Could not restore your staff session.'));
     }finally{if(isActive())setRestoringSession(false);}
   },[endpoint]);
   useEffect(()=>{
@@ -487,7 +488,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       setViewingSavedOrders(false);
     } catch (caught) {
       if(liveIdentityToken.current===identity.token&&liveIsOpen.current)
-        setError((caught instanceof Error ? caught.message : 'Unable to load orders.')+' Your previous order list has been kept.');
+        setError((shopErrorMessage(caught, 'Unable to load orders.'))+' Your previous order list has been kept.');
     } finally {
       if(ordersRefreshInFlight.current===identity.token){
         ordersRefreshInFlight.current=null;
@@ -528,7 +529,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       await changeStaffStatus(endpoint,identity.token,username,active);
       const profile=await checkStaffSession(endpoint,identity.token);
       setStaffProfiles(profile.staff_profiles??[]);
-    }catch(caught){setError(caught instanceof Error?caught.message:'Staff status could not be updated.');}
+    }catch(caught){setError(shopErrorMessage(caught, 'Staff status could not be updated.'));}
     finally{setRefreshingStaff(false);}
   };
   const resetEmployeePassword=async(event:React.FormEvent)=>{
@@ -538,7 +539,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     try{
       await resetStaffPassword(endpoint,identity.token,resetFor,resetPassword);
       setResetFor('');setResetPassword('');
-    }catch(caught){setError(caught instanceof Error?caught.message:'Could not reset employee password.');}
+    }catch(caught){setError(shopErrorMessage(caught, 'Could not reset employee password.'));}
     finally{setRefreshingStaff(false);}
   };
 
@@ -550,7 +551,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       if (current.role !== 'super_admin' && current.role !== 'admin') throw new Error('Administrator access is no longer available. Sign in again.');
       setStaffProfiles(current.staff_profiles ?? []);
       setError('');
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to refresh staff profiles.'); }
+    } catch (caught) { setError(shopErrorMessage(caught, 'Unable to refresh staff profiles.')); }
     finally { setRefreshingStaff(false); }
   }, [endpoint, identity]);
 
@@ -562,7 +563,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       const key=await issueLegacyReceiptAccess(endpoint,identity.token,order.id);
       setLegacyKey({orderId:order.id,key});
       setOrders(previous=>previous.map(item=>item.id===order.id?{...item,legacy_receipt_missing:false}:item));
-    }catch(error){setError(error instanceof Error?error.message:'Could not restore this legacy order receipt.');}
+    }catch(error){setError(shopErrorMessage(error, 'Could not restore this legacy order receipt.'));}
     finally{setBusyOrderId('');}
   };
 
@@ -588,7 +589,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
        setDeliveryConfirmOrderId(''); setCashCollected(false);
       // Refresh independently to reconcile staff roles/other active orders.
       void refresh();
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to update order.'); }
+    } catch (caught) { setError(shopErrorMessage(caught, 'Unable to update order.')); }
     finally { setBusyOrderId(''); }
   };
 
@@ -616,14 +617,9 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                 className="rounded-lg bg-white border px-3 py-2 text-sm font-bold text-emerald-800 disabled:opacity-50">Retry session</button>}
             <button aria-label="Dismiss error" type="button" onClick={()=>setError('')} className="p-1 rounded-lg hover:bg-rose-100"><X size={16}/></button>
           </div>}
-          {backendWarning&&<p role="alert" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-sm font-medium text-amber-950">
-            {backendWarning} <a className="underline font-bold" target="_blank" rel="noreferrer"
-              href="https://github.com/sagarmia583/Aurora-s-Cake/blob/main/apps-script/Code.AllInOne.gs">
-              Open complete backend code
-            </a>
-          </p>}
+          {backendWarning&&<p role="alert" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-sm font-medium text-amber-950">{backendWarning}</p>}
           {!oauthClientId ? (
-            <div role="alert" className="m-6 rounded-2xl bg-amber-50 p-6 text-amber-900">Google OAuth is not configured for the bakery owner. Check project settings.</div>
+            <div role="alert" className="m-6 rounded-2xl bg-amber-50 p-6 text-amber-900">Google sign-in is temporarily unavailable.</div>
           ) : restoringSession && !identity ? (
             <div className="max-w-lg mx-auto my-12 rounded-2xl bg-white shadow-sm border p-8 text-center" role="status">
               <RefreshCw className="animate-spin mx-auto mb-4 text-emerald-700" size={28}/>
@@ -733,7 +729,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                 <div className="hidden lg:block bg-[#f7f9f6] rounded-xl p-4 text-xs text-slate-600 space-y-2">
                   <BadgeCheck size={18} className="text-emerald-700"/>
                   <p className="font-bold text-[#183a32]">Connected to private Sheets</p>
-                  <p>Only permitted actions are shown for your role. Changes are verified again by the backend.</p>
+                  <p>You’ll see the actions available to your role.</p>
                 </div>
               </aside>
               <div className="min-w-0 p-4 sm:p-6 lg:p-8 space-y-5">
@@ -849,7 +845,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                         </article>
                       ))}
                     </div>
-                  ) : <p className="text-sm text-amber-800">This Apps Script deployment has not returned the staff directory yet. Install the newest all-in-one Code.gs and deploy a new version.</p>}
+                  ) : <p className="text-sm text-amber-800">The staff directory is temporarily unavailable.</p>}
                   <p className="text-xs text-slate-500">
                     New employees sign in with the username and initial password you create below.
                     Keep the owner Google account private. Passwords cannot be viewed again after creation.
@@ -898,7 +894,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                     <section aria-label="Cloud order backup" className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div><p className="font-bold text-[#173b32]">ক্লাউড ব্যাকআপ সিঙ্ক (Cloud Backup)</p>
-                          <p className="text-slate-500 text-xs">Safely sync earlier confirmed Sheets orders to private cloud backup. New orders sync automatically after server configuration.</p></div>
+                          <p className="text-slate-500 text-xs">Back up earlier confirmed orders.</p></div>
                         <button type="button" onClick={()=>void syncHistoricalFirebaseOrders()} disabled={firebaseBackfillBusy}
                           className="rounded-lg bg-[#173b32] px-4 py-2.5 font-bold text-white disabled:opacity-50">
                           {firebaseBackfillBusy?'Syncing…':firebaseBackfillOffset?'Continue cloud sync':'Sync existing orders'}
@@ -909,7 +905,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                           className="rounded-lg border border-emerald-800 px-4 py-2.5 font-bold text-emerald-950 disabled:opacity-50">
                           {firebaseProbeBusy?'Testing cloud…':'Test cloud backup'}
                         </button>
-                        <span className="text-xs text-slate-600">Super Admin only · writes a harmless test document</span>
+                        <span className="text-xs text-slate-600">Check whether order backup is working.</span>
                       </div>
                       {firebaseProbeMessage&&<p role="status" className="mt-2 text-slate-700">{firebaseProbeMessage}</p>}
                       {firebaseBackfillMessage&&<p role="status" className="mt-2 text-slate-700">{firebaseBackfillMessage}</p>}

@@ -1,3 +1,4 @@
+import { shopErrorMessage } from '../utils/shopErrorMessage';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Database, RefreshCw, Plus, Save, Archive, Search } from 'lucide-react';
 import { CMS_TABLE_OPTIONS, fetchCmsTable, mutateCmsTable, uploadCmsImage } from '../services/sheetStaffApi';
@@ -79,7 +80,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
       if(!sameSource(expected)||version!==requestVersion.current)return false;
       setData(snapshot);return true;
     }
-    catch(e){if(sameSource(expected)&&version===requestVersion.current)setError(e instanceof Error?e.message:'Unable to load website records.');return false;}
+    catch(e){if(sameSource(expected)&&version===requestVersion.current)setError(shopErrorMessage(e, 'Unable to load website records.'));return false;}
     finally{if(sameSource(expected)&&version===requestVersion.current){loadingRef.current=false;setLoading(false);}}
   },[endpoint,token,table]);
   useEffect(()=>{
@@ -141,7 +142,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
       const refreshed=await load();if(!isCurrent())return;
       setNotice(refreshed?'Saved to the live website. Public content cache cleared.':'Saved to the live website. Refresh to load the latest records.');
       onUpdated();
-    }catch(e){if(isCurrent())setError(e instanceof Error?e.message:'Save failed.');}
+    }catch(e){if(isCurrent())setError(shopErrorMessage(e, 'Save failed.'));}
     finally{if(operation.current===current){operation.current=null;if(mounted.current)setSaving(false);}}
   };
   const uploadImage=async(file:File,field:string)=>{
@@ -195,7 +196,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
         return {...before,[field]:url};
       });
       setNotice('Image uploaded. Save this record to publish it on the website.');
-    }catch(e){if(isCurrent())setError(e instanceof Error?e.message:'Image upload failed.');}
+    }catch(e){if(isCurrent())setError(shopErrorMessage(e, 'Image upload failed.'));}
     finally{if(operation.current===current){operation.current=null;if(mounted.current)setUploading(false);}}
   };
   const isUploadField=(field:string):boolean=>{
@@ -225,7 +226,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
       const found=await fetchCmsTable(endpoint,token,'faqs');
       if(!isCurrent())return;
       const saved=found.rows.find(row=>row.question===marker);
-      if(!saved||typeof saved.id!=='string')throw new Error('Create completed, but the test row was not found in the first 500 FAQs. Ask the database owner to verify the test record.');
+      if(!saved||typeof saved.id!=='string')throw new Error('The test FAQ was created but could not be found in the first 500 entries.');
       await mutateCmsTable(endpoint,token,'faqs','update',{answer:'Live CRUD update verified'},saved.id);
       if(!isCurrent())return;
       await mutateCmsTable(endpoint,token,'faqs','delete',{},saved.id);
@@ -235,10 +236,10 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
       const result=confirmed.rows.find(row=>row.id===saved.id);
       if(!result||result.is_active!==false||result.answer!=='Live CRUD update verified')
         throw new Error('The test was saved, but a final read did not confirm its archived state.');
-      setNotice('Live create, update, archive and readback succeeded. An inactive test FAQ remains in the production database for audit.');
+      setNotice('The website editing test passed.');
       if(table==='faqs')setData(confirmed);
       onUpdated();
-    }catch(error){if(isCurrent())setError(error instanceof Error?error.message:'CMS test failed. Ask the database owner to inspect the hidden FAQ test record.');}
+    }catch(error){if(isCurrent())setError(shopErrorMessage(error, 'The website editing test failed.'));}
     finally{if(operation.current===current){operation.current=null;if(mounted.current)setSaving(false);}}
   };
   const archive=async()=>{
@@ -252,9 +253,9 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
       await mutateCmsTable(endpoint,token,table,'delete',{},selected);
       if(!isCurrent())return;
       setSelected('');setDraft({});await load();if(!isCurrent())return;
-      setNotice('Archived in the production database. Historical orders are preserved.');
+      setNotice('Archived.');
       onUpdated();
-    }catch(e){if(isCurrent())setError(e instanceof Error?e.message:'Archive failed.');}
+    }catch(e){if(isCurrent())setError(shopErrorMessage(e, 'Archive failed.'));}
     finally{if(operation.current===current){operation.current=null;if(mounted.current)setSaving(false);}}
   };
   const cancel=()=>{
@@ -265,7 +266,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
     <div className="flex justify-between gap-3 items-start flex-wrap">
       <div>
         <h3 className="text-xl font-black flex items-center gap-2"><Database size={20}/> Live Website Manager</h3>
-        <p className="text-sm text-slate-600">Create, edit and archive live website content in the production database.</p>
+        <p className="text-sm text-slate-600">Create, edit and archive website content.</p>
       </div>
       <div className="flex gap-2 flex-wrap">
         {(role==='super_admin'||role==='admin')&&<button type="button" disabled={loading||saving||uploading} onClick={()=>void runCmsSmoke()}
@@ -295,7 +296,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
         <Plus size={15}/> Create
       </button>
     </div>
-    <p className="text-xs text-slate-500">{data?.total??0} records {data?.truncated?'(showing the first 500; ask the database owner to manage records beyond this limit)':''}. Select a record to edit.</p>
+    <p className="text-xs text-slate-500">{data?.total??0} records {data?.truncated?'(showing the first 500)':''}. Select a record to edit.</p>
     {loading&&<p role="status" className="text-sm">Loading live website records…</p>}
     <div className="grid gap-4 lg:grid-cols-[minmax(220px,1fr)_minmax(0,2fr)]">
       <div className="rounded-xl border max-h-96 overflow-auto">

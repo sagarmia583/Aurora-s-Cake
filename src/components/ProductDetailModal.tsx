@@ -1,9 +1,11 @@
+import { shopErrorMessage } from '../utils/shopErrorMessage';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useCakeDialog } from './useCakeDialog';
 import { X, Check, Plus, Minus, ShoppingBag, Sparkles, Zap, Star, Camera, Flame, SlidersHorizontal } from 'lucide-react';
 import { Product, Flavor, ProductAddon, CartItem, Review } from '../types';
 import { mockDb } from '../services/mockDatabase';
 import { getProductDisplayStats, isProductNew } from '../services/productStats';
+import { StorefrontPrice } from './StorefrontPrice';
 
 interface ProductDetailModalProps {
   product: Product | null;
@@ -96,7 +98,7 @@ const ProductDetailDialog: React.FC<Omit<ProductDetailModalProps, 'product'> & {
       setNewReviewComment('');
       setNewReviewImage('');
     }, 1500);
-    } catch(error) {setReviewError(error instanceof Error?error.message:'Review could not be saved.');}
+    } catch(error) {setReviewError(shopErrorMessage(error, 'Review could not be saved.'));}
     finally {setReviewBusy(false);}
   };
 
@@ -289,24 +291,10 @@ const handleOrderNow = () => {
 
               {/* Price Preview */}
               <div className="pt-2">
-                <div className="flex items-center gap-2.5 flex-wrap">
-                  <span className="text-2xl font-black text-rose-600">
-                    {selectedVariant ? currency + currentVariantPrice : 'Unavailable'}
-                  </span>
-                  {selectedVariant && selectedVariant.sale_price !== undefined && selectedVariant.sale_price < selectedVariant.price && (
-                    <>
-                      <span className="text-base text-slate-400 line-through font-semibold">
-                        {currency}{selectedVariant.price}
-                      </span>
-                      <span className="bg-rose-100 text-rose-700 text-xs font-bold px-2.5 py-0.5 rounded-full border border-rose-200">
-                        {currency}{selectedVariant.price - selectedVariant.sale_price} ছাড়
-                      </span>
-                    </>
-                  )}
-                  <span className="text-xs text-slate-500 font-medium">
-                    {selectedVariant ? `(${selectedVariant.name}-এর মূল্য)` : '(বেস মূল্য)'}
-                  </span>
-                </div>
+                {selectedVariant
+                  ? <StorefrontPrice regular={selectedVariant.price} current={currentVariantPrice}
+                      currency={currency} size={selectedVariant.name}/>
+                  : <span className="text-sm font-semibold text-slate-600">Unavailable</span>}
               </div>
             </div>
           </div>
@@ -342,7 +330,6 @@ const handleOrderNow = () => {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               {activeVariants.map((v) => {
                 const isSelected = selectedVariant?.id === v.id;
-                const vHasDiscount = v.sale_price !== undefined && v.sale_price < v.price;
                 return (
                   <button
                     key={v.id}
@@ -356,20 +343,8 @@ const handleOrderNow = () => {
                     }`}
                   >
                     <div className="font-bold text-sm">{v.name}</div>
-                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                      {vHasDiscount && (
-                        <span className="text-xs text-slate-400 line-through font-medium">
-                          {currency}{v.price}
-                        </span>
-                      )}
-                      <span className="text-xs text-rose-600 font-bold">
-                        {currency}{v.sale_price ?? v.price}
-                      </span>
-                      {vHasDiscount && (
-                        <span className="text-[10px] bg-rose-100 text-rose-700 font-bold px-1.5 py-0.5 rounded">
-                          {currency}{v.price - v.sale_price!} ছাড়
-                        </span>
-                      )}
+                    <div className="mt-1">
+                      <StorefrontPrice regular={v.price} current={v.sale_price ?? v.price} currency={currency} compact/>
                     </div>
                   </button>
                 );

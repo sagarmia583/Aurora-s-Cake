@@ -3,6 +3,7 @@ import test from 'node:test';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { transformSync } from 'esbuild';
+import { shopErrorMessage } from '../src/utils/shopErrorMessage';
 
 const source=fs.readFileSync(new URL('../src/components/WebsiteManager.tsx',import.meta.url),'utf8');
 const marker='return <section className="rounded-2xl border border-emerald-200';
@@ -38,6 +39,7 @@ function editorHarness(api:Record<string,any>){
     require(name:string){
       if(name==='react')return {...hooks,default:hooks,__esModule:true};
       if(name==='lucide-react')return new Proxy({},{get:()=>()=>null});
+      if(name==='../utils/shopErrorMessage')return {shopErrorMessage};
       if(name.includes('sheetStaffApi'))return {CMS_TABLE_OPTIONS:['products','product_variants','settings','content'].map(table=>({table,label:table})),...api};
       throw new Error('Unexpected import in offline editor fixture.');
     }};
@@ -135,4 +137,70 @@ test('server CMS creates omitted optional numeric fields blank and checkout char
   const order=h.ctx.auroraBuildOrder_(h.book,{request_id:'fixture-request',delivery_date:new Date(Date.now()+86400000).toISOString().slice(0,10),delivery_zone_id:'zone',delivery_slot:'Morning',customer_name:'Offline fixture',customer_phone:'01700000000',delivery_address:'Fixture street',coupon_code:'',order_note:'',cart_items:[{product_id:'cake',variant_id:variant.id,flavor_id:'',addon_ids:[],quantity:1,writing_message:''}]});
   assert.equal(order.items[0].unit_price,1000);assert.equal(order.total_amount,1000);
   h.create('product_variants',{product_id:'cake',name:'Gift size',price:1000,sale_price:0,is_active:true});assert.equal(h.last('product_variants').sale_price,0);
+});
+
+test('CMS product edits preserve computed Sheet formulas and reject manual counter changes',()=>{
+  const h=backendHarness(),sheet=h.book.getSheetByName('products');
+  const headers=sheet.values[0];
+  for(const field of ['rating','review_count','sold_count'])sheet.values[1][headers.indexOf(field)]='=COUNTIF(reviews!B2:B,A2)';
+  const original=sheet.getRange;
+  sheet.getRange=(...args:any[])=>{
+    const range=original(...args),raw=range.getValues;
+    return {...range,getValues:()=>raw().map((row:any[])=>row.map(value=>typeof value==='string'&&value.startsWith('=')?7:value)),
+      getFormulas:()=>raw().map((row:any[])=>row.map(value=>typeof value==='string'&&value.startsWith('=')?value:''))};
+  };
+  h.ctx.auroraCmsPost_({action:'staff_cms_update',table:'products',record_id:'cake',values:{name:'Renamed cake'}});
+  assert.equal(h.last('products').name,'Renamed cake');
+  for(const field of ['rating','review_count','sold_count'])assert.equal(h.last('products')[field],'=COUNTIF(reviews!B2:B,A2)');
+  assert.throws(()=>h.ctx.auroraCmsPost_({action:'staff_cms_update',table:'products',record_id:'cake',values:{sold_count:999}}),/computed from delivered orders/);
+});
+
+test('editor and server gracefully handle plain image URL string in gallery_images', async () => {
+  const writes: any[] = [];
+  const rawUrl = 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR1S637i1gu6nknHjUoalZATOW2uA_Gb-XtBIIC65RAhflyfoJatWndA2s&s=10';
+  const prodWithRawGallery = snapshot('products', ['id', 'name', 'image_url', 'gallery_images', 'base_price', 'category_id'], [
+    {
+      id: 'prod-cupcake-choclate',
+      name: 'Cupcake Chocolate',
+      image_url: rawUrl,
+      gallery_images: rawUrl, // raw plain URL string as seen in screenshot
+      base_price: 60,
+      category_id: 'cat-mini',
+    },
+  ]);
+
+  const h = editorHarness({
+    fetchCmsTable: async () => prodWithRawGallery,
+    mutateCmsTable: async (...args: any[]) => writes.push(args),
+  });
+
+  h.render();
+  await tick();
+  h.render();
+
+  h.state.choose(prodWithRawGallery.rows[0]);
+  h.render();
+
+  // draft.gallery_images should be normalized to a valid JSON string
+  assert.equal(h.state.draft.gallery_images, JSON.stringify([rawUrl]));
+
+  // Simulate user changing image_url or saving
+  await h.state.save();
+  h.render();
+
+  assert.equal(writes.length, 1);
+  const sentValues = writes[0][4];
+  assert.equal(sentValues.gallery_images, JSON.stringify([rawUrl]));
+
+  // Also verify backend harness accepts and saves this without throwing invalid_list
+  const bh = backendHarness();
+  bh.create('products', {
+    name: 'Cupcake Chocolate',
+    category_id: 'category',
+    base_price: 60,
+    image_url: rawUrl,
+    gallery_images: rawUrl, // server-side fallback test with plain URL
+  });
+  const saved = bh.last('products');
+  assert.equal(saved.gallery_images, JSON.stringify([rawUrl]));
 });
