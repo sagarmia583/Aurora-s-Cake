@@ -16,7 +16,10 @@ const googleIdToken=/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 export const isStaffSessionCredential=(value:string):boolean=>
   value.length>0&&value.length<=10000&&(employeeSession.test(value)||googleIdToken.test(value));
 export function getBrowserWorkspaceStorage():WorkspaceStorage|null{
-  try{return typeof window!=='undefined'?window.sessionStorage:null;}catch{return null;}
+  try{return typeof window!=='undefined'?(nativeStaffHost()?window.sessionStorage:(window.localStorage||window.sessionStorage)):null;}catch{return null;}
+}
+function nativeStaffHost():{postMessage:(value:string)=>void}|undefined {
+  return typeof window!=='undefined' ? (window as Window & {ReactNativeWebView?:{postMessage:(value:string)=>void}}).ReactNativeWebView : undefined;
 }
 export function loadStaffCredential(storage:WorkspaceStorage|null):string{
   if(!storage)return '';
@@ -31,10 +34,10 @@ export function loadStaffCredential(storage:WorkspaceStorage|null):string{
 }
 export function saveStaffCredential(storage:WorkspaceStorage|null,token:string):boolean{
   if(!storage||!isStaffSessionCredential(token))return false;
-  try{storage.setItem(STAFF_SESSION_KEY,token);return true;}catch{return false;}
+  try{storage.setItem(STAFF_SESSION_KEY,token);nativeStaffHost()?.postMessage(JSON.stringify({type:'staff_session',token}));return true;}catch{return false;}
 }
 export function clearStaffCredential(storage:WorkspaceStorage|null):void{
-  try{storage?.removeItem(STAFF_SESSION_KEY);}catch{}
+  try{storage?.removeItem(STAFF_SESSION_KEY);nativeStaffHost()?.postMessage(JSON.stringify({type:'staff_session',token:''}));}catch{}
 }
 export function isStaffWorkspaceOpen(storage:WorkspaceStorage|null):boolean{
   try{return storage?.getItem(STAFF_WORKSPACE_KEY)==='1';}catch{return false;}

@@ -3,7 +3,7 @@ import { X, RefreshCw, ExternalLink, Database, Download, Copy, Check } from 'luc
 import { useCakeDialog } from './useCakeDialog';
 import type { SheetContentStatus } from '../hooks/useGoogleSheetContent';
 import { databaseBackendLabel, type DatabaseBackend } from '../services/backendDatabaseStatus';
-import setupCode from '../../apps-script/Code.AllInOne.gs?raw';
+const loadSetupCode = () => import('../../apps-script/Code.AllInOne.gs?raw').then(module=>module.default);
 
 interface Props {
   isOpen: boolean; onClose: () => void; endpoint: string; status: SheetContentStatus;
@@ -20,20 +20,27 @@ function SheetContentDialog({ onClose, endpoint, status, orderSubmissionEnabled,
   const source = status.source === 'google_sheets' ? 'Live website data'
     : status.source === 'firebase' ? 'Firebase catalogue preview'
     : status.source === 'saved_snapshot' ? 'Last saved website snapshot' : 'Built-in preview content';
-  const download = () => {
-    const blob = new Blob([setupCode], { type:'text/plain;charset=utf-8' });
-    const href = URL.createObjectURL(blob); const link = document.createElement('a');
-    link.href = href; link.download = 'Aurora-Backend-Code.gs'; link.click(); URL.revokeObjectURL(href);
+  const download = async () => {
+    setError('');
+    try {
+      const blob = new Blob([await loadSetupCode()], { type:'text/plain;charset=utf-8' });
+      const href = URL.createObjectURL(blob); const link = document.createElement('a');
+      link.href = href; link.download = 'Aurora-Backend-Code.gs'; link.click();
+      setTimeout(()=>URL.revokeObjectURL(href),1000);
+    } catch { setError('Setup code could not be downloaded. Try again.'); }
   };
   const copy = async () => {
     setError('');
     try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(setupCode);
+      const code=loadSetupCode();
+      if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
+        await navigator.clipboard.write([new ClipboardItem({'text/plain':code.then(value=>new Blob([value],{type:'text/plain'}))})]);
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(await code);
       } else {
         const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
         const area = document.createElement('textarea');
-        area.value = setupCode;
+        area.value = await code;
         area.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;';
         document.body.appendChild(area);
         area.select();

@@ -43,13 +43,13 @@ function browserStorage(): CheckoutStorage {
 const storageFor = (storage?: CheckoutStorage) => storage ?? browserStorage();
 const selection = (line: Omit<CheckoutCartLine, 'cart_item_id'>) => JSON.stringify({
   product_id: line.product_id, variant_id: line.variant_id, ...(line.flavor_id ? { flavor_id: line.flavor_id } : {}),
-  addon_ids: [...new Set(line.addon_ids)].sort(), writing_message: line.writing_message.trim(), quantity: line.quantity,
+  addon_ids: [...new Set(line.addon_ids || [])].sort(), writing_message: (line.writing_message || '').trim(), quantity: line.quantity,
 });
 export function captureCheckoutCart(items: readonly CartItem[]): CheckoutCartLine[] {
   const lines = items.map(item => ({ cart_item_id: item.cart_item_id, product_id: item.product.id,
     variant_id: item.selected_variant.id, ...(item.selected_flavor ? { flavor_id: item.selected_flavor.id } : {}),
-    addon_ids: [...new Set(item.selected_addons.map(addon => addon.id))].sort(),
-    writing_message: item.writing_message.trim(), quantity: item.quantity }));
+    addon_ids: [...new Set((item.selected_addons || []).map(addon => addon.id))].sort(),
+    writing_message: (item.writing_message || '').trim(), quantity: item.quantity }));
   if (!validCartLines(lines)) throw new Error('The selected bag cannot be saved safely. Review your cakes before placing an order.');
   return lines;
 }
@@ -125,24 +125,55 @@ function writePendingCheckout(attempt: SheetOrderAttempt, cartLines: readonly Ch
   } catch { throw new Error('The browser could not keep your order reference. Enable storage or free some browser space before retrying; no new order was sent.'); }
   return pending;
 }
+let fallbackLockQueue: Promise<unknown> = Promise.resolve();
+async function acquireFallbackLock<T>(fn: () => T | Promise<T>): Promise<T> {
+  const result = fallbackLockQueue.then(fn);
+  fallbackLockQueue = result.catch(() => {});
+  return result;
+}
+
+function safeUUID(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
+  if (globalThis.crypto?.getRandomValues) {
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 /** Serialize reservation across tabs before a new POST can begin. */
 export async function preservePendingCheckout(attempt: SheetOrderAttempt, cartLines: readonly CheckoutCartLine[], storage?: CheckoutStorage): Promise<PendingCheckout> {
   const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
-  if (!locks?.request) throw new Error('This browser cannot safely keep an order reference across tabs. Use a current browser on the secure bakery website; no new order was sent.');
-  return locks.request('aurora-pending-checkout-v1', () => writePendingCheckout(attempt, cartLines, storage));
+  if (locks?.request) {
+    return locks.request('aurora-pending-checkout-v1', () => writePendingCheckout(attempt, cartLines, storage));
+  }
+  // When Web Locks API is unavailable (e.g. mobile devices accessing over HTTP LAN IP http://192.168.x.x),
+  // fallback gracefully to in-memory promise mutex and durable localStorage verification:
+  return acquireFallbackLock(() => writePendingCheckout(attempt, cartLines, storage));
 }
 /** Never erase another tab's newer pending reference. Failure keeps recovery safe. */
 export async function releasePendingCheckout(pending: PendingCheckout, storage?: CheckoutStorage): Promise<boolean> {
   try {
     const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
-    if (!locks?.request) return false;
-    return await locks.request('aurora-pending-checkout-v1', () => {
+    const releaseOp = () => {
       const store = storageFor(storage), recovery = inspectPendingCheckout(pending.attempt.endpoint, store);
       if (recovery.status === 'empty') return true;
       if (recovery.status !== 'ready' || recovery.pending.attempt.request_id !== pending.attempt.request_id || recovery.pending.attempt.body !== pending.attempt.body) return false;
       store.removeItem(PENDING_KEY);
       return !store.getItem(PENDING_KEY);
-    });
+    };
+
+    if (locks?.request) {
+      return await locks.request('aurora-pending-checkout-v1', releaseOp);
+    }
+    return await acquireFallbackLock(releaseOp);
   } catch { return false; }
 }
 interface CartSnapshot { version: 2; items: CartItem[]; settled_request_ids: string[]; settled_cart_ids: string[] }
@@ -188,7 +219,7 @@ export function settleCheckoutCart(items: readonly CartItem[], completion: Check
   // restore a stale render's removed lines while confirming an older attempt.
   const fulfilledIds = new Set(completion.cart_lines.map(line => line.cart_item_id));
   const remaining = removeConfirmedCheckoutItems(snapshot.items, completion.cart_lines).map(item =>
-    fulfilledIds.has(item.cart_item_id) ? { ...item, cart_item_id: 'cart-' + crypto.randomUUID() } : item);
+    fulfilledIds.has(item.cart_item_id) ? { ...item, cart_item_id: 'cart-' + safeUUID() } : item);
   const next: CartSnapshot = { version: 2, items: remaining,
     settled_request_ids: [...snapshot.settled_request_ids, completion.request_id].slice(-100),
     settled_cart_ids: [...new Set([...snapshot.settled_cart_ids, ...fulfilledIds])].slice(-2000) };

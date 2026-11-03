@@ -16,11 +16,26 @@ export interface CustomCakeRequest extends CustomCakeDraft {
   id:string;request_id:string;status:'pending'|'quoted'|'declined';
   estimated_price:number;quoted_price:number;created_at:string;updated_at:string;
 }
+function safeUUID(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
+  if (globalThis.crypto?.getRandomValues) {
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 export function prepareCustomCakeAttempt(draft:CustomCakeDraft,previous:CustomCakeAttempt|null=null):CustomCakeAttempt{
   const fingerprint=JSON.stringify(draft);
   if(previous?.fingerprint===fingerprint)return previous;
-  if(typeof globalThis.crypto?.randomUUID!=='function') throw new Error('A secure modern browser is required.');
-  return {fingerprint,request_id:globalThis.crypto.randomUUID()};
+  return {fingerprint,request_id:safeUUID()};
 }
 export async function submitCustomCake(endpoint:string,draft:CustomCakeDraft,attempt:CustomCakeAttempt):Promise<string>{
   if(JSON.stringify(draft)!==attempt.fingerprint)throw new Error('The custom cake form changed. Review and retry.');

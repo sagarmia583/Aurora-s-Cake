@@ -47,12 +47,13 @@ export function reconcilePublicCart(items: CartItem[], data: PublicSiteData): Re
 
     const addonIds = new Set<string>();
     const addons: CartItem['selected_addons'] = [];
+    const allowAllAddons = product.allowed_addon_ids?.some(x => x.toLowerCase() === 'all' || x === '*');
     const requestedAddons = item.selected_addons;
     if (requestedAddons !== undefined && requestedAddons !== null && !Array.isArray(requestedAddons)) { removeLine(); continue; }
     for (const candidateAddon of (Array.isArray(requestedAddons) ? requestedAddons : []) as unknown[]) {
       const oldAddon = row(candidateAddon);
       const addonId = id(oldAddon?.id);
-      const addon = addonId ? data.addons.find(value => value.id === addonId && value.is_active && product.allowed_addon_ids.includes(value.id)) : undefined;
+      const addon = addonId ? data.addons.find(value => value.id === addonId && value.is_active && (allowAllAddons || product.allowed_addon_ids.includes(value.id))) : undefined;
       if (!addon || addonIds.has(addon.id) || price(addon.price) === undefined) { changed = true; continue; }
       addonIds.add(addon.id);
       addons.push(addon);
@@ -111,12 +112,13 @@ export function reorderFromPublicOrder(order: Order, data: PublicSiteData): Reco
 
     const addons: CartItem['selected_addons'] = [];
     const addonIds = new Set<string>();
+    const allowHistoricalAllAddons = product.allowed_addon_ids?.some(x => x.toLowerCase() === 'all' || x === '*');
     const historicalAddons = line.addons;
     if (historicalAddons !== undefined && historicalAddons !== null && !Array.isArray(historicalAddons)) changed = true;
     for (const candidateAddon of (Array.isArray(historicalAddons) ? historicalAddons : []) as unknown[]) {
       const previous = row(candidateAddon);
       const addonId = id(previous?.addon_id);
-      const addon = addonId ? data.addons.find(value => value.id === addonId && value.is_active && product.allowed_addon_ids.includes(value.id)) : undefined;
+      const addon = addonId ? data.addons.find(value => value.id === addonId && value.is_active && (allowHistoricalAllAddons || product.allowed_addon_ids.includes(value.id))) : undefined;
       if (!addon || addonIds.has(addon.id) || price(addon.price) === undefined) { changed = true; continue; }
       addonIds.add(addon.id);
       addons.push(addon);

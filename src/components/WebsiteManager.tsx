@@ -5,21 +5,43 @@ import type { CmsSnapshot, CmsTable } from '../services/sheetStaffApi';
 
 interface Props {endpoint:string;token:string;role:'super_admin'|'admin';onUpdated:()=>void}
 type Cell = string|number|boolean;
-const numberFields=new Set(['sort_order','base_price','sale_price','price','weight_grams','rating','review_count','delivery_fee','discount_value','min_order_amount','max_discount_amount','usage_count']);
+const numberFields=new Set(['sort_order','base_price','sale_price','price','weight_grams','rating','review_count','delivery_fee','discount_value','min_order_amount','max_discount_amount','max_orders_per_day','usage_count','cost_ingredients','cost_packaging','cost_delivery','cost_other','sold_count']);
 const boolFields=new Set(['is_active','is_featured','accepting_orders','delivery_enabled']);
-const emptyOptionalNumbers=new Set(['sale_price','max_discount_amount','rating']);
+const emptyOptionalNumbers=new Set(['sale_price','max_discount_amount','max_orders_per_day','rating','cost_ingredients','cost_packaging','cost_delivery','cost_other','sold_count']);
 const display=(row:Record<string,Cell>,table:CmsTable)=>table==='settings'||table==='content'
   ? String(row.key||''):String(row.name||row.title||row.question||row.code||row.slot_label||row.label||row.id||'');
+const jsonArrayFields=new Set(['gallery_images','allowed_flavor_ids','allowed_addon_ids']);
+const normalizeStringArrayJson=(raw:unknown):string=>{
+  if(raw===undefined||raw===null)return '[]';
+  const str=String(raw).trim();
+  if(!str)return '[]';
+  try{
+    const parsed=JSON.parse(str);
+    if(Array.isArray(parsed)){
+      const items=parsed.map(x=>String(x||'').trim()).filter(Boolean);
+      return JSON.stringify(items);
+    }
+    if(typeof parsed==='string'&&parsed.trim()){
+      return JSON.stringify([parsed.trim()]);
+    }
+  }catch{}
+  const items=str.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean);
+  return JSON.stringify(items);
+};
 const convert=(key:string,value:Cell):Cell=>{
   if(boolFields.has(key))return value===true||value==='true';
   if(numberFields.has(key)){
     if(value===''&&emptyOptionalNumbers.has(key))return '';
     return Number(value);
   }
+  if(jsonArrayFields.has(key)){
+    return normalizeStringArrayJson(value);
+  }
   return String(value??'');
 };
 const isLocked=(name:string)=>name==='id'||name==='key'||name==='created_at';
-const columnsFor=(data:CmsSnapshot)=>data.columns.filter(col=>!isLocked(col));
+const columnsFor=(data:CmsSnapshot)=>data.columns.filter(col=>!isLocked(col)&&
+  !(data.table==='products'&&['sold_count','rating','review_count'].includes(col)));
 export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
   const [table,setTable]=useState<CmsTable>('products');
   const [data,setData]=useState<CmsSnapshot|null>(null);
@@ -81,7 +103,13 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
     if(operation.current||loadingRef.current||!data||data.table!==table)return;
     editorVersion.current++;
     setCreating(false);setSelected(String(row[keyField]));setNewKey('');
-    setDraft(Object.fromEntries(columnsFor(data!).map(field=>[field,row[field]??''])));
+    setDraft(Object.fromEntries(columnsFor(data!).map(field=>{
+      let val=row[field]??'';
+      if(jsonArrayFields.has(field)&&val){
+        val=normalizeStringArrayJson(val);
+      }
+      return [field,val];
+    })));
     setNotice('');setError('');
   };
   const create=()=>{
@@ -89,7 +117,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
     editorVersion.current++;
     setCreating(true);setSelected('');setNewKey('');
     setDraft(Object.fromEntries(columnsFor(data).map(field=>
-      [field,boolFields.has(field)?field==='is_active':emptyOptionalNumbers.has(field)?'':numberFields.has(field)?0:field==='discount_type'?'percentage':field==='status'?'pending':''])));
+      [field,boolFields.has(field)?field==='is_active':jsonArrayFields.has(field)?'[]':emptyOptionalNumbers.has(field)?'':numberFields.has(field)?0:field==='discount_type'?'percentage':field==='status'?'pending':''])));
     setNotice('');setError('');
   };
   const save=async()=>{
@@ -155,8 +183,14 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
           try{
             const candidate=JSON.parse(String(oldValue||'[]'));
             if(Array.isArray(candidate))links=candidate.filter((x):x is string=>typeof x==='string');
-          }catch{}
-          return {...before,[field]:JSON.stringify([...links,url])};
+            else if(typeof candidate==='string'&&candidate.trim())links=[candidate.trim()];
+          }catch{
+            if(typeof oldValue==='string'&&oldValue.trim()){
+              links=oldValue.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean);
+            }
+          }
+          if(!links.includes(url))links.push(url);
+          return {...before,[field]:JSON.stringify(links)};
         }
         return {...before,[field]:url};
       });
@@ -176,7 +210,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
    *  updates it, then archives it; never touches existing public or private rows.
    */
   const runCmsSmoke=async()=>{
-    if(role!=='super_admin'||operation.current||loadingRef.current)return;
+    if((role!=='super_admin'&&role!=='admin')||operation.current||loadingRef.current)return;
     if(!window.confirm('Run a live website CRUD test? This adds one clearly labeled, hidden FAQ test row, retained for audit. Existing orders and products stay unchanged.'))return;
     const current={source:{endpoint,token,table},editor:editorVersion.current};
     const isCurrent=()=>sameSource(current.source)&&editorVersion.current===current.editor;
@@ -208,7 +242,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
     finally{if(operation.current===current){operation.current=null;if(mounted.current)setSaving(false);}}
   };
   const archive=async()=>{
-    if(operation.current||loadingRef.current||!data||data.table!==table||!selected||role!=='super_admin')return;
+    if(operation.current||loadingRef.current||!data||data.table!==table||!selected||(role!=='super_admin'&&role!=='admin'))return;
     if(!window.confirm('Archive this public record? Historical orders stay intact. This cannot be used for private orders.'))return;
     const current={source:{endpoint,token,table},editor:editorVersion.current};
     const isCurrent=()=>sameSource(current.source)&&editorVersion.current===current.editor;
@@ -234,7 +268,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
         <p className="text-sm text-slate-600">Create, edit and archive live website content in the production database.</p>
       </div>
       <div className="flex gap-2 flex-wrap">
-        {role==='super_admin'&&<button type="button" disabled={loading||saving||uploading} onClick={()=>void runCmsSmoke()}
+        {(role==='super_admin'||role==='admin')&&<button type="button" disabled={loading||saving||uploading} onClick={()=>void runCmsSmoke()}
           className="rounded-xl border border-amber-300 px-3 py-2 text-sm text-amber-900">
           Test live Create / Edit / Archive
         </button>}
@@ -304,6 +338,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
                   aria-label={'Upload image for '+field} className="block mt-1 text-xs max-w-full"
                   onChange={event=>{const file=event.target.files?.[0];if(file)void uploadImage(file,field);event.target.value='';}}/>
                 <span className="text-slate-500">Images are compressed to a maximum of 650 KB and stored in the private bakery Drive folder.</span>
+                {table==='settings'&&/logo|profile/.test(String(draft.key))&&<span className="block text-amber-800 mt-1">স্থায়ী logo-এর জন্য ছবি upload করে Save করুন। Facebook image link মেয়াদ শেষ হলে ছবি আর দেখা যায় না।</span>}
               </span>}
             </label>)}
           </div>
@@ -311,7 +346,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
             <button type="button" disabled={saving||loading||uploading} onClick={()=>void save()} className="rounded-xl bg-emerald-800 text-white px-4 py-2 font-semibold text-sm flex gap-2 items-center">
               <Save size={15}/>{saving?'Saving…':creating?'Create record':'Save changes'}
             </button>
-            {!creating&&role==='super_admin'&&table!=='settings'&&table!=='content'&&
+            {!creating&&(role==='super_admin'||role==='admin')&&table!=='settings'&&table!=='content'&&
               <button type="button" disabled={saving||loading||uploading} onClick={()=>void archive()}
                 className="rounded-xl border border-red-300 text-red-700 px-3 py-2 text-sm flex items-center gap-2">
                 <Archive size={15}/> Archive / hide

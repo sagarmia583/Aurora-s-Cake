@@ -19,11 +19,12 @@ export function isStaffOrder(value:unknown):value is StaffOrder{
     typeof item.status==='string'&&ALLOWED_STATUSES.has(item.status)&&
     typeof item.updated_at==='string'&&Number.isFinite(Date.parse(item.updated_at))&&
     !Object.prototype.hasOwnProperty.call(item,'delivery_otp')&&
+    !Object.prototype.hasOwnProperty.call(item,'customer_share_token')&&
     !Object.prototype.hasOwnProperty.call(item,'customer_access_token')&&
     !Object.prototype.hasOwnProperty.call(item,'password_hash');
 }
 export function validateStaffOrderList(items:unknown):items is StaffOrder[]{
-  if(!Array.isArray(items)||items.length>100)return false;
+  if(!Array.isArray(items))return false;
   const ids=new Set<string>();
   for(const item of items){
     if(!isStaffOrder(item)||ids.has(item.id))return false;
@@ -34,7 +35,7 @@ export function validateStaffOrderList(items:unknown):items is StaffOrder[]{
 function sameSnapshot(a:readonly StaffOrder[],b:readonly StaffOrder[]):boolean{
   if(a===b)return true;
   if(a.length!==b.length)return false;
-  // Order previews are at most 100 records; checking actual content, instead
+  // Checking actual content, instead
   // of only updated_at, handles rider assignment and notes without blinking.
   return a.every((item,i)=>item.id===b[i].id&&JSON.stringify(item)===JSON.stringify(b[i]));
 }

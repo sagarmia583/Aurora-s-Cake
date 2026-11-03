@@ -139,7 +139,7 @@ export function normalizePublicSiteData(input: unknown, defaults: PublicSiteData
   };
   const table = (keys: string[], fallback: unknown[]): Row[] => {
     const value = lookup(...keys);
-    return value === undefined ? fallback as Row[] : unique(records(value, keys[0]), keys[0]);
+    return value === undefined ? [] : unique(records(value, keys[0]), keys[0]);
   };
   const settingsSource = keyValues(lookup('settings', 'shop_settings'), 'settings');
   const settings: Row = { ...defaults.settings };
@@ -179,22 +179,38 @@ export function normalizePublicSiteData(input: unknown, defaults: PublicSiteData
     id:text(row.id).trim(),product_id:text(row.product_id,productId).trim(),name:text(row.name),weight_grams:number(row.weight_grams,'product_variants.weight_grams',0),
     price:number(row.price,'product_variants.price'),sale_price:optionalNumber(row.sale_price,'product_variants.sale_price'),is_active:bool(row.is_active),
   });
-  const products = rows('products', defaults.products).map(row => {
+  const productRows = table(['products'], defaults.products);
+  const products = productRows.map(row => {
     const id=text(row.id).trim();
     const variantRows = flatVariants ? flatVariants.filter(v=>text(v.product_id).trim()===id) : unique(records(row.variants,'products.variants'),'products.variants');
-    const variants = variantRows.filter(v=>bool(v.is_active)).map(v=>variant(v,id));
-    const base = row.base_price === '' || row.base_price === undefined || row.base_price === null ? (variants.length?Math.min(...variants.map(v=>v.sale_price??v.price)):undefined) : row.base_price;
+    const rawVariants = variantRows.filter(v=>bool(v.is_active)).map(v=>variant(v,id));
+    const base = row.base_price === '' || row.base_price === undefined || row.base_price === null ? (rawVariants.length?Math.min(...rawVariants.map(v=>v.sale_price??v.price)):undefined) : row.base_price;
     const categoryId=text(row.category_id).trim();
     const rating=number(row.rating,'products.rating',0);
     if(rating>5)throw invalid('products.rating','must be at most 5');
+    const basePrice = number(base,'products.base_price');
+    const salePrice = optionalNumber(row.sale_price,'products.sale_price');
+    const hasProdDiscount = salePrice !== undefined && salePrice < basePrice;
+    // Match authoritative Apps Script pricing. Never invent variant IDs,
+    // regular prices or discounts for sizes the server prices independently.
+    const variants = rawVariants.map(v => hasProdDiscount && v.sale_price === undefined &&
+      (v.id.includes('-half') || v.price <= basePrice) ? {...v,sale_price:salePrice} : v);
     return {
       id,category_id:categoryId,category_name:categories.find(c=>c.id===categoryId)?.name||text(row.category_name),name:text(row.name),slug:text(row.slug),
-      description:text(row.description),base_price:number(base,'products.base_price'),sale_price:optionalNumber(row.sale_price,'products.sale_price'),
+      description:text(row.description),base_price:basePrice,sale_price:salePrice,
       image_url:normalizePublicUrl(row.image_url,'products.image_url',true),
       gallery_images:list(row.gallery_images,'products.gallery_images',/\n/).map(url=>normalizePublicUrl(url,'products.gallery_images',true)),
-      is_featured:bool(row.is_featured,false),is_active:true,rating,review_count:number(row.review_count,'products.review_count',0),variants,
-      allowed_flavor_ids:list(row.allowed_flavor_ids,'products.allowed_flavor_ids').filter(id=>flavors.some(f=>f.id===id)),
-      allowed_addon_ids:list(row.allowed_addon_ids,'products.allowed_addon_ids').filter(id=>addons.some(a=>a.id===id)),
+      is_featured:bool(row.is_featured,false),is_active:bool(row.is_active,true),rating,review_count:number(row.review_count,'products.review_count',0),sold_count:number(row.sold_count,'products.sold_count',0),variants,
+      allowed_flavor_ids: (() => {
+        const rawFlavors = list(row.allowed_flavor_ids, 'products.allowed_flavor_ids');
+        const isAll = rawFlavors.some(x => x.toLowerCase() === 'all' || x === '*');
+        return isAll ? flavors.map(f => f.id) : rawFlavors.filter(id => flavors.some(f => f.id === id));
+      })(),
+      allowed_addon_ids: (() => {
+        const rawAddons = list(row.allowed_addon_ids, 'products.allowed_addon_ids');
+        const isAll = rawAddons.some(x => x.toLowerCase() === 'all' || x === '*');
+        return isAll ? addons.map(a => a.id) : rawAddons.filter(id => addons.some(a => a.id === id));
+      })(),
     };
   });
   const hero_slides = rows('hero_slides', defaults.hero_slides).map(row=>({
@@ -230,7 +246,14 @@ export function normalizePublicSiteData(input: unknown, defaults: PublicSiteData
   const reviews = table(['reviews'],defaults.reviews).filter(row=>text(row.status)==='approved').map(row=>({
     id:text(row.id).trim(),product_id:text(row.product_id),product_name:text(row.product_name),customer_name:text(row.customer_name),
     rating:Math.min(5,number(row.rating,'reviews.rating',0)),comment:text(row.comment),status:'approved' as const,created_at:text(row.created_at),
+    image_url:normalizePublicUrl(row.image_url,'reviews.image_url',true)||undefined,
   }));
+  // Review counts describe actual approved reviews, never a sale or seeded metadata.
+  for(const product of products){
+    const approved=reviews.filter(review=>review.product_id===product.id);
+    product.review_count=approved.length;
+    product.rating=approved.length?Math.round(approved.reduce((sum,review)=>sum+review.rating,0)/approved.length*100)/100:0;
+  }
   return {schema_version:1,order_submission_enabled:lookup('order_submission_enabled') === true,customer_order_profile_sync_enabled:lookup('customer_order_profile_sync_enabled') === true,settings:settings as unknown as ShopSettings,content,hero_slides,highlights,faqs,links,products,categories,flavors,addons,banners,zones,slots,coupons,reviews};
 }
 
@@ -251,7 +274,7 @@ export function usesSameOriginBakeryApi(): boolean {
   // hostname is a reliable way to keep checkout behind its secure API relay.
   const cloudflareHost=typeof window!=='undefined' &&
     /(?:^|\.)(?:workers|pages)\.dev$/i.test(window.location.hostname);
-  return configured || cloudflareHost;
+  return configured || cloudflareHost || import.meta.env?.DEV === true;
 }
 
 export function resolveSheetsPostEndpoint(endpoint: string): string {
@@ -279,7 +302,7 @@ function loadJsonp(endpoint: URL, signal?: AbortSignal): Promise<unknown> {
       if(settled)return;settled=true;clearTimeout(timer);signal?.removeEventListener('abort',onAbort);script.remove();delete callbacks[name];error?reject(error):resolve(data);
     };
     const onAbort=()=>finish(new DOMException('The request was cancelled.','AbortError'));
-    const timer=setTimeout(()=>finish(new GoogleSheetsError('timeout','Google Sheets did not respond. Check that the read-only web app is deployed for site visitors.')),12000);
+    const timer=setTimeout(()=>finish(new GoogleSheetsError('timeout','Google Sheets did not respond in 35s. Check that the read-only web app is deployed for site visitors.')),35000);
     callbacks[name]=(data:unknown)=>finish(undefined,data);
     script.onerror=()=>finish(new GoogleSheetsError('permission_required','Google Sheets could not load public content. The Apps Script deployment may require sign-in or its Code.gs needs updating.'));
     script.referrerPolicy='no-referrer';script.async=true;
@@ -295,10 +318,10 @@ function loadJsonp(endpoint: URL, signal?: AbortSignal): Promise<unknown> {
 export async function loadGoogleSheetData(endpoint=DEFAULT_SHEETS_ENDPOINT, signal?: AbortSignal): Promise<PublicSiteData> {
   const url=validateGoogleSheetsEndpoint(endpoint);
   url.searchParams.set('action','public');
+  url.searchParams.set('_t',String(Date.now()));
   // Same-origin Vercel or Cloudflare proxy avoids browser CORS redirects.
   // Local Vite development continues to use the public Apps Script endpoint.
-  const viaVercel=usesSameOriginBakeryApi() &&
-    typeof window!=='undefined' && window.location.protocol==='https:';
+  const viaVercel=usesSameOriginBakeryApi() && typeof window!=='undefined';
   const readUrl=viaVercel?'/api/public':url.href;
   const controller=new AbortController();
   const onAbort=()=>controller.abort();
@@ -307,7 +330,7 @@ export async function loadGoogleSheetData(endpoint=DEFAULT_SHEETS_ENDPOINT, sign
   let timedOut=false;
   const timer=setTimeout(()=>{timedOut=true;controller.abort();},12000);
   try{
-    const response=await fetch(readUrl,{credentials:viaVercel?'same-origin':'omit',redirect:'follow',cache:viaVercel?'default':'no-store',signal:controller.signal});
+    const response=await fetch(readUrl,{credentials:viaVercel?'same-origin':'omit',redirect:'follow',cache:'no-store',signal:controller.signal});
     if(/accounts\.google\.com/.test(response.url))throw new GoogleSheetsError('permission_required','The Apps Script link requires Google sign-in. Deploy the read-only public-content web app for site visitors.');
     if(!response.ok)throw new GoogleSheetsError('network',`Google Sheets returned HTTP ${response.status}. Try again after checking its deployment.`);
     return normalizePublicSiteData(await response.text());

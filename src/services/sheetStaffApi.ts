@@ -1,10 +1,30 @@
-import type { Order, OrderStatus } from '../types';
+import type { DeliveryZone, Order, OrderStatus } from '../types';
 import { resolveSheetsPostEndpoint, sheetsPostCredentials } from './googleSheets';
 import { validateStaffOrderList } from './staffOrderSnapshot';
 
 export type StaffRoleName = 'super_admin' | 'admin' | 'order_manager' | 'kitchen_manager' | 'delivery_manager' | 'delivery_man' | 'accountant';
 export type StaffOperation = 'confirm' | 'cancel' | 'start_baking' | 'mark_ready' | 'assign' | 'pick_up' | 'start_delivery' | 'deliver';
 export type StaffOrder = Omit<Order, 'delivery_otp'> & { legacy_receipt_missing?: boolean };
+
+export function staffOrderToOrder(so: StaffOrder, zones?: DeliveryZone[]): Order {
+  const zoneVal = so.delivery_zone as unknown;
+  const isZoneObj = zoneVal && typeof zoneVal === 'object' && 'name' in zoneVal && 'delivery_fee' in zoneVal;
+  const matchedZone = !isZoneObj && zones ? zones.find(z => z.id === zoneVal || z.name === zoneVal) : null;
+  return {
+    ...so,
+    persistence: 'google_sheets',
+    delivery_otp: '',
+    delivery_zone: isZoneObj
+      ? (zoneVal as DeliveryZone)
+      : matchedZone || {
+          id: String(zoneVal || 'zone-default'),
+          name: String(zoneVal || 'Standard Delivery'),
+          delivery_fee: so.delivery_fee || 0,
+          estimated_time: 'Within 2 hours',
+          is_active: true,
+        },
+  };
+}
 export interface StaffProfile {
   email: string;
   username?: string;
@@ -92,7 +112,7 @@ export async function checkStaffSession(endpoint: string, idToken: string): Prom
   if (typeof data.role !== 'string' || typeof data.email !== 'string') throw new Error('Staff role was not returned.');
   const riders = Array.isArray(data.riders) ? data.riders.filter(item => objectValue(item) && typeof item.email === 'string' && typeof item.name === 'string') as StaffSession['riders'] : [];
   const allowedRoles: StaffRoleName[] = ['super_admin','admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'];
-  const staff_profiles: StaffProfile[] | undefined = data.role === 'super_admin' && Array.isArray(data.staff_profiles)
+  const staff_profiles: StaffProfile[] | undefined = (data.role === 'super_admin' || data.role === 'admin') && Array.isArray(data.staff_profiles)
     ? data.staff_profiles.filter(item => objectValue(item)
         && typeof item.email === 'string' && typeof item.name === 'string'
         && typeof item.role === 'string' && allowedRoles.includes(item.role as StaffRoleName))

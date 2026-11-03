@@ -22,7 +22,7 @@ export const DEFAULT_PUBLIC_SITE_DATA: PublicSiteData = {
     "top_announcement_text": "A little cake. A lot of happiness.",
     "facebook_url": "https://www.facebook.com/aurorascake26",
     "instagram_url": "",
-    "profile_image_url": "",
+    "profile_image_url": "/images/aurora-logo.png",
     "mobile_subtitle": "A little slice of happiness",
     "youtube_url": "",
     "tiktok_url": "",
@@ -86,7 +86,7 @@ export const DEFAULT_PUBLIC_SITE_DATA: PublicSiteData = {
     "footer_tagline": "A LITTLE SLICE OF HAPPINESS",
     "footer_about": "For moments worth\nmaking sweeter.",
     "footer_copyright_note": "Made for sweet moments ♡",
-    "footer_preview_note": "Website preview · Orders stay on your device · No payment collected",
+    "footer_preview_note": "",
     "footer_contact_label": "Get in touch",
     "nav_cakes": "Our cakes",
     "nav_custom": "Custom cakes",
@@ -98,31 +98,31 @@ export const DEFAULT_PUBLIC_SITE_DATA: PublicSiteData = {
   "hero_slides": [
     {
       "id": "slide-1",
-      "product_id": "prod-5",
-      "title": "Elysian Floral Pastels Anniversary Cake",
-      "subtitle": "The celebration collection",
-      "image_url": "/images/floral-signature.webp",
-      "image_alt": "Elysian Floral Pastels Anniversary Cake",
+      "product_id": "prod-chocolate",
+      "title": "Aurora's Cake — ফ্রেশলি বেকড উইথ লাভ",
+      "subtitle": "প্রতি কামড়ে ভালোবাসা ও মিষ্টি মুহূর্ত",
+      "image_url": "/images/chocolate-cake.jpg",
+      "image_alt": "চকলেট কেক",
       "sort_order": 1,
       "is_active": true
     },
     {
       "id": "slide-2",
-      "product_id": "prod-2",
-      "title": "Royale Red Velvet Cream Cheese",
-      "subtitle": "The celebration collection",
-      "image_url": "/images/red-velvet.webp",
-      "image_alt": "Royale Red Velvet Cream Cheese",
+      "product_id": "prod-rasmalai",
+      "title": "স্পেশাল রসমলাই ও রেড ভেলভেট",
+      "subtitle": "যেকোনো উদযাপনের জন্য সেরা আয়োজন",
+      "image_url": "/images/rasmalai-cake.jpg",
+      "image_alt": "রসমলাই কেক",
       "sort_order": 2,
       "is_active": true
     },
     {
       "id": "slide-3",
-      "product_id": "prod-1",
-      "title": "Belgian Triple Chocolate Fudge",
-      "subtitle": "The celebration collection",
-      "image_url": "/images/chocolate-fudge.webp",
-      "image_alt": "Belgian Triple Chocolate Fudge",
+      "product_id": "prod-bento-vanilla",
+      "title": "কিউট বেন্টো কেক ও কাপ কেক",
+      "subtitle": "ছোট পার্টি আর মিষ্টি উপহারের পারফেক্ট সাইজ",
+      "image_url": "/images/bento-cake-vanilla.jpg",
+      "image_alt": "বেন্টো কেক",
       "sort_order": 3,
       "is_active": true
     }
@@ -299,373 +299,580 @@ export const DEFAULT_PUBLIC_SITE_DATA: PublicSiteData = {
   ],
   "products": [
     {
-      "id": "prod-1",
-      "category_id": "cat-2",
-      "category_name": "Chocolate Temptations",
-      "name": "Belgian Triple Chocolate Fudge",
-      "slug": "belgian-triple-chocolate-fudge",
-      "description": "Layers of moist chocolate sponge smothered with velvety 70% dark Belgian ganache, chocolate crisps, and golden dusted cocoa nibs.",
-      "base_price": 1250,
-      "sale_price": 1150,
-      "image_url": "/images/chocolate-fudge.webp",
+      "id": "prod-vanilla",
+      "category_id": "cat-cakes",
+      "category_name": "কেক (হাফ ও এক পাউন্ড)",
+      "name": "ভ্যানিলা কেক",
+      "slug": "vanilla-cake",
+      "description": "সফট ও স্পঞ্জি ভ্যানিলা বেসের সাথে প্রিমিয়াম ভ্যানিলা বাটারক্রিমের ক্লাসিক স্বাদ।",
+      "base_price": 400,
+      "image_url": "/images/vanilla-cake.jpg",
       "gallery_images": [
-        "/images/chocolate-fudge.webp",
-        "/images/black-forest.webp"
+        "/images/vanilla-cake.jpg",
+        "/images/aurora-menu-card.jpg"
       ],
       "is_featured": true,
       "is_active": true,
       "rating": 0,
       "review_count": 0,
+      "sold_count": 0,
       "variants": [
         {
-          "id": "var-1-1",
-          "product_id": "prod-1",
-          "name": "500g (Serves 4)",
-          "weight_grams": 500,
-          "price": 680,
-          "is_active": true
+          "id": "var-vanilla-half",
+          "product_id": "prod-vanilla",
+          "name": "হাফ পাউন্ড (Half Pound)",
+          "weight_grams": 226,
+          "price": 400,
+          "is_active": true,
+          "sale_price": 350
         },
         {
-          "id": "var-1-2",
-          "product_id": "prod-1",
-          "name": "1kg (Serves 8-10)",
-          "weight_grams": 1000,
-          "price": 1250,
-          "sale_price": 1150,
-          "is_active": true
-        },
-        {
-          "id": "var-1-3",
-          "product_id": "prod-1",
-          "name": "1.5kg (Serves 12-14)",
-          "weight_grams": 1500,
-          "price": 1750,
-          "is_active": true
-        },
-        {
-          "id": "var-1-4",
-          "product_id": "prod-1",
-          "name": "2kg (Serves 18-20)",
-          "weight_grams": 2000,
-          "price": 2300,
+          "id": "var-vanilla-one",
+          "product_id": "prod-vanilla",
+          "name": "এক পাউন্ড (One Pound)",
+          "weight_grams": 453,
+          "price": 650,
           "is_active": true
         }
       ],
       "allowed_flavor_ids": [
-        "flav-1",
-        "flav-5",
-        "flav-6"
-      ],
-      "allowed_addon_ids": [
-        "addon-1",
-        "addon-2",
-        "addon-3",
-        "addon-4",
-        "addon-5"
-      ]
-    },
-    {
-      "id": "prod-2",
-      "category_id": "cat-1",
-      "category_name": "Birthday Specials",
-      "name": "Royale Red Velvet Cream Cheese",
-      "slug": "royale-red-velvet-cream-cheese",
-      "description": "Classic crimson cocoa crumb layered with authentic Philadelphia cream cheese frosting and white chocolate curls.",
-      "base_price": 1350,
-      "image_url": "/images/red-velvet.webp",
-      "gallery_images": [
-        "/images/red-velvet.webp"
-      ],
-      "is_featured": true,
-      "is_active": true,
-      "rating": 0,
-      "review_count": 0,
-      "variants": [
-        {
-          "id": "var-2-1",
-          "product_id": "prod-2",
-          "name": "500g (Serves 4)",
-          "weight_grams": 500,
-          "price": 720,
-          "is_active": true
-        },
-        {
-          "id": "var-2-2",
-          "product_id": "prod-2",
-          "name": "1kg (Serves 8-10)",
-          "weight_grams": 1000,
-          "price": 1350,
-          "is_active": true
-        },
-        {
-          "id": "var-2-3",
-          "product_id": "prod-2",
-          "name": "1.5kg (Serves 12-14)",
-          "weight_grams": 1500,
-          "price": 1950,
-          "is_active": true
-        },
-        {
-          "id": "var-2-4",
-          "product_id": "prod-2",
-          "name": "2kg (Serves 18-20)",
-          "weight_grams": 2000,
-          "price": 2500,
-          "is_active": true
-        }
-      ],
-      "allowed_flavor_ids": [
-        "flav-3",
         "flav-2"
       ],
       "allowed_addon_ids": [
         "addon-1",
         "addon-2",
-        "addon-3",
-        "addon-4"
-      ]
+        "addon-3"
+      ],
+      "sale_price": 350
     },
     {
-      "id": "prod-3",
-      "category_id": "cat-2",
-      "category_name": "Chocolate Temptations",
-      "name": "Black Forest Royale Amarena",
-      "slug": "black-forest-royale-amarena",
-      "description": "Traditional German Black Forest loaded with Italian dark cherries, fresh whipped cream, and shaved chocolate shards.",
-      "base_price": 1100,
-      "image_url": "/images/black-forest.webp",
+      "id": "prod-orange",
+      "category_id": "cat-cakes",
+      "category_name": "কেক (হাফ ও এক পাউন্ড)",
+      "name": "অরেঞ্জ কেক",
+      "slug": "orange-cake",
+      "description": "তাজা কমলার রিফ্রেশিং ফ্লেভার ও ময়েস্ট স্পঞ্জের অসাধারণ যুগলবন্দি।",
+      "base_price": 400,
+      "image_url": "/images/orange-cake.jpg",
       "gallery_images": [
-        "/images/black-forest.webp"
+        "/images/orange-cake.jpg",
+        "/images/aurora-menu-card.jpg"
       ],
       "is_featured": false,
       "is_active": true,
       "rating": 0,
       "review_count": 0,
+      "sold_count": 0,
       "variants": [
         {
-          "id": "var-3-1",
-          "product_id": "prod-3",
-          "name": "500g (Serves 4)",
-          "weight_grams": 500,
-          "price": 620,
-          "is_active": true
+          "id": "var-orange-half",
+          "product_id": "prod-orange",
+          "name": "হাফ পাউন্ড (Half Pound)",
+          "weight_grams": 226,
+          "price": 400,
+          "is_active": true,
+          "sale_price": 350
         },
         {
-          "id": "var-3-2",
-          "product_id": "prod-3",
-          "name": "1kg (Serves 8-10)",
-          "weight_grams": 1000,
-          "price": 1100,
-          "is_active": true
-        },
-        {
-          "id": "var-3-3",
-          "product_id": "prod-3",
-          "name": "2kg (Serves 18-20)",
-          "weight_grams": 2000,
-          "price": 2100,
+          "id": "var-orange-one",
+          "product_id": "prod-orange",
+          "name": "এক পাউন্ড (One Pound)",
+          "weight_grams": 453,
+          "price": 650,
           "is_active": true
         }
       ],
       "allowed_flavor_ids": [
-        "flav-4",
+        "flav-2"
+      ],
+      "allowed_addon_ids": [
+        "addon-1",
+        "addon-2",
+        "addon-3"
+      ],
+      "sale_price": 350
+    },
+    {
+      "id": "prod-chocolate",
+      "category_id": "cat-cakes",
+      "category_name": "কেক (হাফ ও এক পাউন্ড)",
+      "name": "চকলেট কেক",
+      "slug": "chocolate-cake",
+      "description": "রিচ ডার্ক কোকোয়া ও চকলেট গানাশের মন মাতানো স্বাদ।",
+      "base_price": 450,
+      "image_url": "/images/chocolate-cake.jpg",
+      "gallery_images": [
+        "/images/chocolate-cake.jpg",
+        "/images/aurora-menu-card.jpg"
+      ],
+      "is_featured": true,
+      "is_active": true,
+      "rating": 0,
+      "review_count": 0,
+      "sold_count": 0,
+      "variants": [
+        {
+          "id": "var-choc-half",
+          "product_id": "prod-chocolate",
+          "name": "হাফ পাউন্ড (Half Pound)",
+          "weight_grams": 226,
+          "price": 450,
+          "is_active": true,
+          "sale_price": 380
+        },
+        {
+          "id": "var-choc-one",
+          "product_id": "prod-chocolate",
+          "name": "এক পাউন্ড (One Pound)",
+          "weight_grams": 453,
+          "price": 750,
+          "is_active": true
+        }
+      ],
+      "allowed_flavor_ids": [
         "flav-1"
       ],
       "allowed_addon_ids": [
         "addon-1",
         "addon-2",
         "addon-3"
-      ]
+      ],
+      "sale_price": 380
     },
     {
-      "id": "prod-4",
-      "category_id": "cat-4",
-      "category_name": "Cheesecakes & Berries",
-      "name": "Lotus Biscoff Salted Caramel Cheesecake",
-      "slug": "lotus-biscoff-cheesecake",
-      "description": "Crushed Biscoff cookie crust, silky baked cheesecake filling infused with cookie butter swirl, topped with caramelized drizzle.",
-      "base_price": 1450,
-      "sale_price": 1350,
-      "image_url": "/images/cheesecake.webp",
+      "id": "prod-lemon",
+      "category_id": "cat-cakes",
+      "category_name": "কেক (হাফ ও এক পাউন্ড)",
+      "name": "লেমন কেক",
+      "slug": "lemon-cake",
+      "description": "লেবুর মিষ্টি-টক হালকা সুবাস আর নরম স্পঞ্জি টেক্সচার।",
+      "base_price": 350,
+      "image_url": "/images/lemon-cake.jpg",
       "gallery_images": [
-        "/images/cheesecake.webp"
-      ],
-      "is_featured": true,
-      "is_active": true,
-      "rating": 0,
-      "review_count": 0,
-      "variants": [
-        {
-          "id": "var-4-1",
-          "product_id": "prod-4",
-          "name": "500g (Serves 4)",
-          "weight_grams": 500,
-          "price": 780,
-          "is_active": true
-        },
-        {
-          "id": "var-4-2",
-          "product_id": "prod-4",
-          "name": "1kg (Serves 8-10)",
-          "weight_grams": 1000,
-          "price": 1450,
-          "sale_price": 1350,
-          "is_active": true
-        },
-        {
-          "id": "var-4-3",
-          "product_id": "prod-4",
-          "name": "2kg (Serves 18-20)",
-          "weight_grams": 2000,
-          "price": 2700,
-          "is_active": true
-        }
-      ],
-      "allowed_flavor_ids": [
-        "flav-5",
-        "flav-6"
-      ],
-      "allowed_addon_ids": [
-        "addon-1",
-        "addon-2",
-        "addon-3",
-        "addon-5"
-      ]
-    },
-    {
-      "id": "prod-5",
-      "category_id": "cat-3",
-      "category_name": "Wedding & Anniversary",
-      "name": "Elysian Floral Pastels Anniversary Cake",
-      "slug": "elysian-floral-pastels",
-      "description": "Two-tier ivory butter sponge with natural raspberry compote, handcrafted edible wafer florals, and 24K edible gold leaves.",
-      "base_price": 2600,
-      "image_url": "/images/floral-signature.webp",
-      "gallery_images": [
-        "/images/floral-signature.webp"
-      ],
-      "is_featured": true,
-      "is_active": true,
-      "rating": 0,
-      "review_count": 0,
-      "variants": [
-        {
-          "id": "var-5-1",
-          "product_id": "prod-5",
-          "name": "1.5kg Two-Tier (Serves 14)",
-          "weight_grams": 1500,
-          "price": 2600,
-          "is_active": true
-        },
-        {
-          "id": "var-5-2",
-          "product_id": "prod-5",
-          "name": "2.5kg Two-Tier (Serves 25)",
-          "weight_grams": 2500,
-          "price": 3950,
-          "is_active": true
-        }
-      ],
-      "allowed_flavor_ids": [
-        "flav-2",
-        "flav-3"
-      ],
-      "allowed_addon_ids": [
-        "addon-1",
-        "addon-2",
-        "addon-3",
-        "addon-4"
-      ]
-    },
-    {
-      "id": "prod-6",
-      "category_id": "cat-5",
-      "category_name": "Cupcakes & Pastries",
-      "name": "Artisan Assorted Cupcake Box (6 Pcs)",
-      "slug": "artisan-cupcake-box-6pcs",
-      "description": "Six signature swirls: Red Velvet, Dark Cocoa, Pistachio Rose, Salted Caramel, Blueberry Cream, and Vanilla Gold.",
-      "base_price": 650,
-      "image_url": "/images/cupcakes.webp",
-      "gallery_images": [
-        "/images/cupcakes.webp"
+        "/images/lemon-cake.jpg",
+        "/images/aurora-menu-card.jpg"
       ],
       "is_featured": false,
       "is_active": true,
       "rating": 0,
       "review_count": 0,
+      "sold_count": 0,
       "variants": [
         {
-          "id": "var-6-1",
-          "product_id": "prod-6",
-          "name": "Standard 6-Box",
-          "weight_grams": 450,
-          "price": 650,
-          "is_active": true
+          "id": "var-lemon-half",
+          "product_id": "prod-lemon",
+          "name": "হাফ পাউন্ড (Half Pound)",
+          "weight_grams": 226,
+          "price": 350,
+          "is_active": true,
+          "sale_price": 300
         },
         {
-          "id": "var-6-2",
-          "product_id": "prod-6",
-          "name": "Deluxe 12-Box",
-          "weight_grams": 900,
-          "price": 1200,
+          "id": "var-lemon-one",
+          "product_id": "prod-lemon",
+          "name": "এক পাউন্ড (One Pound)",
+          "weight_grams": 453,
+          "price": 600,
           "is_active": true
         }
       ],
       "allowed_flavor_ids": [
-        "flav-1",
-        "flav-2",
+        "flav-2"
+      ],
+      "allowed_addon_ids": [
+        "addon-1",
+        "addon-2",
+        "addon-3"
+      ],
+      "sale_price": 300
+    },
+    {
+      "id": "prod-rasmalai",
+      "category_id": "cat-cakes",
+      "category_name": "কেক (হাফ ও এক পাউন্ড)",
+      "name": "রসমলাই কেক",
+      "slug": "rasmalai-cake",
+      "description": "দেশি ঐতিহ্যবাহী রসমলাই, এলাচ, জাফরান ও পেস্তার রাজকীয় ফিউশন কেক।",
+      "base_price": 450,
+      "image_url": "/images/rasmalai-cake.jpg",
+      "gallery_images": [
+        "/images/rasmalai-cake.jpg",
+        "/images/aurora-menu-card.jpg"
+      ],
+      "is_featured": true,
+      "is_active": true,
+      "rating": 0,
+      "review_count": 0,
+      "sold_count": 0,
+      "variants": [
+        {
+          "id": "var-rasmalai-half",
+          "product_id": "prod-rasmalai",
+          "name": "হাফ পাউন্ড (Half Pound)",
+          "weight_grams": 226,
+          "price": 450,
+          "is_active": true,
+          "sale_price": 400
+        },
+        {
+          "id": "var-rasmalai-one",
+          "product_id": "prod-rasmalai",
+          "name": "এক পাউন্ড (One Pound)",
+          "weight_grams": 453,
+          "price": 800,
+          "is_active": true
+        }
+      ],
+      "allowed_flavor_ids": [
+        "flav-2"
+      ],
+      "allowed_addon_ids": [
+        "addon-1",
+        "addon-2",
+        "addon-3"
+      ],
+      "sale_price": 400
+    },
+    {
+      "id": "prod-red-velvet",
+      "category_id": "cat-cakes",
+      "category_name": "কেক (হাফ ও এক পাউন্ড)",
+      "name": "রেড ভেলভেট কেক",
+      "slug": "red-velvet-cake",
+      "description": "আইকনিক রেড ভেলভেট ক্রাম্ব ও ভেলভেটি ক্রিম চিজ ফ্রস্টিংয়ের অপূর্ব কম্বিনেশন।",
+      "base_price": 450,
+      "image_url": "/images/red-velvet-cake.jpg",
+      "gallery_images": [
+        "/images/red-velvet-cake.jpg",
+        "/images/aurora-menu-card.jpg"
+      ],
+      "is_featured": true,
+      "is_active": true,
+      "rating": 0,
+      "review_count": 0,
+      "sold_count": 0,
+      "variants": [
+        {
+          "id": "var-redvelvet-half",
+          "product_id": "prod-red-velvet",
+          "name": "হাফ পাউন্ড (Half Pound)",
+          "weight_grams": 226,
+          "price": 450,
+          "is_active": true,
+          "sale_price": 400
+        },
+        {
+          "id": "var-redvelvet-one",
+          "product_id": "prod-red-velvet",
+          "name": "এক পাউন্ড (One Pound)",
+          "weight_grams": 453,
+          "price": 800,
+          "is_active": true
+        }
+      ],
+      "allowed_flavor_ids": [
         "flav-3"
       ],
       "allowed_addon_ids": [
         "addon-1",
+        "addon-2",
         "addon-3"
+      ],
+      "sale_price": 400
+    },
+    {
+      "id": "prod-strawberry",
+      "category_id": "cat-cakes",
+      "category_name": "কেক (হাফ ও এক পাউন্ড)",
+      "name": "স্ট্রবেরি কেক",
+      "slug": "strawberry-cake",
+      "description": "মিষ্টি স্ট্রবেরির সুবাস আর ফ্রেশ ক্রিমের মজাদার স্বাদে ভরপুর।",
+      "base_price": 450,
+      "image_url": "/images/strawberry-cake.jpg",
+      "gallery_images": [
+        "/images/strawberry-cake.jpg",
+        "/images/aurora-menu-card.jpg"
+      ],
+      "is_featured": false,
+      "is_active": true,
+      "rating": 0,
+      "review_count": 0,
+      "sold_count": 0,
+      "variants": [
+        {
+          "id": "var-straw-half",
+          "product_id": "prod-strawberry",
+          "name": "হাফ পাউন্ড (Half Pound)",
+          "weight_grams": 226,
+          "price": 450,
+          "is_active": true,
+          "sale_price": 380
+        },
+        {
+          "id": "var-straw-one",
+          "product_id": "prod-strawberry",
+          "name": "এক পাউন্ড (One Pound)",
+          "weight_grams": 453,
+          "price": 750,
+          "is_active": true
+        }
+      ],
+      "allowed_flavor_ids": [
+        "flav-2"
+      ],
+      "allowed_addon_ids": [
+        "addon-1",
+        "addon-2",
+        "addon-3"
+      ],
+      "sale_price": 380
+    },
+    {
+      "id": "prod-blueberry",
+      "category_id": "cat-cakes",
+      "category_name": "কেক (হাফ ও এক পাউন্ড)",
+      "name": "ব্লুবেরি কেক",
+      "slug": "blueberry-cake",
+      "description": "প্রাকৃতিক ব্লুবেরি কম্পোট এবং মিষ্টি স্মুথ ক্রিমের অসাধারণ ফ্লেভার।",
+      "base_price": 450,
+      "image_url": "/images/blueberry-cake.jpg",
+      "gallery_images": [
+        "/images/blueberry-cake.jpg",
+        "/images/aurora-menu-card.jpg"
+      ],
+      "is_featured": false,
+      "is_active": true,
+      "rating": 0,
+      "review_count": 0,
+      "sold_count": 0,
+      "variants": [
+        {
+          "id": "var-blue-half",
+          "product_id": "prod-blueberry",
+          "name": "হাফ পাউন্ড (Half Pound)",
+          "weight_grams": 226,
+          "price": 450,
+          "is_active": true,
+          "sale_price": 380
+        },
+        {
+          "id": "var-blue-one",
+          "product_id": "prod-blueberry",
+          "name": "এক পাউন্ড (One Pound)",
+          "weight_grams": 453,
+          "price": 750,
+          "is_active": true
+        }
+      ],
+      "allowed_flavor_ids": [
+        "flav-2"
+      ],
+      "allowed_addon_ids": [
+        "addon-1",
+        "addon-2",
+        "addon-3"
+      ],
+      "sale_price": 380
+    },
+    {
+      "id": "prod-chocolate-overload",
+      "category_id": "cat-cakes",
+      "category_name": "কেক (হাফ ও এক পাউন্ড)",
+      "name": "চকলেট ওভারলোড কেক",
+      "slug": "chocolate-overload-cake",
+      "description": "চকলেটপ্রেমীদের জন্য স্পেশাল—ঘন চকলেট গানাশ ও ডাবল চকলেট টপিং।",
+      "base_price": 500,
+      "image_url": "/images/chocolate-overload-cake.jpg",
+      "gallery_images": [
+        "/images/chocolate-overload-cake.jpg",
+        "/images/aurora-menu-card.jpg"
+      ],
+      "is_featured": true,
+      "is_active": true,
+      "rating": 0,
+      "review_count": 0,
+      "sold_count": 0,
+      "variants": [
+        {
+          "id": "var-overload-half",
+          "product_id": "prod-chocolate-overload",
+          "name": "হাফ পাউন্ড (Half Pound)",
+          "weight_grams": 226,
+          "price": 500,
+          "is_active": true,
+          "sale_price": 450
+        },
+        {
+          "id": "var-overload-one",
+          "product_id": "prod-chocolate-overload",
+          "name": "এক পাউন্ড (One Pound)",
+          "weight_grams": 453,
+          "price": 900,
+          "is_active": true
+        }
+      ],
+      "allowed_flavor_ids": [
+        "flav-1"
+      ],
+      "allowed_addon_ids": [
+        "addon-1",
+        "addon-2",
+        "addon-3"
+      ],
+      "sale_price": 450
+    },
+    {
+      "id": "prod-bento-vanilla",
+      "category_id": "cat-mini",
+      "category_name": "মিনি আইটেম",
+      "name": "বেন্টো কেক (ভ্যানিলা)",
+      "slug": "bento-cake-vanilla",
+      "description": "কিউট কোরিয়ান লাঞ্চবক্স বেন্টো কেক, ছোট পার্টির জন্য পারফেক্ট সাইজ।",
+      "base_price": 200,
+      "image_url": "/images/bento-cake-vanilla.jpg",
+      "gallery_images": [
+        "/images/bento-cake-vanilla.jpg",
+        "/images/aurora-menu-card.jpg"
+      ],
+      "is_featured": true,
+      "is_active": true,
+      "rating": 0,
+      "review_count": 0,
+      "sold_count": 0,
+      "variants": [
+        {
+          "id": "var-bento-vanilla",
+          "product_id": "prod-bento-vanilla",
+          "name": "স্ট্যান্ডার্ড মিনি সাইজ (Mini Bento)",
+          "weight_grams": 150,
+          "price": 200,
+          "is_active": true,
+          "sale_price": 150
+        }
+      ],
+      "allowed_flavor_ids": [],
+      "allowed_addon_ids": [
+        "addon-1",
+        "addon-2"
+      ],
+      "sale_price": 150
+    },
+    {
+      "id": "prod-bento-flavors",
+      "category_id": "cat-mini",
+      "category_name": "মিনি আইটেম",
+      "name": "বেন্টো কেক (অন্যান্য ফ্লেভার)",
+      "slug": "bento-cake-other-flavors",
+      "description": "চকলেট, স্ট্রবেরি, রেড ভেলভেট সহ আপনার পছন্দের ফ্লেভারে কাস্টম বেন্টো কেক।",
+      "base_price": 200,
+      "image_url": "/images/bento-cake-flavors.jpg",
+      "gallery_images": [
+        "/images/bento-cake-flavors.jpg",
+        "/images/aurora-menu-card.jpg"
+      ],
+      "is_featured": false,
+      "is_active": true,
+      "rating": 0,
+      "review_count": 0,
+      "sold_count": 0,
+      "variants": [
+        {
+          "id": "var-bento-flavors",
+          "product_id": "prod-bento-flavors",
+          "name": "স্ট্যান্ডার্ড মিনি সাইজ (Mini Bento)",
+          "weight_grams": 150,
+          "price": 200,
+          "is_active": true
+        }
+      ],
+      "allowed_flavor_ids": [],
+      "allowed_addon_ids": [
+        "addon-1",
+        "addon-2"
       ]
+    },
+    {
+      "id": "prod-cupcake",
+      "category_id": "cat-mini",
+      "category_name": "মিনি আইটেম",
+      "name": "কাপ কেক",
+      "slug": "cupcake",
+      "description": "নরম তুলতুলে মিনি কাপ কেক, প্রতিটি কামড়ে দারুণ বাটারক্রিম টুইস্ট।",
+      "base_price": 50,
+      "image_url": "/images/cupcakes.jpg",
+      "gallery_images": [
+        "/images/cupcakes.jpg",
+        "/images/aurora-menu-card.jpg"
+      ],
+      "is_featured": false,
+      "is_active": true,
+      "rating": 0,
+      "review_count": 0,
+      "sold_count": 0,
+      "variants": [
+        {
+          "id": "var-cupcake-single",
+          "product_id": "prod-cupcake",
+          "name": "১ পিস (Single Piece)",
+          "weight_grams": 50,
+          "price": 50,
+          "is_active": true,
+          "sale_price": 30
+        }
+      ],
+      "allowed_flavor_ids": [],
+      "allowed_addon_ids": [],
+      "sale_price": 30
+    },
+    {
+      "id": "prod-muffin",
+      "category_id": "cat-mini",
+      "category_name": "মিনি আইটেম",
+      "name": "মাফিন",
+      "slug": "muffin",
+      "description": "ওভেনে তাজা বেক করা সুস্বাদু ও ক্রিস্পি চকো চিপস মাফিন।",
+      "base_price": 80,
+      "image_url": "/images/muffins.jpg",
+      "gallery_images": [
+        "/images/muffins.jpg",
+        "/images/aurora-menu-card.jpg"
+      ],
+      "is_featured": false,
+      "is_active": true,
+      "rating": 0,
+      "review_count": 0,
+      "sold_count": 0,
+      "variants": [
+        {
+          "id": "var-muffin-single",
+          "product_id": "prod-muffin",
+          "name": "১ পিস (Single Piece)",
+          "weight_grams": 80,
+          "price": 80,
+          "is_active": true
+        }
+      ],
+      "allowed_flavor_ids": [],
+      "allowed_addon_ids": []
     }
   ],
   "categories": [
     {
-      "id": "cat-1",
-      "name": "Birthday cakes",
-      "slug": "birthday-cakes",
-      "description": "Festive handcrafted celebration cakes made with rich Bavarian cream",
-      "image_url": "/images/floral-signature.webp",
+      "id": "cat-cakes",
+      "name": "কেক (হাফ ও এক পাউন্ড)",
+      "slug": "cakes",
+      "description": "আমাদের ফ্রেশলি বেকড স্পেশাল কেক কালেকশন। হাফ পাউন্ড ও এক পাউন্ড সাইজে তৈরি।",
+      "image_url": "/images/vanilla-cake.jpg",
       "sort_order": 1,
       "is_active": true
     },
     {
-      "id": "cat-2",
-      "name": "Chocolate",
-      "slug": "chocolate-cakes",
-      "description": "Decadent imported 70% Belgian dark chocolate truffles and ganache",
-      "image_url": "https://images.unsplash.com/photo-1606890737304-57a1ca8a5b62?w=600&auto=format&fit=crop&q=80",
+      "id": "cat-mini",
+      "name": "মিনি আইটেম",
+      "slug": "mini-items",
+      "description": "বেন্টো কেক, কাপ কেক ও মাফিনের আকর্ষণীয় মিনি কালেকশন।",
+      "image_url": "/images/bento-cake-vanilla.jpg",
       "sort_order": 2,
-      "is_active": true
-    },
-    {
-      "id": "cat-3",
-      "name": "Wedding & anniversary",
-      "slug": "wedding-anniversary",
-      "description": "Multi-tiered romantic masterpieces with sugar florals and gold leaf accents",
-      "image_url": "/images/floral-signature.webp",
-      "sort_order": 3,
-      "is_active": true
-    },
-    {
-      "id": "cat-4",
-      "name": "Cheesecakes",
-      "slug": "cheesecakes",
-      "description": "Slow-baked New York style and fresh strawberry mousse cheesecakes",
-      "image_url": "/images/cheesecake.webp",
-      "sort_order": 4,
-      "is_active": true
-    },
-    {
-      "id": "cat-5",
-      "name": "Cupcakes",
-      "slug": "cupcakes-pastries",
-      "description": "Bite-sized happiness boxes perfect for gifts and tea parties",
-      "image_url": "/images/cupcakes.webp",
-      "sort_order": 5,
       "is_active": true
     }
   ],

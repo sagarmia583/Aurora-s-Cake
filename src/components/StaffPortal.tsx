@@ -1,14 +1,35 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, RefreshCw, ShieldCheck, Truck, PackageCheck, LayoutDashboard, ShoppingBag, UsersRound, CakeSlice, Store, Search, ChevronDown, ChevronUp, LogOut, Clock3, BadgeCheck, ArrowRight, AlertCircle, CreditCard, MapPin } from 'lucide-react';
+import { X, RefreshCw, ShieldCheck, Truck, PackageCheck, LayoutDashboard, ShoppingBag, UsersRound, CakeSlice, Store, Search, ChevronDown, ChevronUp, LogOut, Clock3, BadgeCheck, ArrowRight, AlertCircle, CreditCard, MapPin, Calculator, Printer, Phone, User, FileText, CheckCircle, Eye } from 'lucide-react';
 import { checkStaffSession, getStaffOrders, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, signOutStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword, lookupStaffCustomer, backfillFirebaseOrders, verifyFirebaseMirrorFromStaff } from '../services/sheetStaffApi';
 import type { StaffCustomerMatch, StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
 import { getBrowserWorkspaceStorage, loadStaffCredential, saveStaffCredential, clearStaffCredential, loadStaffTab, saveStaffTab } from '../services/staffWorkspaceSession';
 import { reconcileStaffOrders, loadStaffOrdersSnapshot, saveStaffOrdersSnapshot, clearStaffOrdersSnapshot } from '../services/staffOrderSnapshot';
 import { activeStaffOrderAlertIds, detectNewStaffOrderAlerts } from '../services/staffOrderAlerts';
+import { 
+  isOrderBeepEnabled, 
+  setOrderBeepEnabled, 
+  playOrderAlertSound, 
+  testOrderAlertSound, 
+  getOrCreateAudioContext,
+  startOrderAlertLoop,
+  acknowledgeOrderAlert,
+  stopOrderAlertLoop,
+} from '../services/orderSound';
+import { mockDb } from '../services/mockDatabase';
+import { StaffPermissionCode, OrderStatus, Order } from '../types';
+import { PosPrintModal } from './PosPrintModal';
+import { PosPrinterSettingsModal } from './PosPrinterSettingsModal';
+import { CollectionStatementModal } from './CollectionStatementModal';
+import { AdminCreateOrderModal } from './AdminCreateOrderModal';
+import { CustomerOrderLink } from './CustomerOrderLink';
+import { OrderDetailsModal } from './OrderDetailsModal';
+import { createDemoReceiptOrder } from '../services/posPrinterService';
+import { formatShortOrderNumber } from '../utils/orderUtils';
 // Download the larger forms only if the user opens those workspaces.
 const WebsiteManager=React.lazy(()=>import('./WebsiteManager').then(m=>({default:m.WebsiteManager})));
 const CustomCakeQueue=React.lazy(()=>import('./CustomCakeQueue').then(m=>({default:m.CustomCakeQueue})));
+const ItemCostingManager=React.lazy(()=>import('./ItemCostingManager').then(m=>({default:m.ItemCostingManager})));
 
 type GoogleSdk = {
   initialize: (options: { client_id: string; callback: (response: { credential?: string }) => void; ux_mode?: 'popup'; use_fedcm_for_button?: boolean; auto_select?: boolean }) => void;
@@ -18,13 +39,35 @@ const googleSdk = (): GoogleSdk | undefined =>
   (window as Window & { google?: { accounts?: { id?: GoogleSdk } } }).google?.accounts?.id;
 
 function canOperate(role: StaffRoleName, operation: StaffOperation): boolean {
-  // Rider actions require an actual rider session, even for admins.
-  if (['pick_up', 'start_delivery', 'deliver'].includes(operation)) return role === 'delivery_man';
+  // Super Admin and Admin can do ANY operation across the bakery without restriction
   if (role === 'super_admin' || role === 'admin') return true;
+
+  // Rider actions
+  if (['pick_up', 'start_delivery', 'deliver'].includes(operation)) {
+    return role === 'delivery_man' || role === 'delivery_manager' || mockDb.hasPermission(role, 'delivery.complete') || mockDb.hasPermission(role, 'delivery.dispatch');
+  }
+
+  const operationPermMap: Partial<Record<StaffOperation, StaffPermissionCode>> = {
+    confirm: 'orders.confirm',
+    cancel: 'orders.cancel',
+    start_baking: 'kitchen.bake',
+    mark_ready: 'kitchen.ready',
+    assign: 'delivery.assign',
+    pick_up: 'delivery.dispatch',
+    start_delivery: 'delivery.dispatch',
+    deliver: 'delivery.complete',
+  };
+
+  const neededPerm = operationPermMap[operation];
+  if (neededPerm && mockDb.hasPermission(role, neededPerm)) {
+    return true;
+  }
+
   const rules: Partial<Record<StaffRoleName, StaffOperation[]>> = {
     order_manager: ['confirm', 'cancel'],
     kitchen_manager: ['start_baking', 'mark_ready'],
-    delivery_manager: ['assign'],
+    delivery_manager: ['assign', 'pick_up', 'start_delivery', 'deliver'],
+    delivery_man: ['pick_up', 'start_delivery', 'deliver'],
   };
   return (rules[role] || []).includes(operation);
 }
@@ -35,11 +78,11 @@ const actionForStatus: Record<string, { operation: StaffOperation; label: string
   ready: { operation: 'assign', label: 'Assign rider' },
   assigned: { operation: 'pick_up', label: 'Pick up cake' },
   picked_up: { operation: 'start_delivery', label: 'Start delivery' },
-  out_for_delivery: { operation: 'deliver', label: 'Verify delivery OTP' },
+  out_for_delivery: { operation: 'deliver', label: 'Complete Delivery (ক্যাশ চেক ও ডেলিভারি)' },
   delivered: null, cancelled: null,
 };
 
-type StaffTab = 'overview' | 'orders' | 'cakes' | 'team' | 'website';
+type StaffTab = 'overview' | 'orders' | 'cakes' | 'team' | 'website' | 'costing';
 type OrderFilter = 'actionable' | 'active' | 'completed' | 'all';
 const terminalStatuses = new Set(['delivered','cancelled']);
 const stageNames:Record<string,string>={pending:'New order',confirmed:'Confirmed',preparing:'Baking',ready:'Ready for rider',assigned:'Rider assigned',picked_up:'Picked up',out_for_delivery:'On the way',delivered:'Delivered',cancelled:'Cancelled'};
@@ -63,7 +106,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [signingOut,setSigningOut]=useState(false);
   const [activeTab,setActiveTab]=useState<StaffTab>(() => {
     const saved=loadStaffTab(getBrowserWorkspaceStorage());
-    return ['overview','orders','cakes','team','website'].includes(saved)?saved as StaffTab:'overview';
+    return ['overview','orders','cakes','team','website','costing'].includes(saved)?saved as StaffTab:'overview';
   });
   const [orderFilter,setOrderFilter]=useState<OrderFilter>('all');
   const [orderSearch,setOrderSearch]=useState('');
@@ -82,37 +125,25 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [fedcmButton, setFedcmButton] = useState(true);
   const [googleUiError, setGoogleUiError] = useState('');
   const [orders, setOrders] = useState<StaffOrder[]>([]);
-  const [beepEnabled,setBeepEnabled]=useState(false);
+  const [selectedOrderForPosPrint, setSelectedOrderForPosPrint] = useState<StaffOrder | Order | null>(null);
+  const [selectedOrderForDetails, setSelectedOrderForDetails] = useState<StaffOrder | Order | null>(null);
+  const [isPosSettingsOpen, setIsPosSettingsOpen] = useState(false);
+  const [isCollectionStatementOpen, setIsCollectionStatementOpen] = useState(false);
+  const [isCreateOrderModalOpen, setIsCreateOrderModalOpen] = useState(false);
+  const [beepEnabled,setBeepEnabled]=useState(()=>isOrderBeepEnabled());
   const [unreadOrderAlerts,setUnreadOrderAlerts]=useState<string[]>([]);
-  const alertAudioRef=useRef<AudioContext|null>(null);
   const lastServerOrdersRef=useRef<StaffOrder[]|null>(null);
   const alertedIdentityRef=useRef('');
   const playOrderBeep=useCallback(()=>{
-    const ctx=alertAudioRef.current;
-    if(!ctx||ctx.state!=='running')return;
-    try{
-      const base=ctx.currentTime+0.04;
-      for(let i=0;i<3;i++){
-        const tone=ctx.createOscillator(),gain=ctx.createGain(),at=base+i*.32;
-        tone.type='sine';tone.frequency.setValueAtTime(i===1?840:980,at);
-        gain.gain.setValueAtTime(0.0001,at);
-        gain.gain.exponentialRampToValueAtTime(.18,at+.018);
-        gain.gain.exponentialRampToValueAtTime(.0001,at+.2);
-        tone.connect(gain);gain.connect(ctx.destination);
-        tone.start(at);tone.stop(at+.22);
-      }
-    }catch{/* Browser audio policy may block sound; visual alert remains. */}
-  },[]);
+    if(!beepEnabled)return;
+    void playOrderAlertSound();
+  },[beepEnabled]);
   const enableOrderBeep=async()=>{
     try{
-      const AudioFactory=window.AudioContext;
-      if(!AudioFactory)throw new Error('Sound is unavailable in this browser.');
-      const ctx=alertAudioRef.current??new AudioFactory();
-      alertAudioRef.current=ctx;
-      await ctx.resume();
-      if(ctx.state!=='running')throw new Error('Browser blocked the sound. Tap again.');
+      getOrCreateAudioContext();
+      setOrderBeepEnabled(true);
       setBeepEnabled(true);
-      playOrderBeep();
+      await playOrderAlertSound(true);
       // An explicit click can also request optional system notifications.
       if('Notification' in window && Notification.permission==='default') {
         void Notification.requestPermission().catch(()=>{});
@@ -120,8 +151,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     }catch(e){setBeepEnabled(false);setError(e instanceof Error?e.message:'Cannot enable beep.');}
   };
   const disableOrderBeep=()=>{
+    setOrderBeepEnabled(false);
     setBeepEnabled(false);
-    void alertAudioRef.current?.suspend().catch(()=>{});
   };
   const [staffProfiles, setStaffProfiles] = useState<StaffProfile[]>([]);
   const [refreshingStaff, setRefreshingStaff] = useState(false);
@@ -129,8 +160,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [loading, setLoading] = useState(false);
   const [busyOrderId, setBusyOrderId] = useState('');
   const [riderEmail, setRiderEmail] = useState('');
-  const [otpOrderId, setOtpOrderId] = useState('');
-  const [otp, setOtp] = useState('');
+  const [deliveryConfirmOrderId, setDeliveryConfirmOrderId] = useState('');
   const [cashCollected, setCashCollected] = useState(false);
   const [updatedAt, setUpdatedAt] = useState('');
   const ordersRefreshInFlight=useRef<string|null>(null);
@@ -152,45 +182,45 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       .then(data=>{
         if(controller.signal.aborted)return;
         if(data?.ok===true&&data?.up_to_date===false)
-          setBackendWarning('The Google Apps Script deployment is outdated. Delivery OTP, the Website Manager and faster order updates require the latest All-in-One Code.gs and a New version deployment.');
+          setBackendWarning('The Google Apps Script deployment is outdated. Customer links, the Website Manager and faster order updates require the latest All-in-One Code.gs and a New version deployment.');
         else setBackendWarning('');
       })
       .catch(()=>{});
     return()=>controller.abort();
   },[isOpen,endpoint]);
   const testFirestoreWrite=async()=>{
-    if(!identity||identity.role!=='super_admin'||firebaseProbeBusy)return;
+    if(!identity||!['super_admin','admin'].includes(identity.role)||firebaseProbeBusy)return;
     setFirebaseProbeBusy(true);
     setFirebaseProbeMessage('');
     try{
       const result=await verifyFirebaseMirrorFromStaff(endpoint,identity.token);
       setFirebaseProbeMessage(result.ok
-        ? 'Firestore write verified. Private integration_checks/cloudflare_pages document saved successfully.'
-        : 'Firebase connection failed: '+result.code+'. Check the Cloudflare server-only secrets and service-account permissions.');
+        ? 'Cloud backup write verified. Private integration document saved successfully.'
+        : 'Cloud connection check: '+result.code+'. Check the server-only secrets and service-account permissions.');
     }catch(error){
-      setFirebaseProbeMessage(error instanceof Error?error.message:'Firebase write test failed.');
+      setFirebaseProbeMessage(error instanceof Error?error.message:'Cloud write test failed.');
     }finally{setFirebaseProbeBusy(false);}
   };
   const syncHistoricalFirebaseOrders=async()=>{
-    if(!identity||identity.role!=='super_admin'||firebaseBackfillBusy)return;
-    if(!window.confirm('Sync private, confirmed order records from the active backend to your server-only Firebase Firestore mirror? This keeps the original orders unchanged.'))return;
+    if(!identity||!['super_admin','admin'].includes(identity.role)||firebaseBackfillBusy)return;
+    if(!window.confirm('Sync private, confirmed order records from the active backend to your server-only cloud backup? This keeps the original orders unchanged.'))return;
     setFirebaseBackfillBusy(true);
     setFirebaseBackfillMessage('');
     try{
       let offset=firebaseBackfillOffset,total=0,saved=0,unchanged=0,failed=0,skipped=0;
       for(let batch=0;batch<5;batch++){
         const result=await backfillFirebaseOrders(endpoint,identity.token,offset);
-        if(!result.configured)throw new Error('Firebase mirror is not configured on the Vercel server. Set FIREBASE_MIRROR_ENABLED and the server-only service account.');
+        if(!result.configured)throw new Error('Cloud backup mirror is not configured on the server. Set backup configuration and service credentials.');
         saved+=result.saved;unchanged+=result.unchanged;failed+=result.failed;skipped+=result.skipped;
         total=result.total;
         if(result.next_offset<=offset || result.next_offset>=total){offset=result.next_offset;break;}
         offset=result.next_offset;
       }
       setFirebaseBackfillOffset(offset);
-      setFirebaseBackfillMessage('Firestore sync: '+offset+' of '+total+' checked; '+saved+
+      setFirebaseBackfillMessage('Cloud backup sync: '+offset+' of '+total+' checked; '+saved+
         ' saved, '+unchanged+' already current, '+skipped+' skipped, '+failed+
         ' failed.'+(offset<total?' Click Sync again to continue.':' Backfill complete.'));
-    }catch(err){setFirebaseBackfillMessage(err instanceof Error?err.message:'Firebase backfill failed.');}
+    }catch(err){setFirebaseBackfillMessage(err instanceof Error?err.message:'Cloud backup sync failed.');}
     finally{setFirebaseBackfillBusy(false);}
   };
   const [legacyKey,setLegacyKey]=useState<{orderId:string;key:string}|null>(null);
@@ -213,8 +243,9 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     const operational=['kitchen_manager','delivery_manager','delivery_man','order_manager'].includes(identity.role);
     const stored=loadStaffTab(getBrowserWorkspaceStorage());
     const allowed=['orders','overview',...(['super_admin','admin','order_manager'].includes(identity.role)?['cakes']:[]),
-      ...(identity.role==='super_admin'?['team']:[]),
-      ...(['super_admin','admin'].includes(identity.role)?['website']:[])];
+      ...(['super_admin','admin'].includes(identity.role)?['team']:[]),
+      ...(['super_admin','admin'].includes(identity.role)?['website']:[]),
+      ...(['super_admin','admin','order_manager','accountant'].includes(identity.role)?['costing']:[])];
     const next=allowed.includes(stored)?stored as StaffTab:operational?'orders':'overview';
     setActiveTab(next);
     // Keep every authorized order visible as it moves between roles/stages.
@@ -228,18 +259,20 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const deliveryCount=orders.filter(order=>['assigned','picked_up','out_for_delivery'].includes(order.status)).length;
   const collectedCOD=orders.filter(order=>order.payment_method==='cod'&&order.payment_status==='paid'&&order.cod_collected)
     .reduce((total,order)=>total+order.total_amount,0);
-  const roleTabs:{id:StaffTab;label:string;hint:string;icon:typeof LayoutDashboard;show:boolean}[]=[
-    {id:'overview',label:'Overview',hint:'Shop pulse',icon:LayoutDashboard,show:true},
-    {id:'orders',label:'Orders & delivery',hint:'Live workflow',icon:ShoppingBag,show:true},
-    {id:'cakes',label:'Custom cake requests',hint:'Quotes & approvals',icon:CakeSlice,show:['super_admin','admin','order_manager'].includes(identity?.role||'')},
-    {id:'team',label:'Staff & access',hint:'People and roles',icon:UsersRound,show:identity?.role==='super_admin'},
-    {id:'website',label:'Website manager',hint:'Shop content',icon:Store,show:identity?.role==='super_admin'||identity?.role==='admin'},
+  const roleTabs:{id:StaffTab;label:string;icon:typeof LayoutDashboard;show:boolean}[]=[
+    {id:'overview',label:'Overview',icon:LayoutDashboard,show:true},
+    {id:'orders',label:'Orders & delivery',icon:ShoppingBag,show:true},
+    {id:'cakes',label:'Custom cake requests',icon:CakeSlice,show:['super_admin','admin','order_manager'].includes(identity?.role||'') || Boolean(identity && mockDb.hasPermission(identity.role, 'custom_cakes.manage'))},
+    {id:'costing',label:'Costing & Profit (কস্টিং ও লাভ)',icon:Calculator,show:['super_admin','admin','order_manager','accountant'].includes(identity?.role||'') || Boolean(identity && mockDb.hasPermission(identity.role, 'costing.view'))},
+    {id:'team',label:'Staff & access',icon:UsersRound,show:['super_admin','admin'].includes(identity?.role||'') || Boolean(identity && mockDb.hasPermission(identity.role, 'staff.manage'))},
+    {id:'website',label:'Website manager',icon:Store,show:identity?.role==='super_admin'||identity?.role==='admin' || Boolean(identity && mockDb.hasPermission(identity.role, 'settings.manage'))},
   ];
   const tabs=roleTabs.filter(tab=>tab.show);
   const pipeline=['pending','confirmed','preparing','ready','assigned','picked_up','out_for_delivery','delivered'];
   const matchingOrders=identity?orders.filter(order=>{
     const query=orderSearch.trim().toLowerCase();
-    const matches=!query||[order.order_number,order.customer_name,order.customer_phone,order.delivery_address,order.rider_name]
+    const shortNum=formatShortOrderNumber(order.order_number).toLowerCase();
+    const matches=!query||[order.order_number,shortNum,order.customer_name,order.customer_phone,order.delivery_address,order.rider_name]
       .some(value=>String(value||'').toLowerCase().includes(query));
     const filterMatch=orderFilter==='all'||(orderFilter==='actionable'&&isActionable(order,identity.role))||
       (orderFilter==='active'&&!terminalStatuses.has(order.status))||
@@ -257,13 +290,20 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     }
   },[identity?.role,identity?.email]);
   useEffect(()=>{
-    if(!beepEnabled||unreadOrderAlerts.length===0||!isOpen)return;
-    const timer=window.setInterval(()=>{
-      if(document.visibilityState==='visible')playOrderBeep();
-    },25000);
-    return()=>window.clearInterval(timer);
-  },[beepEnabled,unreadOrderAlerts.length,isOpen,playOrderBeep]);
-  useEffect(()=>()=>{void alertAudioRef.current?.close().catch(()=>{});},[]);
+    if(beepEnabled && unreadOrderAlerts.length > 0 && isOpen){
+      startOrderAlertLoop('staff_unread_' + unreadOrderAlerts.join('_'));
+    } else {
+      stopOrderAlertLoop();
+    }
+    return () => {
+      stopOrderAlertLoop();
+    };
+  },[beepEnabled, unreadOrderAlerts.length, isOpen]);
+  useEffect(()=>{
+    if(isOpen && beepEnabled){
+      getOrCreateAudioContext();
+    }
+  },[isOpen, beepEnabled]);
 
   const signIn = useCallback(async (idToken: string) => {
     setLoading(true); setError('');
@@ -344,7 +384,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     }finally{setSigningOut(false);}
   };
   const createEmployee=async(e:React.FormEvent)=>{
-    e.preventDefault();if(!identity||identity.role!=='super_admin')return;
+    e.preventDefault();if(!identity||!['super_admin','admin'].includes(identity.role))return;
     setCreatingStaff(true);setError('');
     try {
       await createStaffAccount(endpoint,identity.token,newStaff.name,newStaff.username,newStaff.password,newStaff.role);
@@ -424,7 +464,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
         const added=detectNewStaffOrderAlerts(prior,fresh,identity.role,identity.email);
         if(added.length){
           setUnreadOrderAlerts(current=>[...new Set([...current,...added])]);
-          if(alertAudioRef.current?.state==='running')playOrderBeep();
+          if(beepEnabled) playOrderBeep();
           if('Notification' in window && Notification.permission==='granted' && beepEnabled){
             try{
               const notice=new Notification('🔔 Aurora’s Cake — new order!',{
@@ -482,7 +522,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   }, [isOpen, identity, activeTab, refresh]);
 
   const toggleStaff=async(username:string,active:boolean)=>{
-    if(!identity||identity.role!=='super_admin'||!window.confirm(active?'Enable this staff account?':'Disable this staff account and revoke its sessions?'))return;
+    if(!identity||!['super_admin','admin'].includes(identity.role)||!window.confirm(active?'Enable this staff account?':'Disable this staff account and revoke its sessions?'))return;
     setRefreshingStaff(true);setError('');
     try{
       await changeStaffStatus(endpoint,identity.token,username,active);
@@ -493,7 +533,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   };
   const resetEmployeePassword=async(event:React.FormEvent)=>{
     event.preventDefault();
-    if(!identity||identity.role!=='super_admin'||!resetFor)return;
+    if(!identity||!['super_admin','admin'].includes(identity.role)||!resetFor)return;
     setRefreshingStaff(true);setError('');
     try{
       await resetStaffPassword(endpoint,identity.token,resetFor,resetPassword);
@@ -503,11 +543,11 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   };
 
   const refreshStaffProfiles = useCallback(async () => {
-    if (!identity || identity.role !== 'super_admin') return;
+    if (!identity || !['super_admin','admin'].includes(identity.role)) return;
     setRefreshingStaff(true);
     try {
       const current = await checkStaffSession(endpoint, identity.token);
-      if (current.role !== 'super_admin') throw new Error('Super admin access is no longer available. Sign in again.');
+      if (current.role !== 'super_admin' && current.role !== 'admin') throw new Error('Administrator access is no longer available. Sign in again.');
       setStaffProfiles(current.staff_profiles ?? []);
       setError('');
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to refresh staff profiles.'); }
@@ -515,7 +555,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   }, [endpoint, identity]);
 
   const recoverLegacy=async(order:StaffOrder)=>{
-    if(!identity||identity.role!=='super_admin'||busyOrderId)return;
+    if(!identity||!['super_admin','admin'].includes(identity.role)||busyOrderId)return;
     if(!window.confirm('Only continue after independently verifying the original customer in person or through a trusted prior contact. This creates a private receipt key; send it ONLY to that customer. Continue?'))return;
     setBusyOrderId(order.id);setError('');setLegacyKey(null);
     try{
@@ -530,20 +570,22 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     if (!identity || busyOrderId) return;
     if (operation === 'cancel' && !window.confirm('Cancel this order? This cannot be undone.')) return;
     if (operation === 'assign' && !riderEmail) { setError('Select a registered rider.'); return; }
-    if (operation === 'deliver' && (!/^\d{4}$/.test(otp) || (order.payment_method === 'cod' && !cashCollected))) {
-      setError('Enter the 4-digit delivery OTP and confirm that the cash was received.'); return;
+    if (operation === 'deliver' && order.payment_method === 'cod' && !cashCollected) {
+      setError('Confirm that the cash was received before marking delivered.'); return;
     }
     setBusyOrderId(order.id); setError('');
     try {
-      const confirmed=await mutateStaffOrder(endpoint, identity.token, operation, order.id,
+      const isManager = identity.role === 'super_admin' || identity.role === 'admin' || identity.role === 'delivery_manager';
+      const confirmed = await mutateStaffOrder(endpoint, identity.token, operation, order.id,
         operation === 'assign' ? { rider_email: riderEmail } :
-        operation === 'deliver' ? { delivery_otp: otp, cash_collected: cashCollected } : {});
+        operation === 'deliver' ? { cash_collected: cashCollected, admin_override: isManager } :
+        (operation === 'pick_up' || operation === 'start_delivery') ? { admin_override: isManager } : {});
       // Display the server-confirmed stage immediately; don't block the rider
       // for another costly full Sheet list request.
       setOrders(previous=>reconcileStaffOrders(previous,previous.map(item=>item.id===confirmed.id?{...item,...confirmed}:item)));
       setUpdatedAt(new Date().toLocaleTimeString());
-      setOrderUpdateMessage('Order '+order.order_number+' updated to '+confirmed.status.replaceAll('_',' ')+'.');
-      setOtp(''); setOtpOrderId(''); setCashCollected(false);
+      setOrderUpdateMessage('Order '+formatShortOrderNumber(order.order_number)+' updated to '+confirmed.status.replaceAll('_',' ')+'.');
+       setDeliveryConfirmOrderId(''); setCashCollected(false);
       // Refresh independently to reconcile staff roles/other active orders.
       void refresh();
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to update order.'); }
@@ -625,8 +667,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                             placeholder="e.g. kitchen01" aria-label="Employee username" className="mt-2 w-full rounded-xl border bg-slate-50 p-3.5 focus:ring-2 focus:ring-emerald-700 outline-none"/>
                         </label>
                         <label className="block text-sm font-semibold text-slate-700">Password
-                          <input value={password} onChange={e=>setPassword(e.target.value)} required type="password"
-                            autoComplete="current-password" placeholder="Your password" aria-label="Employee password"
+                          <input value={password} onChange={e=>setPassword(e.target.value)} required type="password" minLength={4}
+                            autoComplete="current-password" placeholder="Your password (min 4 digits)" aria-label="Employee password"
                             className="mt-2 w-full rounded-xl border bg-slate-50 p-3.5 focus:ring-2 focus:ring-emerald-700 outline-none"/>
                         </label>
                         <button type="submit" disabled={loading} className="w-full rounded-xl bg-[#15342e] text-white font-bold p-3.5 disabled:opacity-60">
@@ -657,8 +699,19 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
             <div className="grid lg:grid-cols-[238px_minmax(0,1fr)] min-h-[74vh]">
               <aside className="bg-white border-b lg:border-b-0 lg:border-r border-slate-200 p-3 sm:p-4 lg:p-5 space-y-5">
                 <div className="flex items-center gap-3 rounded-2xl bg-[#eff5f0] p-3">
-                  <div className="grid place-items-center h-11 w-11 rounded-xl bg-[#1c4e3b] text-white font-black">
-                    {identity.name.slice(0,1).toUpperCase()}
+                  <div className="relative shrink-0">
+                    <img
+                      src={mockDb.getShopSettingsSync().profile_image_url || mockDb.getShopSettingsSync().logo_url || '/images/aurora-logo.png'}
+                      alt={identity.name}
+                      className="h-11 w-11 rounded-xl object-cover border border-emerald-900/15 shadow-2xs bg-white"
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        if (!target.src.endsWith('/images/aurora-logo.png')) {
+                          target.src = '/images/aurora-logo.png';
+                        }
+                      }}
+                    />
+                    <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full" title="অনলাইন" />
                   </div>
                   <div className="min-w-0"><strong className="text-sm block truncate text-[#173b32]">{identity.name}</strong>
                     <p className="text-xs text-slate-500">{roleName(identity.role)}</p>
@@ -672,8 +725,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                       className={'flex shrink-0 items-center gap-3 rounded-xl px-4 py-3 min-h-12 text-left transition-colors '+(activeTab===tab.id?
                         'bg-[#1a453a] text-white shadow-sm':'text-slate-600 hover:bg-slate-100')}>
                       <Icon size={18} className="shrink-0"/>
-                      <span><span className="block text-sm font-bold whitespace-nowrap">{tab.label}</span>
-                        <span className={'hidden lg:block text-[11px] '+(activeTab===tab.id?'text-white/65':'text-slate-400')}>{tab.hint}</span></span>
+                      <span className="block text-sm font-bold whitespace-nowrap">{tab.label}</span>
                       {tab.id==='orders'&&actionableCount>0&&<span className={'ml-auto rounded-full min-w-6 px-2 py-0.5 text-xs font-black '+(activeTab===tab.id?'bg-white/20':'bg-amber-100 text-amber-800')}>{actionableCount}</span>}
                     </button>;
                   })}
@@ -695,7 +747,11 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                     <span aria-live="polite" className="hidden sm:block text-xs text-slate-500">{loadingOrders?'Syncing · keeping current data…':viewingSavedOrders?'Saved orders · updating…':'Updated '+(updatedAt||'—')}</span>
                     <button type="button" onClick={()=>void (beepEnabled?disableOrderBeep():enableOrderBeep())}
                        className={'min-h-11 flex items-center gap-2 rounded-xl border px-3 text-sm font-bold '+(beepEnabled?'bg-emerald-50 text-emerald-800 border-emerald-200':'bg-amber-100 text-amber-950 border-amber-300')}>
-                       {beepEnabled?'🔊 Beep ON':'🔇 Enable Beep'}
+                       {beepEnabled?'🔊 High Alert ON (Auto)':'🔇 Enable Beep'}
+                     </button>
+                     <button type="button" title="Test high order alert sound" onClick={()=>void testOrderAlertSound()}
+                       className="min-h-11 flex items-center gap-1.5 rounded-xl border bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">
+                       🔔 Test Sound
                      </button>
                      <button type="button" disabled={loadingOrders} onClick={()=>void refresh()}
                       className="min-h-11 flex items-center gap-2 rounded-xl bg-white border px-3 text-sm font-semibold text-slate-700 disabled:opacity-60">
@@ -715,8 +771,33 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                          <p className="text-sm text-red-800">New orders or delivery steps need attention. {beepEnabled?'Beep reminders are active.':'Click Enable Beep for sound.'}</p></div>
                      </div>
                      <div className="flex gap-2">
-                       <button type="button" onClick={()=>setActiveTab('orders')} className="rounded-xl bg-red-700 text-white px-4 py-2 font-bold text-sm">View orders</button>
-                       <button type="button" onClick={()=>setUnreadOrderAlerts([])} className="rounded-xl border border-red-300 px-4 py-2 font-bold text-sm text-red-800">Acknowledge</button>
+                       <button
+                         type="button"
+                         onClick={() => {
+                           setActiveTab('orders');
+                           const target =
+                             orders.find((o) => unreadOrderAlerts.includes(o.id)) || orders[0];
+                           setUnreadOrderAlerts([]);
+                           acknowledgeOrderAlert();
+                           if (target) {
+                             setSelectedOrderForDetails(target);
+                           }
+                         }}
+                         className="rounded-xl bg-red-700 hover:bg-red-800 text-white px-4 py-2 font-bold text-sm cursor-pointer shadow-xs transition-colors flex items-center gap-1.5"
+                       >
+                         <Eye size={15} />
+                         <span>View orders (অর্ডার দেখুন ও প্রিন্ট)</span>
+                       </button>
+                       <button
+                         type="button"
+                         onClick={() => {
+                           setUnreadOrderAlerts([]);
+                           acknowledgeOrderAlert();
+                         }}
+                         className="rounded-xl border border-red-300 px-4 py-2 font-bold text-sm text-red-800 hover:bg-red-100 cursor-pointer transition-colors"
+                       >
+                         Acknowledge
+                       </button>
                      </div>
                    </div>
                  )}
@@ -734,12 +815,12 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                     </div>;})}
                   </div>
                 )}
-              {identity.role === 'super_admin' && activeTab==='team' && (
+              {['super_admin', 'admin'].includes(identity.role) && activeTab==='team' && (
                 <section className="rounded-2xl bg-white border border-slate-200 p-4 space-y-3" aria-labelledby="staff-profiles-heading">
                   <div className="flex flex-wrap gap-3 items-center justify-between">
                     <div>
                       <h3 id="staff-profiles-heading" className="text-lg font-bold text-slate-900">Staff Profiles ({staffProfiles.length})</h3>
-                      <p className="text-sm text-slate-600">Verified staff directory · Only the Super Admin can see this list</p>
+                      <p className="text-sm text-slate-600">Verified staff directory · Administrator access</p>
                     </div>
                     <button type="button" disabled={refreshingStaff} onClick={() => void refreshStaffProfiles()}
                       className="rounded-xl border px-3 py-2 text-sm flex items-center gap-2 disabled:opacity-50">
@@ -777,8 +858,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                   {resetFor && (
                     <form onSubmit={resetEmployeePassword} className="border rounded-xl p-3 flex flex-wrap items-center gap-2">
                       <label className="text-sm font-medium">New password for @{resetFor}</label>
-                      <input type="password" required minLength={10} autoComplete="new-password" value={resetPassword}
-                        onChange={e=>setResetPassword(e.target.value)} placeholder="10+ characters" aria-label="New staff account password"
+                      <input type="password" required minLength={4} autoComplete="new-password" value={resetPassword}
+                        onChange={e=>setResetPassword(e.target.value)} placeholder="Minimum 4 digits / chars" aria-label="New staff account password"
                         className="border rounded-lg p-2 flex-1 min-w-40"/>
                       <button disabled={refreshingStaff} type="submit" className="bg-emerald-800 text-white p-2 rounded-xl">Save & revoke sessions</button>
                       <button type="button" onClick={()=>{setResetFor('');setResetPassword('');}} className="border p-2 rounded-xl">Cancel</button>
@@ -790,7 +871,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                       onChange={e=>setNewStaff(v=>({...v,name:e.target.value}))} className="border rounded-lg p-2"/>
                     <input required aria-label="New staff username" placeholder="Username, e.g. rider01" value={newStaff.username}
                       onChange={e=>setNewStaff(v=>({...v,username:e.target.value}))} className="border rounded-lg p-2"/>
-                    <input required type="password" minLength={10} aria-label="New staff password" placeholder="Password (10+ characters)"
+                    <input required type="password" minLength={4} aria-label="New staff password" placeholder="Password (min 4 digits)"
                       value={newStaff.password} onChange={e=>setNewStaff(v=>({...v,password:e.target.value}))} className="border rounded-lg p-2"/>
                     <select aria-label="New staff role" value={newStaff.role} onChange={e=>setNewStaff(v=>({...v,role:e.target.value as StaffRoleName}))} className="border rounded-lg p-2">
                       {(['admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'] as StaffRoleName[]).map(role=>(
@@ -800,7 +881,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                     <button type="submit" disabled={creatingStaff} className="sm:col-span-2 rounded-xl bg-emerald-800 text-white font-semibold p-3 disabled:opacity-50">
                       {creatingStaff?'Creating…':'Create staff account'}
                     </button>
-                    <p className="text-xs sm:col-span-2 text-slate-500">Share the initial password privately with the employee. Staff credentials are never emailed automatically.</p>
+                    <p className="text-xs sm:col-span-2 text-slate-500">Share the initial password (min 4 digits) privately with the employee. Staff credentials are never emailed automatically.</p>
                   </form>
                 </section>
               )}
@@ -813,20 +894,20 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                     {activeTab==='overview'&&<button type="button" className="rounded-xl px-4 py-3 bg-[#1b493d] text-white text-sm font-bold flex items-center gap-2"
                       onClick={()=>{setActiveTab('orders');setOrderFilter('all');}}>View all orders <ArrowRight size={15}/></button>}
                   </div>
-                  {identity.role==='super_admin'&&activeTab==='orders'&&(
-                    <section aria-label="Firebase order backfill" className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+                  {['super_admin', 'admin'].includes(identity.role)&&activeTab==='orders'&&(
+                    <section aria-label="Cloud order backup" className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
                       <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div><p className="font-bold text-[#173b32]">Firebase order backup</p>
-                          <p className="text-slate-500 text-xs">Safely sync earlier confirmed Sheets orders to private Firestore. New orders sync automatically after server configuration.</p></div>
+                        <div><p className="font-bold text-[#173b32]">ক্লাউড ব্যাকআপ সিঙ্ক (Cloud Backup)</p>
+                          <p className="text-slate-500 text-xs">Safely sync earlier confirmed Sheets orders to private cloud backup. New orders sync automatically after server configuration.</p></div>
                         <button type="button" onClick={()=>void syncHistoricalFirebaseOrders()} disabled={firebaseBackfillBusy}
                           className="rounded-lg bg-[#173b32] px-4 py-2.5 font-bold text-white disabled:opacity-50">
-                          {firebaseBackfillBusy?'Syncing…':firebaseBackfillOffset?'Continue Firebase sync':'Sync existing orders'}
+                          {firebaseBackfillBusy?'Syncing…':firebaseBackfillOffset?'Continue cloud sync':'Sync existing orders'}
                         </button>
                       </div>
                       <div className="mt-3 flex flex-wrap items-center gap-3">
                         <button type="button" onClick={()=>void testFirestoreWrite()} disabled={firebaseProbeBusy}
                           className="rounded-lg border border-emerald-800 px-4 py-2.5 font-bold text-emerald-950 disabled:opacity-50">
-                          {firebaseProbeBusy?'Testing Firebase…':'Test Firebase write'}
+                          {firebaseProbeBusy?'Testing cloud…':'Test cloud backup'}
                         </button>
                         <span className="text-xs text-slate-600">Super Admin only · writes a harmless test document</span>
                       </div>
@@ -835,11 +916,44 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                     </section>
                   )}
                   <div className="rounded-2xl bg-white border border-slate-200 p-3 sm:p-4 space-y-3">
-                    <div className="flex flex-wrap gap-2" aria-label="Filter orders">
-                      {([{value:'actionable',label:'Needs my action'},{value:'active',label:'In progress'},{value:'completed',label:'Finished'},{value:'all',label:'All orders'}] as const).map(option=>(
-                        <button type="button" key={option.value} aria-pressed={orderFilter===option.value} onClick={()=>setOrderFilter(option.value)}
-                          className={'rounded-lg px-3 py-2.5 text-xs sm:text-sm font-bold '+(orderFilter===option.value?'bg-[#1b493d] text-white':'bg-slate-100 text-slate-700 hover:bg-slate-200')}>{option.label}</button>
-                      ))}
+                    <div className="flex flex-wrap gap-2 items-center justify-between" aria-label="Filter orders">
+                      <div className="flex flex-wrap gap-2">
+                        {([{value:'actionable',label:'Needs my action'},{value:'active',label:'In progress'},{value:'completed',label:'Finished'},{value:'all',label:'All orders'}] as const).map(option=>(
+                          <button type="button" key={option.value} aria-pressed={orderFilter===option.value} onClick={()=>setOrderFilter(option.value)}
+                            className={'rounded-lg px-3 py-2.5 text-xs sm:text-sm font-bold '+(orderFilter===option.value?'bg-[#1b493d] text-white':'bg-slate-100 text-slate-700 hover:bg-slate-200')}>{option.label}</button>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsPosSettingsOpen(true)}
+                        className="rounded-lg border border-slate-300 bg-slate-100 hover:bg-slate-200 px-3 py-2 text-xs sm:text-sm font-bold text-slate-800 flex items-center gap-1.5 cursor-pointer ml-auto"
+                        title="POS থার্মাল প্রিন্টার সাইজ ও সেটিংস পরিবর্তন করুন"
+                      >
+                        <Printer size={15} className="text-rose-600" />
+                        <span>⚙️ POS প্রিন্টার</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setIsCollectionStatementOpen(true)}
+                        className="rounded-lg bg-emerald-800 hover:bg-emerald-900 px-3 py-2 text-xs sm:text-sm font-bold text-white flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                        title="তারিখ অনুযায়ী বিক্রয় ও কালেকশন স্টেটমেন্ট এবং প্রিন্ট রিপোর্ট দেখুন"
+                      >
+                        <FileText size={15} className="text-amber-300" />
+                        <span>📊 কালেকশন স্টেটমেন্ট</span>
+                      </button>
+
+                      {identity && ['super_admin', 'admin', 'order_manager'].includes(identity.role) && (
+                        <button
+                          type="button"
+                          onClick={() => setIsCreateOrderModalOpen(true)}
+                          className="rounded-lg bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-700 hover:to-amber-700 px-3.5 py-2 text-xs sm:text-sm font-bold text-white flex items-center gap-1.5 cursor-pointer shadow-xs transition-all active:scale-95"
+                          title="সরাসরি নতুন অর্ডার তৈরি করুন (স্বয়ংক্রিয়ভাবে কনফার্ম হবে)"
+                        >
+                          <CheckCircle size={15} />
+                          <span>+ নতুন অর্ডার তৈরি</span>
+                        </button>
+                      )}
                     </div>
                     <label className="flex gap-2 items-center rounded-xl border bg-slate-50 px-3 py-2" aria-label="Search orders">
                       <Search size={18} className="text-slate-400"/>
@@ -849,7 +963,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                   </div>
                   {activeTab==='orders'&&['super_admin','admin','order_manager','delivery_manager'].includes(identity.role)&&(
                     <section className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4 space-y-3" aria-label="Customer Master Lookup">
-                      <h4 className="font-bold text-emerald-950">Customer Master · Phone VLOOKUP</h4>
+                      <h4 className="font-bold text-emerald-950">Customer Master · Phone Lookup</h4>
                       <form className="flex flex-wrap gap-2" onSubmit={lookupCustomer}>
                         <input type="tel" aria-label="Customer phone lookup" value={customerLookupPhone} required
                           onChange={e=>{setCustomerLookupPhone(e.target.value);setCustomerLookupResult(null);setCustomerLookupMessage('');}}
@@ -881,96 +995,396 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                     </div>}
                   <div className="grid gap-3">
                     {matchingOrders.slice(0,activeTab==='overview'?5:100).map(order => {
-                  const next = actionForStatus[order.status] || null;
+                  const next = ['super_admin','admin'].includes(identity.role)&&order.status==='ready'?{operation:'start_delivery' as StaffOperation,label:'নিজেই delivery শুরু করুন'}:actionForStatus[order.status] || null;
                   const canCancel = canOperate(identity.role, 'cancel') && ['pending','confirmed','preparing','ready','assigned'].includes(order.status);
-                  const expanded=expandedOrders.includes(order.id);
-                  return <article key={order.id} className={'bg-white rounded-[20px] border p-4 sm:p-5 space-y-4 transition-colors '+(next&&canOperate(identity.role,next.operation)?'border-emerald-300 shadow-[0_2px_18px_rgba(10,80,60,.07)]':'border-slate-200')}>
-                    <div className="flex flex-wrap justify-between items-start gap-3">
-                      <div className="flex gap-3 min-w-0">
-                        <div className="shrink-0 h-11 w-11 rounded-2xl bg-[#eaf2eb] text-[#20533e] grid place-items-center"><PackageCheck size={21}/></div>
+                  const shortNum = formatShortOrderNumber(order.order_number);
+                  return <article key={order.id} onClick={()=>{setUnreadOrderAlerts([]);acknowledgeOrderAlert();}} className="bg-white rounded-3xl border border-slate-200 hover:border-slate-300 p-4 sm:p-5 space-y-4 transition-all shadow-xs hover:shadow-md">
+                    {/* Top Header Bar: 4-digit order number, status, slot, and total price */}
+                    <div className="flex flex-wrap justify-between items-start gap-3 border-b border-slate-100 pb-3">
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className="shrink-0 h-11 w-11 rounded-2xl bg-slate-100 text-slate-700 grid place-items-center shadow-2xs font-black">
+                          <PackageCheck size={22} />
+                        </div>
                         <div className="min-w-0">
-                          <strong className="block text-base sm:text-lg text-[#173b32] break-all">#{order.order_number}</strong>
-                          <p className="text-sm text-slate-600">{order.customer_name||'Customer'} {order.customer_phone&&<a className="text-emerald-700 underline underline-offset-2" href={`tel:${order.customer_phone}`}>{order.customer_phone}</a>}</p>
-                          <p className="mt-1 text-xs text-slate-500 flex items-center gap-1"><Clock3 size={12}/>{order.delivery_date||'Date not specified'} · {order.delivery_slot||'Any slot'}</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center gap-1 bg-slate-900 text-white font-mono font-black text-base sm:text-lg px-3 py-1 rounded-xl shadow-xs tracking-wider border border-slate-800" title={`পুরো অর্ডার আইডি: #${formatShortOrderNumber(order.order_number)}`}>
+                              <span className="text-amber-400">#</span>{shortNum}
+                            </span>
+                            <span className={'rounded-full px-3 py-1 text-xs font-black ring-1 uppercase tracking-wide '+stageClass(order.status)}>
+                              {stageNames[order.status] || order.status.replaceAll('_', ' ')}
+                            </span>
+                          </div>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs sm:text-sm font-semibold text-slate-700">
+                            <span className="flex items-center gap-1.5 text-slate-700 font-semibold">
+                              <Clock3 size={13} className="shrink-0 text-slate-500" />
+                              <span>{order.delivery_date || 'তারিখ নির্ধারিত নেই'}</span>
+                              <span>·</span>
+                              <span className="text-slate-900 font-bold">{order.delivery_slot || 'যেকোনো সময়'}</span>
+                            </span>
+                            <span className="text-[11px] text-slate-400 font-mono" title={formatShortOrderNumber(order.order_number)}>
+                              
+                            </span>
+                          </div>
                         </div>
                       </div>
-                      <div className="flex sm:flex-col items-center sm:items-end gap-2">
-                        <span className={'shrink-0 rounded-full px-3 py-1.5 text-xs font-extrabold ring-1 '+stageClass(order.status)}>{stageNames[order.status]||order.status.replaceAll('_',' ')}</span>
-                        <span className="text-lg font-black text-[#173b32]">৳{Number(order.total_amount||0).toLocaleString()}</span>
+
+                      <div className="flex sm:flex-col items-center sm:items-end justify-between w-full sm:w-auto gap-1">
+                        <span className="text-xl sm:text-2xl font-black text-slate-900 font-mono">
+                          ৳{Number(order.total_amount || 0).toLocaleString()}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
+                            {order.payment_method === 'cod' ? '💵 ক্যাশ অন ডেলিভারি (COD)' : `💳 ${order.payment_method?.toUpperCase() || 'অনলাইন'}`}
+                          </span>
+                          {order.payment_status === 'paid' ? (
+                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
+                              পরিশোধিত
+                            </span>
+                          ) : (
+                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-900">
+                              বকেয়া
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                    {order.delivery_address&&
-                      <div className="flex flex-wrap items-center gap-2 bg-[#f7f9f7] rounded-xl p-3 text-sm text-slate-700">
-                        <MapPin size={16} className="text-emerald-700 shrink-0"/>
-                        <span className="flex-1 min-w-0">{order.delivery_address}</span>
-                        <a className="font-bold text-emerald-800 underline whitespace-nowrap" target="_blank" rel="noopener noreferrer"
-                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.delivery_address)}`}>Directions</a>
-                      </div>}
-                    {next&&canOperate(identity.role,next.operation)&&
-                      <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900">
-                        Your next step: {next.label}. Customer progress updates after a successful save.
-                      </p>}
-                    {order.status!=='cancelled'&&
-                      <div className="space-y-1.5" aria-label={`Delivery progress: ${stageNames[order.status]||order.status}`}>
-                        <div className="flex gap-1.5">{pipeline.map((stage,index)=>(
-                          <span key={stage} title={stageNames[stage]} aria-hidden="true"
-                            className={'h-1.5 flex-1 rounded-full '+(index<=pipeline.indexOf(order.status)?'bg-emerald-700':'bg-slate-200')}/>
-                        ))}</div>
-                        <p className="text-[11px] text-slate-500">Order journey · {stageNames[order.status]||order.status}</p>
-                      </div>}
-                    <button type="button" aria-expanded={expanded} onClick={()=>setExpandedOrders(ids=>expanded?ids.filter(id=>id!==order.id):[...ids,order.id])}
-                      className="w-full flex items-center justify-between border-t pt-3 text-sm font-bold text-slate-700 hover:text-emerald-800">
-                      <span>{expanded?'Hide order details':'Show items and order details'}</span>
-                      {expanded?<ChevronUp size={18}/>:<ChevronDown size={18}/>}
-                    </button>
-                    {expanded&&<div className="rounded-xl bg-slate-50 p-4 space-y-3 text-sm text-slate-700">
-                      <div className="flex flex-wrap gap-3"><span>Payment: <strong>{order.payment_method?.toUpperCase()}</strong></span>
-                        <span>Status: <strong>{order.payment_status}</strong></span>
-                        {order.cod_collected&&<span className="text-emerald-800 font-bold">Cash collected</span>}
-                      </div>
-                      {(order.items||[]).length>0&&<div className="space-y-2">
-                        {(order.items||[]).map(item=><p key={item.id}>{item.quantity} × {item.product_name} ({item.variant_name}) {item.flavor_name?' · '+item.flavor_name:''}{item.writing_message?' · '+item.writing_message:''}</p>)}
-                      </div>}
-                      {order.order_note&&<p className="border-t pt-2">Customer note: {order.order_note}</p>}
-                      {order.rider_name&&<p className="flex items-center gap-2"><Truck size={15}/> Rider: {order.rider_name}</p>}
-                    </div>}
-                    <div className="flex flex-wrap gap-2 items-center">
-                      {next && canOperate(identity.role, next.operation) && next.operation !== 'deliver' && (
-                        <>
-                          {next.operation === 'assign' && <select aria-label="Assign registered rider" value={riderEmail} onChange={e => setRiderEmail(e.target.value)} className="min-h-12 border rounded-xl px-3 py-3 text-sm bg-white">
-                            {identity.riders.map(rider => <option key={rider.email} value={rider.email}>{rider.name} — {rider.email}</option>)}
-                          </select>}
-                          <button type="button" disabled={!!busyOrderId} onClick={() => void mutate(order,next.operation)}
-                            className="min-h-12 rounded-xl bg-[#1a493b] hover:bg-[#27644e] text-white px-5 py-3 text-sm font-bold disabled:opacity-50 flex items-center gap-2"><PackageCheck size={18} /> {busyOrderId===order.id?'Saving to Sheets…':next.label}</button>
-                        </>
-                      )}
-                      {next?.operation === 'deliver' && canOperate(identity.role,'deliver') && (
-                        otpOrderId === order.id ? (
-                          <div className="flex flex-wrap items-center gap-3">
-                            <input type="text" inputMode="numeric" maxLength={4} aria-label="Customer delivery OTP" placeholder="4-digit OTP" value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g,''))} className="w-32 border rounded-xl p-2" />
-                            {order.payment_method === 'cod' && <label className="text-sm"><input type="checkbox" checked={cashCollected} onChange={e => setCashCollected(e.target.checked)} /> I collected the full cash amount</label>}
-                            <button type="button" disabled={!!busyOrderId} onClick={() => void mutate(order,'deliver')} className="min-h-12 bg-[#1a493b] text-white font-bold rounded-xl px-5 py-3 text-sm">Verify & deliver</button>
+
+                    {/* Customer & Delivery Address Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-50/90 p-4 rounded-2xl border border-slate-200">
+                      {/* Customer Info */}
+                      <div className="space-y-2">
+                        <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                          <User size={13} className="text-slate-600" />
+                          <span>গ্রাহকের তথ্য</span>
+                        </div>
+                        <div className="text-base font-black text-slate-900">
+                          {order.customer_name || 'গ্রাহকের নাম নেই'}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                          {order.customer_phone ? (
+                            <a 
+                              href={`tel:${order.customer_phone}`}
+                              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-900 border border-slate-300 text-xs font-bold transition-all shadow-2xs group cursor-pointer"
+                              title="গ্রাহককে সরাসরি কল করুন"
+                            >
+                              <Phone size={13} className="text-emerald-700" />
+                              <span className="font-mono font-bold text-slate-900 text-xs">{order.customer_phone}</span>
+                              <span className="text-[10px] bg-emerald-700 text-white font-bold px-1.5 py-0.5 rounded-md">কল দিন</span>
+                            </a>
+                          ) : (
+                            <span className="text-xs text-slate-400">ফোন নম্বর নেই</span>
+                          )}
+                        </div>
+                        {order.rider_name && (
+                          <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5 pt-1">
+                            <Truck size={14} className="text-slate-600 shrink-0" />
+                            <span>ডেলিভারি রাইডার: <strong className="text-slate-900">{order.rider_name}</strong></span>
                           </div>
-                        ) : <button type="button" onClick={() => { setOtpOrderId(order.id); setOtp(''); setCashCollected(false); }} className="min-h-12 bg-[#1a493b] text-white font-bold rounded-xl px-5 py-3 text-sm">Verify customer OTP</button>
-                      )}
-                      {identity.role==='super_admin'&&order.legacy_receipt_missing&&order.status==='out_for_delivery'&&(
-                        <button type="button" disabled={!!busyOrderId} onClick={()=>void recoverLegacy(order)}
-                          className="rounded-xl border border-amber-400 bg-amber-50 text-amber-900 px-4 py-2 text-sm font-bold disabled:opacity-50">
-                          Recover old customer OTP access
-                        </button>
-                      )}
-                      {legacyKey?.orderId===order.id&&(
-                        <div className="w-full rounded-xl border border-amber-300 bg-amber-50 p-3 space-y-2" role="status">
-                          <strong className="block text-sm">Private recovery key — show only to the verified customer</strong>
-                          <p className="text-xs">Ask the customer to paste this under Track Order → Restore older receipt access. The key is shown here only once; it is NOT the 4-digit delivery OTP.</p>
-                          <input readOnly aria-label="Customer receipt recovery key" value={legacyKey.key} onFocus={e=>e.currentTarget.select()}
-                            className="w-full rounded-lg border p-2 text-xs font-mono bg-white" />
-                          <button type="button" onClick={()=>{void navigator.clipboard?.writeText(legacyKey.key).catch(()=>setError('Select and copy the key manually.'));}}
-                            className="rounded-lg border bg-white px-3 py-2 text-xs">Copy private key</button>
-                          <button type="button" onClick={()=>setLegacyKey(null)} className="rounded-lg px-3 py-2 text-xs underline">Dismiss key</button>
+                        )}
+                      </div>
+
+                      {/* Delivery Address Box */}
+                      <div className="space-y-2 md:border-l md:border-slate-200 md:pl-4">
+                        <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                          <MapPin size={13} className="text-rose-600" />
+                          <span>ডেলিভারি ঠিকানা ও এলাকা</span>
+                        </div>
+                        <p className="text-xs font-semibold text-slate-800 leading-snug break-words">
+                          {order.delivery_address || 'ঠিকানা দেওয়া নেই'}
+                          {order.delivery_zone?.name && (
+                            <span className="ml-1.5 inline-block text-[10px] font-bold text-slate-800 bg-white border border-slate-300 px-2 py-0.5 rounded-md">
+                              {order.delivery_zone.name}
+                            </span>
+                          )}
+                        </p>
+                        {order.delivery_address && (
+                          <div className="pt-0.5">
+                            <a
+                              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.delivery_address)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800 underline underline-offset-2"
+                            >
+                              <span>📍 গুগল ম্যাপে ঠিকানা দেখুন (Directions)</span>
+                              <ArrowRight size={12} />
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Advance & Due Breakdown (if partial advance paid) */}
+                    {order.advance_paid_amount && order.advance_paid_amount > 0 ? (
+                      <div className="bg-emerald-50 text-emerald-950 p-2.5 rounded-xl border border-emerald-200 text-xs flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-semibold text-emerald-900">
+                          অগ্রিম পেইড: <strong>৳{order.advance_paid_amount}</strong> {order.bkash_trx_id ? `(TrxID: ${order.bkash_trx_id})` : ''}
+                        </span>
+                        <span className="font-black text-rose-700 font-mono">
+                          বাকি ক্যাশ (Due COD): ৳{order.due_amount ?? (order.total_amount - order.advance_paid_amount)}
+                        </span>
+                      </div>
+                    ) : null}
+
+                    {/* Ordered Cake & Kitchen Specs (Directly Visible!) */}
+                    <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-2.5">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                        <div className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                          <CakeSlice size={15} className="text-rose-600" />
+                          <span>কেক ও অর্ডারকৃত আইটেম ({(order.items || []).length} টি)</span>
+                        </div>
+                        <span className="text-xs font-bold text-slate-500">
+                          সর্বমোট: <strong className="text-slate-900 font-black font-mono">৳{Number(order.total_amount || 0).toLocaleString()}</strong>
+                        </span>
+                      </div>
+
+                      <div className="divide-y divide-slate-100">
+                        {(order.items || []).map((item, idx) => (
+                          <div key={item.id || idx} className="py-2.5 first:pt-1 last:pb-1 space-y-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="text-sm font-extrabold text-slate-900 flex flex-wrap items-center gap-1.5">
+                                <span className="inline-flex items-center justify-center bg-slate-900 text-white font-black text-xs px-2 py-0.5 rounded-md">
+                                  {item.quantity}×
+                                </span>
+                                <span className="text-slate-900 font-black">{item.product_name}</span>
+                                <span className="text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md">
+                                  {item.variant_name}
+                                </span>
+                                {item.flavor_name && (
+                                  <span className="text-xs font-bold text-amber-950 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
+                                    ফ্লেভার: {item.flavor_name}
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-xs font-black text-slate-900 shrink-0 font-mono">
+                                ৳{item.subtotal || item.unit_price * item.quantity}
+                              </span>
+                            </div>
+
+                            {/* Dedication Writing Message - Highlighted Amber Callout */}
+                            {item.writing_message && (
+                              <div className="bg-amber-50 border border-amber-300 rounded-xl px-3 py-2 text-xs text-amber-950 flex items-start gap-2 shadow-2xs">
+                                <span className="text-base shrink-0">✍️</span>
+                                <div>
+                                  <span className="font-black text-amber-900">কেকের ওপর লেখার টেক্সট:</span>{' '}
+                                  <span className="font-extrabold text-sm text-amber-950 bg-amber-100 px-2.5 py-0.5 rounded-md border border-amber-300 inline-block mt-0.5 font-serif italic">
+                                    "{item.writing_message}"
+                                  </span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Addons if any */}
+                            {item.addons && item.addons.length > 0 && (
+                              <div className="text-xs text-slate-600 pl-3 flex flex-wrap gap-1.5 items-center">
+                                <span className="font-bold text-slate-500">যুক্ত করা আইটেম:</span>
+                                {item.addons.map((ad, aIdx) => (
+                                  <span key={aIdx} className="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-0.5 rounded text-[11px] font-medium">
+                                    {ad.addon_name} (৳{ad.subtotal})
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Customer Note if present */}
+                      {order.order_note && (
+                        <div className="bg-sky-50 border border-sky-200 rounded-xl px-3 py-2 text-xs text-sky-950 flex items-start gap-2 mt-1">
+                          <span className="text-sm shrink-0">📝</span>
+                          <div>
+                            <span className="font-black text-sky-900">কাস্টমার স্পেশাল নির্দেশ/নোট:</span>{' '}
+                            <span className="font-semibold text-sky-950">"{order.order_note}"</span>
+                          </div>
                         </div>
                       )}
-                      {canCancel && <button type="button" disabled={!!busyOrderId} onClick={() => void mutate(order,'cancel')} className="rounded-xl border border-red-200 text-red-700 px-4 py-2 text-sm">Cancel</button>}
+                    </div>
+
+                    {/* Order Journey Pipeline */}
+                    {order.status !== 'cancelled' && (
+                      <div className="space-y-1.5 pt-0.5" aria-label={`Delivery progress: ${stageNames[order.status] || order.status}`}>
+                        <div className="flex gap-1.5">
+                          {pipeline.map((stage, index) => (
+                            <span
+                              key={stage}
+                              title={stageNames[stage]}
+                              aria-hidden="true"
+                              className={'h-2 flex-1 rounded-full transition-all ' + (index <= pipeline.indexOf(order.status) ? 'bg-emerald-600 shadow-2xs' : 'bg-slate-200')}
+                            />
+                          ))}
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-slate-600 font-medium">
+                          <span>অর্ডার অগ্রগতি: <strong className="text-slate-900 font-bold">{stageNames[order.status] || order.status}</strong></span>
+                          {order.cod_collected && <span className="text-emerald-700 font-bold">✓ ক্যাশ টাকা রিসিভড</span>}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Action Buttons Toolbar */}
+                    {['super_admin','admin','order_manager','delivery_manager'].includes(identity.role)&&<CustomerOrderLink endpoint={endpoint} token={identity.token} orderId={order.id} initialUrl={order.customer_share_url}/>}
+                    <div className="flex flex-wrap gap-2.5 items-center pt-2 border-t border-slate-100">
+                      {/* Workflow action button */}
+                      {next && canOperate(identity.role, next.operation) && next.operation !== 'deliver' && (
+                        <>
+                          {next.operation === 'assign' && (
+                            <select
+                              aria-label="Assign registered rider"
+                              value={riderEmail}
+                              onChange={e => setRiderEmail(e.target.value)}
+                              className="min-h-10 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold bg-white text-slate-800"
+                            >
+                              {identity.riders.map(rider => (
+                                <option key={rider.email} value={rider.email}>{rider.name} — {rider.email}</option>
+                              ))}
+                            </select>
+                          )}
+                          <button
+                            type="button"
+                            disabled={!!busyOrderId}
+                            onClick={() => void mutate(order, next.operation)}
+                            className="min-h-10 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2 text-xs font-bold disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                          >
+                            <PackageCheck size={16} />
+                            <span>{busyOrderId === order.id ? 'সেভ হচ্ছে...' : next.label}</span>
+                          </button>
+                        </>
+                      )}
+
+                      {/* Delivery Complete with Cash Verification (Direct delivery allowed from assigned, picked_up, or out_for_delivery) */}
+                      {['assigned', 'picked_up', 'out_for_delivery'].includes(order.status) && canOperate(identity.role, 'deliver') && (
+                        deliveryConfirmOrderId === order.id ? (
+                          <div className="flex flex-wrap items-center gap-2.5 bg-emerald-50/80 p-2 rounded-xl border border-emerald-200">
+                            {order.payment_method === 'cod' ? (
+                              <label className="text-xs font-bold text-slate-800 flex items-center gap-2 cursor-pointer bg-white px-3 py-2 rounded-xl border border-amber-300">
+                                <input
+                                  type="checkbox"
+                                  checked={cashCollected}
+                                  onChange={e => setCashCollected(e.target.checked)}
+                                  className="w-4 h-4 rounded text-emerald-600"
+                                />
+                                <span>ক্যাশ টাকা বুঝে পেয়েছি (৳{order.total_amount})</span>
+                              </label>
+                            ) : (
+                              <span className="text-xs text-emerald-800 bg-white px-3 py-2 rounded-xl border border-emerald-200 font-bold">
+                                ✓ অগ্রিম পরিশোধিত
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              disabled={!!busyOrderId || (order.payment_method === 'cod' && !cashCollected)}
+                              onClick={() => void mutate(order, 'deliver')}
+                              className="min-h-10 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl px-4 py-2 text-xs disabled:opacity-50 cursor-pointer shadow-xs flex items-center gap-1.5"
+                            >
+                              <CheckCircle size={15} />
+                              <span>{busyOrderId === order.id ? 'সেভ হচ্ছে...' : 'Confirm Delivery (ডেলিভারি সম্পন্ন)'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeliveryConfirmOrderId('')}
+                              className="text-xs font-semibold text-slate-500 hover:text-slate-700 px-2 py-1"
+                            >
+                              বাতিল
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => { setDeliveryConfirmOrderId(order.id);  setCashCollected(order.payment_method !== 'cod'); }}
+                            className="min-h-10 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl px-4 py-2 text-xs cursor-pointer shadow-xs flex items-center gap-1.5 transition-colors"
+                            title="ক্যাশ বুঝে নিয়ে তাৎক্ষণিক ডেলিভারি সম্পন্ন করুন"
+                          >
+                            <CheckCircle size={15} />
+                            <span>{order.status === 'out_for_delivery' ? 'Complete Delivery (ক্যাশ চেক ও ডেলিভারি)' : 'ডেলিভারি সম্পন্ন (Deliver)'}</span>
+                          </button>
+                        )
+                      )}
+
+                      {['super_admin', 'admin'].includes(identity.role) && order.legacy_receipt_missing && order.status === 'out_for_delivery' && (
+                        <button
+                          type="button"
+                          disabled={!!busyOrderId}
+                          onClick={() => void recoverLegacy(order)}
+                          className="min-h-10 rounded-xl border border-amber-400 bg-amber-50 text-amber-900 px-3.5 py-2 text-xs font-bold disabled:opacity-50"
+                        >
+                          Recover old customer receipt access
+                        </button>
+                      )}
+
+                      {/* View Order Details & POS Print Popup */}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedOrderForDetails(order)}
+                        className="min-h-10 rounded-xl bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-xs active:scale-95"
+                        title="অর্ডারের সম্পূর্ণ বিবরণ ও POS প্রিন্ট অপশন দেখুন"
+                      >
+                        <Eye size={15} />
+                        <span>অর্ডার বিবরণ ও প্রিন্ট</span>
+                      </button>
+
+                      {/* POS Thermal Slip & Sticker Print */}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedOrderForPosPrint(order)}
+                        className="min-h-10 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-800 px-4 py-2 text-xs font-bold transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-2xs"
+                        title="পিওএস ক্যাশ মেমো, কিচেন স্লিপ বা বক্স স্টিকার প্রিন্ট করুন"
+                      >
+                        <Printer size={15} className="text-slate-600" />
+                        <span>POS প্রিন্ট</span>
+                      </button>
+
+                      {/* SINGLE Cancel Order Button (No duplicate!) */}
+                      {canCancel && (
+                        <button
+                          type="button"
+                          disabled={!!busyOrderId}
+                          onClick={() => void mutate(order, 'cancel')}
+                          className="min-h-10 rounded-xl border border-rose-200 bg-white hover:bg-rose-50 text-rose-700 px-3.5 py-2 text-xs font-bold disabled:opacity-50 transition-colors cursor-pointer"
+                        >
+                          Cancel Order (বাতিল)
+                        </button>
+                      )}
+
+                      {/* Reopen Order Button for Super Admin & Admin */}
+                      {['super_admin', 'admin'].includes(identity.role) && order.status === 'cancelled' && (
+                        <button
+                          type="button"
+                          disabled={!!busyOrderId}
+                          onClick={() => void mutate(order, 'confirm')}
+                          className="min-h-10 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 px-4 py-2 text-xs font-bold disabled:opacity-50 transition-colors cursor-pointer"
+                        >
+                          Reopen Order (পুনরায় চালু)
+                        </button>
+                      )}
+
+                      {legacyKey?.orderId === order.id && (
+                        <div className="w-full rounded-xl border border-amber-300 bg-amber-50 p-3 space-y-2 mt-2" role="status">
+                          <strong className="block text-xs font-bold text-amber-950">Private recovery key — show only to the verified customer</strong>
+                          <p className="text-[11px] text-amber-900">Ask the customer to paste this under Track Order → Restore older receipt access.</p>
+                          <input
+                            readOnly
+                            aria-label="Customer receipt recovery key"
+                            value={legacyKey.key}
+                            onFocus={e => e.currentTarget.select()}
+                            className="w-full rounded-lg border p-2 text-xs font-mono bg-white"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => { void navigator.clipboard?.writeText(legacyKey.key).catch(() => setError('Select and copy the key manually.')); }}
+                              className="rounded-lg border bg-white px-3 py-1.5 text-xs font-bold"
+                            >
+                              Copy private key
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setLegacyKey(null)}
+                              className="rounded-lg px-3 py-1.5 text-xs underline text-slate-600"
+                            >
+                              Dismiss key
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </article>;
                 })}
@@ -979,6 +1393,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
               )}
               <React.Suspense fallback={<div className="rounded-2xl bg-white border p-8 text-center text-slate-500" role="status">Opening your workspace…</div>}>
                 {activeTab==='cakes'&&(['super_admin','admin','order_manager'] as string[]).includes(identity.role) && <CustomCakeQueue endpoint={endpoint} token={identity.token} />}
+                {activeTab==='costing'&&(['super_admin','admin','order_manager','accountant'] as string[]).includes(identity.role) && <ItemCostingManager products={mockDb.getProductsSync()} orders={orders} endpoint={endpoint} token={identity.token} onProductCostingUpdated={() => onCatalogUpdated?.()} />}
                 {activeTab==='website'&&(identity.role === 'super_admin' || identity.role === 'admin') && <WebsiteManager endpoint={endpoint} token={identity.token}
                   role={identity.role} onUpdated={() => onCatalogUpdated?.()} />}
               </React.Suspense>
@@ -988,6 +1403,103 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
 
         </div>
       </section>
+      {/* Order Details & POS Print Popup Modal */}
+      {selectedOrderForDetails && (
+        <OrderDetailsModal
+          isOpen={!!selectedOrderForDetails}
+          order={selectedOrderForDetails as Order}
+          onClose={() => setSelectedOrderForDetails(null)}
+          currency={mockDb.getShopSettingsSync().currency}
+          shopName={mockDb.getShopSettingsSync().shop_name}
+          shopPhone={mockDb.getShopSettingsSync().phone}
+          shopAddress={mockDb.getShopSettingsSync().address}
+          websiteUrl={mockDb.getShopSettingsSync().website_url}
+          facebookUrl={mockDb.getShopSettingsSync().facebook_url}
+          userRole={identity?.role || 'staff'}
+          endpoint={endpoint}
+          onOrderUpdated={(updatedOrder) => {
+            setSelectedOrderForDetails({ ...updatedOrder });
+          }}
+          onStatusChange={(orderId, newStatus) => {
+            const op =
+              newStatus === 'confirmed'
+                ? 'confirm'
+                : newStatus === 'preparing'
+                ? 'start_baking'
+                : newStatus === 'ready'
+                ? 'mark_ready'
+                : newStatus === 'out_for_delivery'
+                ? 'start_delivery'
+                : newStatus === 'delivered'
+                ? 'deliver'
+                : 'cancel';
+            const ord = orders.find((o) => o.id === orderId);
+            if (ord) void mutate(ord, op);
+          }}
+          onTriggerPosPrint={(ord) => {
+            setSelectedOrderForDetails(null);
+            setSelectedOrderForPosPrint(ord);
+          }}
+        />
+      )}
+
+      {/* POS Thermal Slip & Sticker Print Modal */}
+      {selectedOrderForPosPrint && (
+        <PosPrintModal
+          order={selectedOrderForPosPrint as Order}
+          onClose={() => setSelectedOrderForPosPrint(null)}
+          currency={mockDb.getShopSettingsSync().currency}
+          shopName={mockDb.getShopSettingsSync().shop_name}
+          shopPhone={mockDb.getShopSettingsSync().phone}
+          shopAddress={mockDb.getShopSettingsSync().address}
+          websiteUrl={mockDb.getShopSettingsSync().website_url}
+          facebookUrl={mockDb.getShopSettingsSync().facebook_url}
+        />
+      )}
+
+      {/* POS Printer Hardware Settings Modal */}
+      {isPosSettingsOpen && (
+        <PosPrinterSettingsModal
+          isOpen={isPosSettingsOpen}
+          onClose={() => setIsPosSettingsOpen(false)}
+          onTestPrint={() => {
+            setIsPosSettingsOpen(false);
+            setSelectedOrderForPosPrint(createDemoReceiptOrder('৳'));
+          }}
+        />
+      )}
+
+      {/* Date-wise Collection Statement Modal */}
+      {isCollectionStatementOpen && (
+        <CollectionStatementModal
+          isOpen={isCollectionStatementOpen}
+          onClose={() => setIsCollectionStatementOpen(false)}
+          orders={orders}
+        />
+      )}
+
+      {/* Admin / Staff Direct Create Order Modal (Auto-Confirmed) */}
+      {isCreateOrderModalOpen && identity && (
+        <AdminCreateOrderModal
+          isOpen={isCreateOrderModalOpen}
+          onClose={() => setIsCreateOrderModalOpen(false)}
+          products={mockDb.getProductsSync()}
+          zones={mockDb.getDeliveryZones()}
+          slots={mockDb.getDeliverySlots()}
+          flavors={mockDb.getFlavors()}
+          addons={mockDb.getAddons()}
+          coupons={mockDb.getCoupons()}
+          currency={mockDb.getShopSettingsSync().currency}
+          role={identity.role as any}
+          endpoint={endpoint}
+          staffIdentity={identity.email}
+          onCatalogUpdated={onCatalogUpdated}
+          onOrderCreated={(order) => {
+            acknowledgeOrderAlert(order.id);
+            void refresh();
+          }}
+        />
+      )}
     </div>
   );
 };

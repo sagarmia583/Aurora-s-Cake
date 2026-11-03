@@ -4,7 +4,17 @@ import { DEFAULT_PUBLIC_SITE_DATA } from '../content/defaultSiteData';
 import { isFirebaseCatalogPreviewRequested, loadFirebaseCatalogPreview } from '../services/firebasePrimaryCatalog';
 import { DEFAULT_SHEETS_ENDPOINT, loadGoogleSheetData, normalizePublicSiteData, validateGoogleSheetsEndpoint } from '../services/googleSheets';
 
-const CACHE_KEY = 'aurora_public_sheet_snapshot_v1';
+const CACHE_KEY = 'aurora_public_sheet_snapshot_v2';
+// A disconnected shop must not offer bundled demonstration products for sale.
+const EMPTY_SHEET_DATA: PublicSiteData = {
+  ...DEFAULT_PUBLIC_SITE_DATA,
+  order_submission_enabled: false,
+  customer_order_profile_sync_enabled: false,
+  settings: {...DEFAULT_PUBLIC_SITE_DATA.settings, logo_url:'',profile_image_url:'',phone:'',email:'',
+    address:'',accepting_orders:false,delivery_enabled:false},
+  products:[],categories:[],flavors:[],addons:[],banners:[],zones:[],slots:[],coupons:[],reviews:[],
+  hero_slides:[],highlights:[],faqs:[],links:[],
+};
 const ENDPOINT_KEY = 'aurora_google_sheets_endpoint_v1';
 export interface SheetContentStatus {
   state: 'loading' | 'connected' | 'error';
@@ -26,7 +36,7 @@ function bootstrap() {
       return { endpoint, data: normalizePublicSiteData(cache.data), status: { state: 'loading', source: 'saved_snapshot', lastSyncedAt: cache.savedAt } as SheetContentStatus };
     }
   } catch { /* Invalid snapshots are never trusted. */ }
-  return { endpoint, data: DEFAULT_PUBLIC_SITE_DATA, status: { state: 'loading', source: 'bundled_preview' } as SheetContentStatus };
+  return { endpoint, data: EMPTY_SHEET_DATA, status: { state: 'loading', source: 'bundled_preview' } as SheetContentStatus };
 }
 export function useGoogleSheetContent() {
   const [initial] = useState(bootstrap);
@@ -35,7 +45,10 @@ export function useGoogleSheetContent() {
   const [status, setStatus] = useState<SheetContentStatus>(initial.status);
   const activeRequest = useRef<AbortController | null>(null);
   const lastPublicRefreshAt=useRef(0);
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (forceRefresh = false) => {
+    if (forceRefresh) {
+      try { localStorage.removeItem(CACHE_KEY); } catch {} 
+    }
     lastPublicRefreshAt.current=Date.now();
     activeRequest.current?.abort();
     const controller = new AbortController();
@@ -56,11 +69,13 @@ export function useGoogleSheetContent() {
       // Avoid replacing the entire storefront model when nothing actually
       // changed. Stable references prevent the cart, banners and product
       // picker from remounting during an otherwise successful auto-refresh.
+      console.info("[GoogleSheets] Live data synced:", next.products.length, "products,", next.categories.length, "categories");
       setData(previous => JSON.stringify(previous)===JSON.stringify(next)?previous:next);
       setStatus({ state: 'connected', source: firebasePreview?'firebase':'google_sheets', lastSyncedAt: savedAt });
       if(!firebasePreview)try { localStorage.setItem(CACHE_KEY, JSON.stringify({ endpoint, savedAt, data: next })); } catch { /* Content still renders when browser storage is unavailable. */ }
     } catch (error) {
       if (controller.signal.aborted) return;
+      console.warn("[GoogleSheets] Content sync warning:", error);
       setStatus(previous => ({
         ...previous,
         // Keep the last valid storefront connected while reporting temporary
@@ -74,12 +89,11 @@ export function useGoogleSheetContent() {
   useEffect(() => {
     void refresh();
     const updateWhenVisible = () => {
-      // Returning from another tab shouldn't force repeated expensive Apps
-      // Script reads when the visitor just refreshed their storefront.
-      if (!document.hidden && Date.now()-lastPublicRefreshAt.current>=30000)
+      // Fast real-time storefront synchronization when visible
+      if (!document.hidden && Date.now()-lastPublicRefreshAt.current>=6000)
         void refresh();
     };
-    const timer = window.setInterval(updateWhenVisible, 60000);
+    const timer = window.setInterval(updateWhenVisible, 12000);
     window.addEventListener('online', updateWhenVisible);
     window.addEventListener('focus', updateWhenVisible);
     return () => {
@@ -94,7 +108,7 @@ export function useGoogleSheetContent() {
     if (next === endpoint) { void refresh(); return; }
     activeRequest.current?.abort();
     try { localStorage.setItem(ENDPOINT_KEY, next); } catch { /* Use this session when storage is blocked. */ }
-    setData(DEFAULT_PUBLIC_SITE_DATA);
+    setData(EMPTY_SHEET_DATA);
     setStatus({ state: 'loading', source: 'bundled_preview' });
     setEndpoint(next);
   };
