@@ -1,3 +1,4 @@
+import { shopErrorMessage } from '../utils/shopErrorMessage';
 import {formatShortOrderNumber} from '../utils/orderUtils';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, ShieldCheck, RefreshCw, Link2, LogOut } from 'lucide-react';
@@ -51,7 +52,7 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
       setAccount({...profile,token});
       onIdentityToken(token);
       setLinked(orders);
-    } catch(e){setError(e instanceof Error?e.message:'Google login could not be confirmed.');}
+    } catch(e){setError(shopErrorMessage(e, 'Google login could not be confirmed.'));}
     finally{setBusy(false);}
   },[endpoint,onIdentityToken]);
 
@@ -64,10 +65,10 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
       const id=sdk()!;
       try{
         id.initialize({client_id:clientId,ux_mode:'popup',use_fedcm_for_button:fedcmButton,auto_select:false,
-          callback:r=>{if(r.credential)void signIn(r.credential);else setGoogleUiError('Google did not return a login credential. Check the authorized origin.');}});
+          callback:r=>{if(r.credential)void signIn(r.credential);else setGoogleUiError('Google sign-in could not be completed. Please try again.');}});
         id.renderButton(loginRef.current,{theme:'outline',size:'large',text:'signin_with'});
         setGoogleUiError('');
-      }catch{setGoogleUiError('Google Sign-In could not initialize. Disable browser extensions and reload.');}
+      }catch{setGoogleUiError('Google sign-in is temporarily unavailable. Please try again.');}
     };
     let script=document.getElementById('aurora-google-identity') as HTMLScriptElement|null;
     if(!script){
@@ -76,7 +77,7 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
       script.src='https://accounts.google.com/gsi/client';
       script.async=true;document.head.appendChild(script);
     }
-    const scriptError=()=>{if(active)setGoogleUiError('Google Sign-In script was blocked. Check browser privacy settings and reload.');};
+    const scriptError=()=>{if(active)setGoogleUiError('Google sign-in is temporarily unavailable. Please try again.');};
     script.addEventListener('load',render);
     script.addEventListener('error',scriptError);
     render();
@@ -127,13 +128,13 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
       setPhoneForm({name:'',phone:'',password:''});
       onRecover(history);
       if(candidates.length>linkedCount)setError('Signed in. Some older receipts could not be linked automatically; check the original receipt key.');
-    }catch(e){setError(e instanceof Error?e.message:'Phone account sign-in failed.');}
+    }catch(e){setError(shopErrorMessage(e, 'Phone account sign-in failed.'));}
     finally{setBusy(false);}
   };
   const refreshPhone=async()=>{
     if(!phoneAccount||busy)return;setBusy(true);setError('');
     try{const history=await phoneCustomerOrders(endpoint,phoneAccount.token);setPhoneHistory(history);onRecover(history);}
-    catch(e){setError(e instanceof Error?e.message:'Could not recover your orders.');}
+    catch(e){setError(shopErrorMessage(e, 'Could not recover your orders.'));}
     finally{setBusy(false);}
   };
   // Keep the phone customer's order history fresh while
@@ -164,7 +165,7 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
     try{
       const profile=await updatePhoneCustomerProfile(endpoint,phoneAccount.token,phoneProfileDraft);
       setPhoneAccount(previous=>previous?{...previous,profile}:previous);
-    }catch(e){setError(e instanceof Error?e.message:'Could not save your account profile.');}
+    }catch(e){setError(shopErrorMessage(e, 'Could not save your account profile.'));}
     finally{setBusy(false);}
   };
   const linkPhone=async(order:Order)=>{
@@ -173,7 +174,7 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
       await linkPhoneCustomerReceipt(endpoint,phoneAccount.token,order);
       const history=await phoneCustomerOrders(endpoint,phoneAccount.token);
       setPhoneHistory(history);onRecover(history);
-    }catch(e){setError(e instanceof Error?e.message:'Original receipt could not be linked.');}
+    }catch(e){setError(shopErrorMessage(e, 'Original receipt could not be linked.'));}
     finally{setBusy(false);}
   };
   const signOutPhone=async()=>{
@@ -190,7 +191,7 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
       try{sessionStorage.setItem('aurora_customer_phone_session_v1',newToken);}catch{}
       setPhoneAccount(current=>current?{...current,token:newToken}:current);
       setPasswords({current:'',next:''});
-    }catch(e){setError(e instanceof Error?e.message:'Password update failed.');}
+    }catch(e){setError(shopErrorMessage(e, 'Password update failed.'));}
     finally{setBusy(false);}
   };
   const closeMyAccount=async(event:React.FormEvent)=>{
@@ -201,14 +202,14 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
       await closePhoneCustomerAccount(endpoint,phoneAccount.token,closingPassword);
       try{sessionStorage.removeItem('aurora_customer_phone_session_v1');}catch{}
       setPhoneAccount(null);setPhoneHistory([]);setClosingPassword('');onSignOut?.();
-    }catch(e){setError(e instanceof Error?e.message:'Account could not be closed.');}
+    }catch(e){setError(shopErrorMessage(e, 'Account could not be closed.'));}
     finally{setBusy(false);}
   };
   const refresh=async()=>{
     if(!account)return;
     setBusy(true);setError('');
     try{setLinked(await recoverCustomerReceipts(endpoint,account.token));}
-    catch(e){setError(e instanceof Error?e.message:'Could not recover orders. Sign in again if your session expired.');}
+    catch(e){setError(shopErrorMessage(e, 'Could not recover orders. Sign in again if your session expired.'));}
     finally{setBusy(false);}
   };
   const link=async(order:Order)=>{
@@ -217,7 +218,7 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
     try{
       await linkCustomerReceipt(endpoint,account.token,order);
       setLinked(await recoverCustomerReceipts(endpoint,account.token));
-    }catch(e){setError(e instanceof Error?e.message:'This receipt could not be linked.');}
+    }catch(e){setError(shopErrorMessage(e, 'This receipt could not be linked.'));}
     finally{setBusy(false);}
   };
   const restore=()=>{

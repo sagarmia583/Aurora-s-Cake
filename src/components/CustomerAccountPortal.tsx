@@ -1,3 +1,4 @@
+import { shopErrorMessage } from '../utils/shopErrorMessage';
 import {formatShortOrderNumber} from '../utils/orderUtils';
 import React, { Suspense, useMemo, useState } from 'react';
 import { KeyRound, MapPin, PackageCheck, Phone, ShieldCheck, X } from 'lucide-react';
@@ -53,7 +54,7 @@ export const CustomerAccountPortal:React.FC<Props>=(props)=>{
       localStorage.setItem('aurora_customer_profile_v1',JSON.stringify({...contact,name,phone,address}));
       setContact(previous=>({...previous,name,phone,address}));
       setMessage('Contact details saved successfully.');
-    }catch(e){setError(e instanceof Error?e.message:'Saving your contact details failed.');}
+    }catch(e){setError(shopErrorMessage(e, 'Saving your contact details failed.'));}
     finally{setBusy(false);}
   };
   const recover=async(event:React.FormEvent)=>{
@@ -68,7 +69,7 @@ export const CustomerAccountPortal:React.FC<Props>=(props)=>{
       }));
       setRecovery({orderId:'',phone:'',key:''});
       setMessage('Your private receipt was verified and restored on this device.');
-    }catch(e){setError(e instanceof Error?e.message:'Receipt recovery failed.');}
+    }catch(e){setError(shopErrorMessage(e, 'Receipt recovery failed.'));}
     finally{setBusy(false);}
   };
   const copyReceipt=async(order:Order)=>{

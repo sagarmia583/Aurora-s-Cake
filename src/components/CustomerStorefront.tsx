@@ -2,9 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, ArrowUpRight, CakeSlice, Check, ChevronDown, Flower2, Heart, Leaf, Truck, Facebook, Phone, Mail, Plus, Star, Camera, Flame, ShoppingBag, Zap, Tag, Copy, Clock, Sparkles } from 'lucide-react';
 import { Product, Category, ShopSettings, Flavor, Banner, Review, CartItem, Coupon } from '../types';
 import type { PublicSiteData, SiteHighlight } from '../types/siteContent';
-import type { SheetContentStatus } from '../hooks/useGoogleSheetContent';
 import { DEFAULT_PUBLIC_SITE_DATA } from '../content/defaultSiteData';
 import { BrandImage } from './BrandImage';
+import { StorefrontPrice } from './StorefrontPrice';
 import { getProductDisplayStats, isProductNew } from '../services/productStats';
 
 interface CustomerStorefrontProps {
@@ -22,8 +22,7 @@ interface CustomerStorefrontProps {
   onOpenProfile?: () => void;
   searchQuery: string;
   publicData?: PublicSiteData;
-  onRefreshSheet?: () => void;
-  sheetStatus?: SheetContentStatus;
+  catalogState?: 'loading' | 'error' | 'ready';
   onAddToCart?: (item: CartItem) => void;
   onOpenCart?: () => void;
 }
@@ -45,17 +44,12 @@ function getProductPricing(product: Product) {
   const currentPrice = cheapestVariant ? (cheapestVariant.sale_price ?? cheapestVariant.price) : (product.sale_price ?? product.base_price);
   const originalPrice = cheapestVariant ? cheapestVariant.price : product.base_price;
 
-  const hasDiscount = (cheapestVariant && cheapestVariant.sale_price !== undefined && cheapestVariant.sale_price < cheapestVariant.price)
-    || (product.sale_price !== undefined && product.sale_price < product.base_price)
-    || (currentPrice < originalPrice);
-
-  const effectiveRegular = Math.max(originalPrice, product.base_price);
-  const savings = hasDiscount && effectiveRegular > currentPrice ? effectiveRegular - currentPrice : 0;
+  const savings = Math.max(0, originalPrice - currentPrice);
 
   return {
     currentPrice,
-    regularPrice: effectiveRegular,
-    hasDiscount: hasDiscount && savings > 0,
+    regularPrice: originalPrice,
+    hasDiscount: savings > 0,
     savings,
     cheapestVariant,
   };
@@ -71,7 +65,7 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
   settings: suppliedSettings, products, categories, flavors = [], currency, onSelectProduct, onOpenCustomCake, reviews: suppliedReviews,
   coupons: suppliedCoupons,
   onOpenTrackOrder, onOpenProfile, searchQuery, publicData,
-  onRefreshSheet, sheetStatus, onAddToCart, onOpenCart,
+  catalogState = 'ready', onAddToCart, onOpenCart,
 }) => {
   const data: PublicSiteData = publicData ?? DEFAULT_PUBLIC_SITE_DATA;
   const settings = publicData?.settings ?? suppliedSettings;
@@ -133,7 +127,10 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
   const occasions = highlights('occasion');
   const customSteps = highlights('custom_step');
   const socialPhotos = highlights('social_gallery').filter(row => safeImage(row.image_url));
-  const faqs = ordered(data.faqs);
+  const orderFaq = DEFAULT_PUBLIC_SITE_DATA.faqs.find(item => item.id === 'faq-4');
+  const faqs = ordered(data.faqs).map(faq => orderFaq && faq.id === orderFaq.id && faq.answer.includes('your order has reached our Google Sheet')
+    ? { ...faq, answer: orderFaq.answer }
+    : faq);
   const facebookUrl = safeLink(settings.facebook_url);
   const instagramUrl = safeLink(settings.instagram_url);
   const settingsSocialLinks = [{ id: 'instagram', label: 'Instagram', url: instagramUrl }, { id: 'youtube', label: 'YouTube', url: safeLink(settings.youtube_url) }, { id: 'tiktok', label: 'TikTok', url: safeLink(settings.tiktok_url) }, { id: 'website', label: 'Website', url: safeLink(settings.website_url) }].filter(link => link.url);
@@ -169,7 +166,6 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
   useEffect(() => {
     if (category !== 'all' && !categories.some(item => item.id === category && item.is_active)) setCategory('all');
   }, [category, categories]);
-  const money = (amount: number) => `${currency}${amount.toLocaleString('en-BD')}`;
 
   const [justAddedId, setJustAddedId] = useState<string | null>(null);
 
@@ -209,10 +205,6 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
 
   return (
     <div className="ac-storefront">
-      {sheetStatus && (sheetStatus.state !== 'connected' || sheetStatus.error) && <div role="status" className="ac-container my-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-        {sheetStatus.state === 'loading' ? 'Google Sheet থেকে দোকানের তথ্য লোড হচ্ছে…' : 'Google Sheet-এর সঙ্গে সংযোগ হয়নি। সর্বশেষ পাওয়া তথ্য দেখানো হচ্ছে।'}
-        {onRefreshSheet && <button type="button" onClick={onRefreshSheet} className="ml-3 underline">আবার চেষ্টা করুন</button>}
-      </div>}
       <section className="ac-hero ac-container" aria-labelledby="hero-heading" style={!heroImage ? { gridTemplateColumns: '1fr' } : undefined}>
       <div className="ac-hero-copy">
         {text('hero_eyebrow') && <span className="ac-eyebrow"><span className="ac-tiny-line" />{text('hero_eyebrow')}</span>}
@@ -397,7 +389,7 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
         </button>
       </div>
 
-      <div className="ac-results-line" aria-live="polite">{searchQuery ? `“${searchQuery}” · ` : ''}{filtered.length} {text('catalog_results_label')}</div>
+      {catalogState === 'ready' && <div className="ac-results-line" aria-live="polite">{searchQuery ? `“${searchQuery}” · ` : ''}{filtered.length} {text('catalog_results_label')}</div>}
       <div className="ac-product-grid">{filtered.map(product => {
         const pricing = getProductPricing(product);
         const firstVariant = pricing.cheapestVariant;
@@ -454,13 +446,8 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
                 </div>
               )}
               <p className="ac-product-description">{product.description}</p>
-              <p>
-                {text('catalog_from_label')}{' '}
-                {pricing.hasDiscount && <span className="ac-price-original">{money(pricing.regularPrice)}</span>}
-                <strong>{money(pricing.currentPrice)}</strong>
-                {firstVariant && <span> / {firstVariant.name.split(' (')[0]}</span>}
-                {pricing.hasDiscount && <span className="ac-discount-pill">{currency}{pricing.savings} ছাড়</span>}
-              </p>
+              <StorefrontPrice regular={pricing.regularPrice} current={pricing.currentPrice}
+                currency={currency} size={firstVariant && [text('catalog_from_label'), firstVariant.name.split(' (')[0]].filter(Boolean).join(' · ')}/>
             </div>
             <div className="ac-card-actions">
               <button
@@ -494,7 +481,8 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
           </div>
         </article>;
       })}</div>
-      {!filtered.length && <div className="ac-empty"><CakeSlice size={42} strokeWidth={1} /><h3>{text('catalog_empty_title')}</h3><p>{text('catalog_empty_description')}</p><button className="ac-text-button" onClick={() => setCategory('all')}>{text('catalog_reset_label')} <ArrowRight size={15} /></button></div>}
+      {!filtered.length && catalogState === 'error' && <p className="ac-empty" role="status">The cake menu is temporarily unavailable.</p>}
+      {!filtered.length && catalogState === 'ready' && <div className="ac-empty"><CakeSlice size={42} strokeWidth={1} /><h3>{text('catalog_empty_title')}</h3><p>{text('catalog_empty_description')}</p><button className="ac-text-button" onClick={() => setCategory('all')}>{text('catalog_reset_label')} <ArrowRight size={15} /></button></div>}
       {text('catalog_note') && <div className="ac-catalog-note"><Leaf size={15} strokeWidth={1.2} />{text('catalog_note')}</div>}
     </section>
 

@@ -282,7 +282,7 @@ export const DEFAULT_PUBLIC_SITE_DATA: PublicSiteData = {
     {
       "id": "faq-4",
       "question": "Can I place a real order on this website?",
-      "answer": "When checkout offers cash on delivery to Aurora's Cake, a confirmed saved receipt means your order has reached our Google Sheet. Contact us to confirm availability and delivery. No online payment is collected. If checkout is labelled a demo, it stays on this device. Discuss custom cake requests with us on Facebook.",
+      "answer": "Place your order at checkout and pay cash on delivery. Your receipt confirms we received your order. For custom cakes, you can also contact us on Facebook.",
       "sort_order": 4,
       "is_active": true
     }

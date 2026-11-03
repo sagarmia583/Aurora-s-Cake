@@ -64,14 +64,14 @@ export class BakeryOperationsError extends Error {
     this.name = 'BakeryOperationsError';
   }
 }
-export async function privatePost(endpoint: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const url = resolveSheetsPostEndpoint(endpoint);
+export async function privatePost(endpoint: string, body: Record<string, unknown>, sameOrigin = false): Promise<Record<string, unknown>> {
+  const url = sameOrigin ? '/api/operations' : resolveSheetsPostEndpoint(endpoint);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), body.action==='staff_image_upload'?28000:20000);
   try {
     const response = await fetch(url, {
       method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(body), redirect: 'follow', credentials: sheetsPostCredentials(url),
+      body: JSON.stringify(body), redirect: 'follow', credentials: sheetsPostCredentials(url), cache: 'no-store',
       signal: controller.signal,
     });
     if (!response.ok) throw new Error('The bakery operations endpoint is unavailable.');

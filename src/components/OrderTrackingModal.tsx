@@ -1,3 +1,4 @@
+import { shopErrorMessage } from '../utils/shopErrorMessage';
 import {formatShortOrderNumber} from '../utils/orderUtils';
 import React, { useState, useEffect } from 'react';
 import { useCakeDialog } from './useCakeDialog';
@@ -71,7 +72,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
     if(!onRestoreLegacyAccess||restoring)return;
     setRestoring(true);setRecoveryError('');
     try{await onRestoreLegacyAccess(order,recoveryKey.trim());setRecoveryKey('');}
-    catch(error){setRecoveryError(error instanceof Error?error.message:'The private receipt key could not be verified.');}
+    catch(error){setRecoveryError(shopErrorMessage(error,'The receipt key could not be verified.'));}
     finally{setRestoring(false);}
   };
   const [selectedOrderId, setSelectedOrderId] = useState(currentOrderId || orders[0]?.id);
@@ -206,7 +207,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
           
           {!!syncError && selectedOrder.persistence==='google_sheets'&&
             <p role="alert" className="text-xs rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950">
-              Live delivery status could not be refreshed: {syncError}. Showing the last confirmed status.
+              {syncError}
             </p>}
           {selectedOrder.status === 'cancelled' && <p role="status" className="text-sm font-semibold text-red-700">This order was cancelled.</p>}
           {/* Order Selector Tab if multiple */}

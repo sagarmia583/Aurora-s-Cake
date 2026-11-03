@@ -1,10 +1,10 @@
 import React, { useRef, useState } from 'react';
 import { useCakeDialog } from './useCakeDialog';
 import { X, Sparkles, Image, CheckCircle, AlertCircle, Send } from 'lucide-react';
-import { mockDb } from '../services/mockDatabase';
 import { prepareCustomCakeAttempt, submitCustomCake, getCustomCakeRequestStatus } from '../services/sheetCustomCake';
 import type { CustomCakeAttempt } from '../services/sheetCustomCake';
 import { validateBangladeshiPhone } from '../utils/phoneValidation';
+import { shopErrorMessage } from '../utils/shopErrorMessage';
 
 interface CustomCakeModalProps {
   isOpen: boolean;
@@ -56,12 +56,12 @@ const CustomCakeModalDialog: React.FC<CustomCakeModalProps> = ({
     setCheckingStatus(true);setErrorMessage('');
     try{const response=await getCustomCakeRequestStatus(sheetOrderEndpoint,previousReference.id,previousReference.phone);
       setQuoteStatus(response.status==='quoted'?`Quoted ৳${response.quoted_price} — contact the bakery to confirm`:response.status==='declined'?'This quote request was declined.':'Pending bakery review');
-    }catch(e){setErrorMessage(e instanceof Error?e.message:'Unable to check the quotation.');}
+    }catch(e){setErrorMessage(shopErrorMessage(e,'Unable to check the quotation.'));}
     finally{setCheckingStatus(false);}
   };
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSubmitted || isSubmitting) return;
+    if (!sheetOrderEndpoint || isSubmitted || isSubmitting) return;
     if (!customerName.trim() || !customerPhone.trim()) {
       setErrorMessage('Please enter your name and contact number.');
       return;
@@ -73,38 +73,20 @@ const CustomCakeModalDialog: React.FC<CustomCakeModalProps> = ({
     }
     setErrorMessage('');
 
-    if (sheetOrderEndpoint) {
-      setIsSubmitting(true);
-      try {
-        const draft={customer_name:customerName.trim(),customer_phone:customerPhone.trim(),cake_type:cakeType,
-          approx_size:approxSize,flavor,color_theme:colorTheme,writing_text:writingText,
-          instructions,reference_image_url:imageUrl.trim()};
-        const attempt=prepareCustomCakeAttempt(draft,attemptRef.current);
-        attemptRef.current=attempt;
-        const reference=await submitCustomCake(sheetOrderEndpoint,draft,attempt);
-        setSavedReference(reference);
-        setPreviousReference({id:reference,phone:customerPhone.trim()});
-        try{localStorage.setItem('aurora_custom_request_v1',JSON.stringify({id:reference,phone:customerPhone.trim()}));}catch{/* Optional on-device quote lookup */}
-        setIsSubmitted(true);
-      } catch(error) { setErrorMessage(error instanceof Error?error.message:'The bakery could not confirm your request. Retry the original form.'); }
-      finally { setIsSubmitting(false); }
-      return;
-    }
-    mockDb.addCustomCakeRequest({
-      customer_name: customerName.trim(),
-      customer_phone: customerPhone.trim(),
-      cake_type: cakeType,
-      approx_size: approxSize,
-      flavor,
-      color_theme: colorTheme,
-      writing_text: writingText,
-      instructions,
-      reference_image_url: imageUrl.trim() || undefined,
-      estimated_price: estimatedBase,
-    });
-
-    setIsSubmitted(true);
-
+    setIsSubmitting(true);
+    try {
+      const draft={customer_name:customerName.trim(),customer_phone:customerPhone.trim(),cake_type:cakeType,
+        approx_size:approxSize,flavor,color_theme:colorTheme,writing_text:writingText,
+        instructions,reference_image_url:imageUrl.trim()};
+      const attempt=prepareCustomCakeAttempt(draft,attemptRef.current);
+      attemptRef.current=attempt;
+      const reference=await submitCustomCake(sheetOrderEndpoint,draft,attempt);
+      setSavedReference(reference);
+      setPreviousReference({id:reference,phone:customerPhone.trim()});
+      try{localStorage.setItem('aurora_custom_request_v1',JSON.stringify({id:reference,phone:customerPhone.trim()}));}catch{/* Optional on-device quote lookup */}
+      setIsSubmitted(true);
+    } catch(error) { setErrorMessage(shopErrorMessage(error,'The bakery could not confirm your request. Try sending it again.')); }
+    finally { setIsSubmitting(false); }
   };
 
   return (
@@ -139,7 +121,7 @@ const CustomCakeModalDialog: React.FC<CustomCakeModalProps> = ({
             </div>
             <h4 className="text-xl font-bold text-slate-900">Your design is saved</h4>
             <p className="text-xs text-slate-600 max-w-xs mx-auto">
-              {savedReference ? 'Your request was saved privately to Aurora’s Cake. The bakery will review it and confirm a quote; no payment was taken.' : 'Your request has been saved. Our bakery team will review the design and confirm your quotation shortly.'}
+              We received your request and will be in touch with a quote.
               {savedReference && <span className="block mt-2 font-mono break-all">Reference: {savedReference}</span>}
             </p>
             {savedReference&&sheetOrderEndpoint&&<button type="button" onClick={()=>void checkQuoteStatus()} disabled={checkingStatus} className="px-6 py-3 rounded-xl border text-sm font-semibold">{checkingStatus?'Checking…':'Check quote status'}</button>}
@@ -297,11 +279,11 @@ const CustomCakeModalDialog: React.FC<CustomCakeModalProps> = ({
             </div>
 
             <button
-              type="submit" disabled={isSubmitting}
-              className="w-full py-3.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-2xl shadow-lg shadow-rose-200 flex items-center justify-center gap-2 text-xs transition-all cursor-pointer"
+              type="submit" disabled={isSubmitting || !sheetOrderEndpoint}
+              className="w-full py-3.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-2xl shadow-lg shadow-rose-200 flex items-center justify-center gap-2 text-xs transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <Send className="w-4 h-4" />
-              <span>{isSubmitting ? 'Sending request…' : sheetOrderEndpoint ? 'Request a custom cake quote' : 'Save my demo design'}</span>
+              <span>{isSubmitting ? 'Sending request…' : sheetOrderEndpoint ? 'Request a custom cake quote' : 'Online requests are temporarily unavailable'}</span>
             </button>
           </form>
         )}

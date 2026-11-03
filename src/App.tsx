@@ -35,6 +35,7 @@ import { getBrowserWorkspaceStorage, isStaffWorkspaceOpen, setStaffWorkspaceOpen
 import { reconcilePublicCart, reorderFromPublicOrder } from './services/reconcilePublicCart';
 import { inspectPendingCheckout, loadCheckoutCart, saveCheckoutCart, settleCheckoutCart } from './services/checkoutRecovery';
 import type { CheckoutCompletion } from './services/checkoutRecovery';
+import { shopErrorMessage } from './utils/shopErrorMessage';
 import { 
   ShopSettings, 
   Product, 
@@ -307,7 +308,7 @@ export default function App() {
       if(attempt===profileSyncVersion.current){setProfileSyncFailure(null);setProfileSyncHint(result==='linked_only');}
     }catch(error){
       if(attempt===profileSyncVersion.current)setProfileSyncFailure({order,endpoint,mode,
-        message:error instanceof Error?error.message:'Your delivery profile could not be confirmed.'});
+        message:shopErrorMessage(error,'Your delivery details could not be saved to your account.')});
     }finally{if(attempt===profileSyncVersion.current)setProfileSyncBusy(false);}
   };
   const openCheckout = () => {
@@ -394,7 +395,7 @@ export default function App() {
         setOrders(previous => previous.filter(order => !result.deletedIds.includes(order.id))
           .map(order => freshById.get(order.id) ?? order));
         for (const order of result.current) if (currentIds.has(order.id)) rememberConfirmedSheetOrder(order);
-        if (result.deletedIds.length) setCartNotice(result.deletedIds.length + ' deleted order(s) removed from your saved history after checking Google Sheets.');
+        if (result.deletedIds.length) setCartNotice('Some orders are no longer available and were removed from your saved history.');
         else if (result.failedIds.length) setCartNotice('Some saved receipts could not be checked online. They were kept safely; retry when connected.');
       })
       .catch(() => {
@@ -432,15 +433,15 @@ export default function App() {
         const cached=rememberConfirmedSheetOrder(updated);
         setOrders(previous=>[updated,...previous.filter(order=>order.id!==updated.id)]);
         setTrackingCheckedAt(new Date().toLocaleTimeString());
-        setTrackingSyncError(cached?'':'Live status updated, but this device could not cache your receipt. Keep your original receipt or sign in to My orders.');
+        setTrackingSyncError(cached?'':'Keep your original receipt or sign in to My orders to find it again.');
       }catch(error){
         if(!stopped && isConfirmedDeletedSheetOrder(error)){
           removeConfirmedSheetOrdersById([selected.id]);
           setOrders(previous=>previous.filter(order=>order.id!==selected.id));
           setLatestOrderId(current=>current===selected.id?'':current);
-          setTrackingSyncError('This order was removed from Google Sheets; its saved receipt has been cleared.');
+          setTrackingSyncError('This order is no longer available.');
         }else if(!stopped){
-          setTrackingSyncError(error instanceof Error?error.message:'Could not load live delivery status.');
+          setTrackingSyncError(shopErrorMessage(error,'Could not load live delivery status.'));
         }
       }finally{
         inFlight=false;
@@ -572,8 +573,7 @@ export default function App() {
                 settings={settings}
                 publicData={publicData}
                 products={products}
-                sheetStatus={sheetContent.status}
-                onRefreshSheet={() => void sheetContent.refresh()}
+                catalogState={sheetContent.status.lastSyncedAt || sheetContent.status.state === 'connected' ? 'ready' : sheetContent.status.state}
                 categories={categories}
                 flavors={flavors}
                 banners={banners}

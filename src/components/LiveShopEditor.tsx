@@ -1,3 +1,4 @@
+import { shopErrorMessage } from '../utils/shopErrorMessage';
 import React, { useEffect, useState } from 'react';
 import { RefreshCw, Save, Settings2 } from 'lucide-react';
 import { fetchLiveCatalog, updateLiveCatalog } from '../services/sheetStaffApi';
@@ -13,7 +14,7 @@ export const LiveShopEditor:React.FC<Props>=({endpoint,token,onUpdated})=>{
   const load=async()=>{
     setBusy(true);setError('');
     try{setCatalog(await fetchLiveCatalog(endpoint,token));setDrafts({});}
-    catch(e){setError(e instanceof Error?e.message:'Unable to load shop settings.');}
+    catch(e){setError(shopErrorMessage(e, 'Unable to load shop settings.'));}
     finally{setBusy(false);}
   };
   useEffect(()=>{void load();},[endpoint,token]);
@@ -24,9 +25,9 @@ export const LiveShopEditor:React.FC<Props>=({endpoint,token,onUpdated})=>{
       await updateLiveCatalog(endpoint,token,table,id,field,value);
       setCatalog(await fetchLiveCatalog(endpoint,token));
       setDrafts({});
-      setNotice('Saved to the live Google Sheet. Public content cache has been cleared.');
+      setNotice('Shop details saved.');
       onUpdated();
-    }catch(e){setError(e instanceof Error?e.message:'Unable to save your changes.');}
+    }catch(e){setError(shopErrorMessage(e, 'Unable to save your changes.'));}
     finally{setBusy(false);}
   };
   const savePrices=async(variant:LiveCatalog['variants'][number])=>{
@@ -45,8 +46,8 @@ export const LiveShopEditor:React.FC<Props>=({endpoint,token,onUpdated})=>{
       if(regularChanged)await updateLiveCatalog(endpoint,token,'product_variants',variant.id,'price',Number(regular));
       if(saleChanged)await updateLiveCatalog(endpoint,token,'product_variants',variant.id,'sale_price',sale===''?'':Number(sale));
       setCatalog(await fetchLiveCatalog(endpoint,token));setDrafts({});
-      setNotice('Updated cake prices in Google Sheets.');onUpdated();
-    }catch(e){setError(e instanceof Error?e.message:'Unable to save prices. Refresh and inspect saved values.');}
+      setNotice('Cake prices updated.');onUpdated();
+    }catch(e){setError(shopErrorMessage(e, 'Unable to save prices. Refresh and inspect saved values.'));}
     finally{setBusy(false);}
   };
   return <section className="rounded-2xl border border-emerald-200 bg-white p-5 space-y-4">

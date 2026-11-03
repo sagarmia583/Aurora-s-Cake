@@ -157,8 +157,15 @@ img { max-width:100%; }
 .ac-product-info p { color:#829078; font-size:11px; }
 .ac-product-info strong { color:#214e36; font-weight:800; font-size:18px; margin-left:4px; }
 .ac-product-info p>span { font-size:11px; color:#8a9480; margin-left:4px; }
-.ac-price-original { text-decoration:line-through; color:#94a3b8!important; font-size:12px!important; font-weight:600; margin-left:4px; margin-right:2px; }
-.ac-discount-pill { display:inline-block; margin-left:6px; padding:2px 6px; background:#ffe4e6; color:#e11d48!important; font-size:10px!important; font-weight:700; border-radius:6px; border:1px solid #fecdd3; }
+.ac-storefront-price { display:grid; gap:4px; color:#4f564f; }
+.ac-storefront-price-size { font-size:11px; font-weight:600; }
+.ac-storefront-price-values { display:flex; align-items:baseline; flex-wrap:wrap; gap:5px 9px; }
+.ac-storefront-price-regular, .ac-storefront-price-pay { display:inline-flex; align-items:baseline; gap:4px; font-size:11px; white-space:nowrap; }
+.ac-storefront-price-regular del { color:#546253; font-size:14px; font-weight:650; }
+.ac-storefront-price-pay b { color:#214e36; font-size:21px; font-weight:800; line-height:1.2; }
+.ac-storefront-price--compact .ac-storefront-price-pay b { font-size:15px; }
+.ac-storefront-price--compact .ac-storefront-price-regular del { font-size:12px; }
+.ac-discount-pill { display:inline-block; white-space:nowrap; padding:2px 6px; background:#ffe4e6; color:#9f1239; font-size:10px; font-weight:700; border-radius:6px; border:1px solid #fecdd3; }
 .ac-product-stats { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin:4px 0 8px; }
 .ac-rating-badge { display:inline-flex; align-items:center; gap:3px; background:#fffbeb; color:#92400e; border:1px solid #fde68a; border-radius:6px; padding:2px 7px; font-size:11px; font-weight:700; line-height:1.2; }
 .ac-rating-badge .ac-review-count { color:#b45309; font-weight:500; font-size:10px; margin-left:1px; }

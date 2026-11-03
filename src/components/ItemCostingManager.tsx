@@ -1,3 +1,4 @@
+import { shopErrorMessage } from '../utils/shopErrorMessage';
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Calculator, 
@@ -100,16 +101,16 @@ export const ItemCostingManager: React.FC<Props> = ({
       const res = await syncItemCostingsToSheet(allCostings, endpoint, token);
       if (res.success) {
         setSyncStatus('synced');
-        setSyncFeedback(`গুগল শিটের 'item_costings' ট্যাবে সফলভাবে ${res.count ?? allCostings.length}টি কেকের কস্টিং ও প্রফিট সিঙ্ক হয়েছে!`);
+        setSyncFeedback(`${res.count ?? allCostings.length}টি কেকের খরচের হিসাব সংরক্ষিত হয়েছে।`);
         setLastSyncedTime(new Date().toLocaleTimeString('bn-BD'));
         setTimeout(() => setSyncFeedback(null), 5000);
       } else {
         setSyncStatus('error');
-        setSyncFeedback(`গুগল শিট সিঙ্ক ব্যর্থ হয়েছে: ${res.error || 'অজানা সমস্যা'}`);
+        setSyncFeedback('খরচের হিসাব সংরক্ষণ করা যায়নি।');
       }
     } catch (err) {
       setSyncStatus('error');
-      setSyncFeedback(err instanceof Error ? err.message : 'সিঙ্ক করার সময় সমস্যা দেখা দিয়েছে');
+      setSyncFeedback(shopErrorMessage(err, 'সিঙ্ক করার সময় সমস্যা দেখা দিয়েছে'));
     }
   };
 
@@ -167,7 +168,7 @@ export const ItemCostingManager: React.FC<Props> = ({
     const updatedList = getAllItemCostings(products);
     setCostings(updatedList);
 
-    setSaveSuccessMsg(`"${editingItem.product_name}" এর কস্টিং ও প্রফিট গুগল শিটে সংরক্ষিত হয়েছে!`);
+    setSaveSuccessMsg(`"${editingItem.product_name}" এর খরচের হিসাব আপডেট হয়েছে।`);
     setLastSyncedTime(new Date().toLocaleTimeString('bn-BD'));
     if (onProductCostingUpdated) {
       onProductCostingUpdated();
@@ -276,7 +277,7 @@ export const ItemCostingManager: React.FC<Props> = ({
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <h4 className="text-sm font-bold text-slate-800">গুগল শিট কস্টিং ও প্রফিট সিঙ্ক (Google Sheet Sync)</h4>
+              <h4 className="text-sm font-bold text-slate-800">কস্টিং ও লাভের হিসাব</h4>
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                 syncStatus === 'synced' 
                   ? 'bg-emerald-100 text-emerald-800 border-emerald-300' 
@@ -286,15 +287,15 @@ export const ItemCostingManager: React.FC<Props> = ({
                   ? 'bg-red-100 text-red-800 border-red-300'
                   : 'bg-slate-100 text-slate-700 border-slate-200'
               }`}>
-                {syncStatus === 'synced' && 'গুগল শিটে সংরক্ষিত (Synced)'}
-                {syncStatus === 'syncing' && 'সিঙ্ক হচ্ছে... (Syncing)'}
-                {syncStatus === 'error' && 'সিঙ্ক ত্রুটি (Sync Error)'}
-                {syncStatus === 'idle' && 'কানেক্টেড (Ready)'}
+                {syncStatus === 'synced' && 'সংরক্ষিত'}
+                {syncStatus === 'syncing' && 'আপডেট হচ্ছে…'}
+                {syncStatus === 'error' && 'আপডেট করা যায়নি'}
+                {syncStatus === 'idle' && 'প্রস্তুত'}
               </span>
             </div>
             <p className="text-xs text-slate-600 mt-0.5">
-              সব কেকের উপকরণ খরচ, প্যাকেজিং, ডেলিভারি ও প্রফিট মার্জিন গুগল শিটের <span className="font-semibold text-emerald-800 underline decoration-dotted">item_costings</span> ট্যাবে সরাসরি সেভ থাকে।
-              {lastSyncedTime && <span className="ml-2 text-slate-500 font-mono text-[11px]">• সর্বশেষ সিঙ্ক: {lastSyncedTime}</span>}
+              উপকরণ, প্যাকেজিং, ডেলিভারি ও লাভের হিসাব।
+              {lastSyncedTime && <span className="ml-2 text-slate-500 font-mono text-[11px]">• সর্বশেষ আপডেট {lastSyncedTime}</span>}
             </p>
           </div>
         </div>
@@ -311,7 +312,7 @@ export const ItemCostingManager: React.FC<Props> = ({
             }`}
           >
             <RefreshCw className={`w-3.5 h-3.5 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
-            <span>{syncStatus === 'syncing' ? 'শিটে সেভ হচ্ছে...' : '📊 গুগল শিটে সেভ/সিঙ্ক করুন'}</span>
+            <span>{syncStatus === 'syncing' ? 'সংরক্ষণ হচ্ছে…' : 'হিসাব সংরক্ষণ করুন'}</span>
           </button>
         </div>
       </div>
@@ -683,9 +684,6 @@ export const ItemCostingManager: React.FC<Props> = ({
                     <span>কস্টিং সংরক্ষণ করুন (Save Costing)</span>
                   </button>
                 </div>
-                <p className="text-[11px] text-center text-slate-500">
-                  ⚡ সেভ করার সাথে সাথে লোকাল ডেটাবেস ও গুগল শিটের <span className="font-semibold text-emerald-700">item_costings</span> ট্যাবে স্বয়ংক্রিয়ভাবে সংরক্ষিত হবে।
-                </p>
               </div>
             </form>
           </div>

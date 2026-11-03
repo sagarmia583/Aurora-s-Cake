@@ -1,3 +1,4 @@
+import { shopErrorMessage } from '../utils/shopErrorMessage';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useCakeDialog } from './useCakeDialog';
 import { 
@@ -304,7 +305,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
       if (released) { pendingCheckoutRef.current = null; orderAttemptRef.current = null; }
       setUnconfirmed(!released);
     } else setUnconfirmed(error instanceof SheetOrderSubmissionError && error.ambiguous);
-    setErrorMessage(error instanceof Error ? error.message : 'The order could not be confirmed. Your bag has been kept.');
+    setErrorMessage(shopErrorMessage(error, 'The order could not be confirmed. Your bag has been kept.'));
   };
   const handleDiscardPending = async () => {
     if (pendingCheckoutRef.current) {
@@ -465,9 +466,9 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handlePlaceOrder} className="overflow-y-auto p-6 space-y-6 flex-1">
-          {liveOrderingPaused && <p role="status" className="text-xs text-amber-950 bg-amber-50 p-3 rounded-xl">Online ordering is temporarily paused. Your checkout stays with the bakery; it has not been changed to a demo. If an earlier attempt is unconfirmed, use “Retry original order” with its saved reference below.</p>}
+          {liveOrderingPaused && <p role="status" className="text-xs text-amber-950 bg-amber-50 p-3 rounded-xl">Online ordering is temporarily paused. To check an earlier attempt, use “Retry original order” below.</p>}
           <fieldset disabled={isSubmitting || unconfirmed} className="min-w-0 space-y-6 border-0 p-0 m-0">
-          <p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">{isLiveOrder ? 'Place your order with the bakery and pay cash on delivery. No online payment is collected. Confirmation appears only after the bakery confirms your order was saved.' : 'Live ordering is not activated yet. This demo checkout stays on this device; it is not sent to the bakery and no payment is collected.'}</p>
+          <p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">{isLiveOrder ? 'Pay cash when your order arrives. Your receipt appears after the bakery confirms your order was saved.' : 'Live ordering is not activated yet. This demo checkout stays on this device; it is not sent to the bakery and no payment is collected.'}</p>
           {errorMessage && (
             <div role="alert" className="bg-red-50 text-red-700 p-3.5 rounded-xl border border-red-200 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
