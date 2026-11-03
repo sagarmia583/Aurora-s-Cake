@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useCakeDialog } from './useCakeDialog';
 import { 
   X, 
@@ -10,22 +10,25 @@ import {
   Tag, 
   AlertCircle,
   Truck,
-  Sparkles
+  Sparkles,
+  ShoppingBag,
+  Gift,
+  Copy,
+  Check
 } from 'lucide-react';
 import { CartItem, DeliveryZone, DeliverySlot, Order, PaymentMethod } from '../types';
-import { mockDb } from '../services/mockDatabase';
+import { mockDb, validateCoupon } from '../services/mockDatabase';
 import { calculateSheetOrderEstimate, createSheetOrderAttempt, submitSheetOrder, SheetOrderSubmissionError, loadConfirmedSheetOrders } from '../services/googleSheetOrders';
 import { getPhoneCustomerProfile } from '../services/phoneCustomerApi';
 import { matchCheckoutCustomer, normalizeCheckoutPhone } from '../services/customerPhoneLookup';
 import type { CheckoutCustomerInfo } from '../services/customerPhoneLookup';
+import { getSavedCustomer, saveCustomerInfo } from '../services/customerDirectory';
 import type { SheetOrderAttempt, SheetOrderDraft } from '../services/googleSheetOrders';
 import { captureCheckoutCart, inspectPendingCheckout, preservePendingCheckout, releasePendingCheckout, PendingCheckoutConflict } from '../services/checkoutRecovery';
 import type { CheckoutCompletion, CheckoutRecovery, PendingCheckout } from '../services/checkoutRecovery';
+import { validateBangladeshiPhone } from '../utils/phoneValidation';
+import { deliverySlotOpen, deliveryToday as localDate } from '../../apps/staff-mobile/src/deliverySlot';
 
-const localDate = () => {
-  const date = new Date();
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-};
 
 interface CheckoutModalProps {
   isOpen: boolean;
@@ -64,6 +67,8 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const isLiveOrder = !!liveOrderEndpoint;
   const liveOrderingPaused = isLiveOrder && (orderingPaused || !sheetOrderEndpoint);
 
+  const shopSettings = useMemo(() => mockDb.getShopSettingsSync(), [isOpen]);
+
   // Form State
   const [customerName, setCustomerName] = useState(recoveredDraft?.customer_name || '');
   const [customerPhone, setCustomerPhone] = useState(recoveredDraft?.customer_phone || '');
@@ -73,10 +78,25 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const ownedCustomerRef = useRef<CheckoutCustomerInfo | null>(null);
   const [deliveryAddress, setDeliveryAddress] = useState(recoveredDraft?.delivery_address || '');
   const [selectedZoneId, setSelectedZoneId] = useState(recoveredDraft?.delivery_zone_id || zones[0]?.id || '');
-  const [selectedSlot, setSelectedSlot] = useState(recoveredDraft?.delivery_slot || slots.find((slot) => slot.is_active)?.slot_label || '');
+  const [selectedSlot, setSelectedSlot] = useState(recoveredDraft?.delivery_slot || '');
   const [deliveryDate, setDeliveryDate] = useState(() => recoveredDraft?.delivery_date || localDate());
   const [orderNote, setOrderNote] = useState(recoveredDraft?.order_note || '');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cod');
+
+  // Gift & Surprise Delivery State
+  const [isGift, setIsGift] = useState(false);
+  const [recipientName, setRecipientName] = useState('');
+  const [recipientPhone, setRecipientPhone] = useState('');
+  const [senderName, setSenderName] = useState('');
+  const [senderPhone, setSenderPhone] = useState('');
+  const [hidePriceOnBox, setHidePriceOnBox] = useState(true);
+  const [giftCardMessage, setGiftCardMessage] = useState('');
+
+  // bKash / Nagad Advance Payment State
+  const [paymentMode, setPaymentMode] = useState<'full' | 'advance'>('advance');
+  const [paymentSenderPhone, setPaymentSenderPhone] = useState('');
+  const [paymentTrxId, setPaymentTrxId] = useState('');
+  const [copiedNumber, setCopiedNumber] = useState(false);
 
   // Coupon
   const [couponInput, setCouponInput] = useState('');
@@ -117,15 +137,40 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     } catch {return null;}
   };
   const fillFromPhone = (phone:string, verified?:CheckoutCustomerInfo|null) => {
-    const customer=matchCheckoutCustomer(phone,verified?{name:verified.name,phone:verified.phone,address:verified.address}:null,
-      loadLocalProfile(),loadConfirmedSheetOrders());
-    if(!customer){setAutofillNotice('');return;}
-    const previousFill=currentPrefillRef.current;
-    setCustomerName(previous=>!previous||previous===previousFill?.name?customer.name:previous);
-    setDeliveryAddress(previous=>!previous||previous===previousFill?.address?customer.address:previous);
-    currentPrefillRef.current={name:customer.name,address:customer.address};
-    setAutofillNotice(customer.source==='account'?'Your saved account details were loaded.':
-      'Your previously saved contact details were found on this device.');
+    const saved = getSavedCustomer(phone, loadConfirmedSheetOrders());
+    const customer = saved
+      ? { name: saved.name, phone: saved.phone, address: saved.address, source: 'device' as const, zone_id: saved.zone_id }
+      : matchCheckoutCustomer(
+          phone,
+          verified ? { name: verified.name, phone: verified.phone, address: verified.address } : null,
+          loadLocalProfile(),
+          loadConfirmedSheetOrders()
+        );
+
+    if (!customer || (!customer.name && !customer.address)) {
+      const digits = normalizeCheckoutPhone(phone);
+      if (digits.length >= 11) {
+        setAutofillNotice('নতুন ফোন নম্বর: নাম ও ডেলিভারি ঠিকানা লিখুন, এই অর্ডারের সাথে তা স্বয়ংক্রিয়ভাবে সংরক্ষিত হবে।');
+      } else {
+        setAutofillNotice('');
+      }
+      return;
+    }
+
+    const previousFill = currentPrefillRef.current;
+    if (customer.name) {
+      setCustomerName((previous) => (!previous || previous === previousFill?.name ? customer.name : previous));
+    }
+    if (customer.address) {
+      setDeliveryAddress((previous) => (!previous || previous === previousFill?.address ? customer.address : previous));
+    }
+    if ('zone_id' in customer && customer.zone_id) {
+      if (zones.some((z) => z.id === customer.zone_id && z.is_active)) {
+        setSelectedZoneId(customer.zone_id);
+      }
+    }
+    currentPrefillRef.current = { name: customer.name, address: customer.address };
+    setAutofillNotice('স্বাগতম! আপনার ফোন নম্বরের বিপরীতে সংরক্ষিত তথ্য অটোফিল করা হয়েছে। প্রয়োজনে যেকোনো তথ্য পরিবর্তন করতে পারেন।');
   };
   const onPhoneChanged = (value:string) => {
     const previous=normalizeCheckoutPhone(customerPhone), next=normalizeCheckoutPhone(value);
@@ -174,35 +219,72 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const dialogRef = useCakeDialog(closeCheckout, isOpen);
 
   const selectedZone = zones.find((zone) => zone.id === selectedZoneId && zone.is_active) || zones.find((zone) => zone.is_active);
-  const selectedDeliverySlot = slots.find((slot) => slot.slot_label === selectedSlot && slot.is_active)?.slot_label || slots.find((slot) => slot.is_active)?.slot_label || '';
+  const availableSlots = slots.filter(slot => slot.is_active && deliverySlotOpen(slot.slot_label, deliveryDate));
+  const selectedDeliverySlot = selectedSlot
+    ? availableSlots.find(slot => slot.slot_label === selectedSlot)?.slot_label || ''
+    : availableSlots[0]?.slot_label || '';
   const itemsSubtotal = items.reduce((sum, item) => sum + item.total_price, 0);
+  const originalSubtotal = items.reduce((sum, item) => {
+    const addonsTotal = item.selected_addons.reduce((s, a) => s + a.price, 0);
+    return sum + (item.selected_variant.price + addonsTotal) * item.quantity;
+  }, 0);
+  const cakeDiscountTotal = Math.max(0, originalSubtotal - itemsSubtotal);
 
   const coupon = mockDb.getCoupons().find((item) => item.code.toUpperCase() === appliedCoupon && item.is_active);
   const liveEstimate = isLiveOrder ? calculateSheetOrderEstimate(itemsSubtotal, selectedZone?.delivery_fee ?? 0, coupon) : undefined;
   let estimatedDiscount = liveEstimate?.discount ?? 0;
-  if (!isLiveOrder && coupon && itemsSubtotal >= coupon.min_order_amount) {
-    estimatedDiscount = coupon.discount_type === 'fixed' ? coupon.discount_value : Math.round(itemsSubtotal * coupon.discount_value / 100);
-    if (coupon.max_discount_amount !== undefined) estimatedDiscount = Math.min(estimatedDiscount, coupon.max_discount_amount);
+  if (!isLiveOrder && coupon) {
+    const val = validateCoupon(coupon, itemsSubtotal);
+    if (val.isValid) {
+      estimatedDiscount = val.discount;
+    }
   }
   const estimatedTotal = liveEstimate?.total ?? Math.max(0, itemsSubtotal - estimatedDiscount + (selectedZone?.delivery_fee || 0));
 
-  const handleApplyCoupon = () => {
+  const availableCoupons = useMemo(() => {
+    const list = mockDb.getCoupons();
+    const now = new Date();
+    return list.filter((c) => {
+      if (!c.is_active) return false;
+      if (c.valid_from) {
+        const fromTime = new Date(c.valid_from.includes('T') ? c.valid_from : `${c.valid_from}T00:00:00`).getTime();
+        if (!isNaN(fromTime) && now.getTime() < fromTime) return false;
+      }
+      if (c.valid_until) {
+        const untilTime = new Date(c.valid_until.includes('T') ? c.valid_until : `${c.valid_until}T23:59:59.999`).getTime();
+        if (!isNaN(untilTime) && now.getTime() > untilTime) return false;
+      }
+      if (c.usage_limit && c.usage_limit > 0 && (c.usage_count || 0) >= c.usage_limit) return false;
+      return true;
+    });
+  }, [itemsSubtotal]);
+
+  const handleApplyCoupon = (targetCode?: string) => {
     setCouponError(null);
-    const code = couponInput.trim().toUpperCase();
+    const code = (targetCode ?? couponInput).trim().toUpperCase();
     if (!code) return;
     const match = mockDb.getCoupons().find((item) => item.code.toUpperCase() === code && item.is_active);
     if (!match) {
       setCouponError('This coupon is not available.');
       return;
     }
-    if (itemsSubtotal < match.min_order_amount) {
-      setCouponError(`Requires a minimum cake subtotal of ${currency}${match.min_order_amount}.`);
+    const val = validateCoupon(match, itemsSubtotal);
+    if (!val.isValid) {
+      setCouponError(val.reason || 'This coupon is not valid for this order.');
       return;
     }
     setAppliedCoupon(code);
+    setCouponInput(code);
   };
 
   const finishLiveOrder = async (order: Order, pending: PendingCheckout) => {
+    saveCustomerInfo({
+      phone: customerPhone,
+      name: customerName,
+      address: deliveryAddress,
+      zone_id: selectedZone?.id,
+      last_order_id: order.id,
+    });
     try {
       onOrderSuccess(order, { request_id: pending.attempt.request_id, cart_lines: pending.cart_lines });
     } catch (error) {
@@ -223,6 +305,15 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
       setUnconfirmed(!released);
     } else setUnconfirmed(error instanceof SheetOrderSubmissionError && error.ambiguous);
     setErrorMessage(error instanceof Error ? error.message : 'The order could not be confirmed. Your bag has been kept.');
+  };
+  const handleDiscardPending = async () => {
+    if (pendingCheckoutRef.current) {
+      await releasePendingCheckout(pendingCheckoutRef.current);
+      pendingCheckoutRef.current = null;
+      orderAttemptRef.current = null;
+    }
+    setUnconfirmed(false);
+    setErrorMessage(null);
   };
   const retryOriginalOrder = async () => {
     const originalAttempt = orderAttemptRef.current;
@@ -265,10 +356,17 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
       setErrorMessage('Please choose today or a future delivery date.');
       return;
     }
-    const phoneDigits = customerPhone.replace(/\D/g, '');
-    if (phoneDigits.length < 7 || phoneDigits.length > 15) {
-      setErrorMessage('Please enter a valid contact phone number.');
+    const phoneCheck = validateBangladeshiPhone(customerPhone);
+    if (!phoneCheck.isValid) {
+      setErrorMessage(phoneCheck.error || 'একটি সঠিক ১১ ডিজিটের মোবাইল নম্বর দিন (যেমন: 017XXXXXXXX)।');
       return;
+    }
+    if (isGift && recipientPhone.trim()) {
+      const recPhoneCheck = validateBangladeshiPhone(recipientPhone);
+      if (!recPhoneCheck.isValid) {
+        setErrorMessage(`প্রাপকের ${recPhoneCheck.error || 'মোবাইল নম্বরটি ১১ ডিজিটের হতে হবে'}।`);
+        return;
+      }
     }
     submissionInFlight.current = true;
     setIsSubmitting(true);
@@ -299,13 +397,37 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
         const confirmedOrder = await submitSheetOrder(pending.attempt);
         await finishLiveOrder(confirmedOrder, pending);
       } else {
+        const advanceAmount = paymentMethod !== 'cod' ? (paymentMode === 'full' ? estimatedTotal : Math.min(estimatedTotal, 500)) : 0;
         const result = await mockDb.createSecureOrder({
-          customer_name: customerName.trim(), customer_phone: customerPhone.trim(), delivery_address: deliveryAddress.trim(),
-          delivery_zone_id: selectedZone.id, delivery_slot: selectedDeliverySlot, delivery_date: deliveryDate,
-          cart_items: items, coupon_code: appliedCoupon || undefined, order_note: orderNote || undefined,
+          customer_name: (isGift && recipientName.trim() ? recipientName.trim() : customerName.trim()),
+          customer_phone: (isGift && recipientPhone.trim() ? recipientPhone.trim() : customerPhone.trim()),
+          delivery_address: deliveryAddress.trim(),
+          delivery_zone_id: selectedZone.id,
+          delivery_slot: selectedDeliverySlot,
+          delivery_date: deliveryDate,
+          cart_items: items,
+          coupon_code: appliedCoupon || undefined,
+          order_note: orderNote || undefined,
           payment_method: paymentMethod,
+          is_gift: isGift,
+          recipient_name: isGift ? recipientName.trim() : undefined,
+          recipient_phone: isGift ? recipientPhone.trim() : undefined,
+          sender_name: isGift ? (senderName.trim() || customerName.trim()) : undefined,
+          sender_phone: isGift ? (senderPhone.trim() || customerPhone.trim()) : undefined,
+          hide_price_on_box: isGift ? hidePriceOnBox : false,
+          gift_card_message: isGift ? giftCardMessage.trim() : undefined,
+          advance_paid_amount: advanceAmount,
+          bkash_number: paymentMethod !== 'cod' ? paymentSenderPhone.trim() : undefined,
+          bkash_trx_id: paymentMethod !== 'cod' ? paymentTrxId.trim() : undefined,
         });
         if (!result.success) throw new Error(result.error || 'The demo order could not be saved on this device.');
+        saveCustomerInfo({
+          phone: customerPhone,
+          name: customerName,
+          address: deliveryAddress,
+          zone_id: selectedZone?.id,
+          last_order_id: result.order.id,
+        });
         onOrderSuccess({ ...result.order, persistence: 'local_demo' }, { request_id: 'demo-' + result.order.id, cart_lines: captureCheckoutCart(items) });
         onClose();
       }
@@ -353,6 +475,80 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
             </div>
           )}
 
+          {/* Order Items Review */}
+          <div className="bg-slate-50/90 rounded-2xl border border-slate-200/90 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                <ShoppingBag className="w-4 h-4 text-rose-600" />
+                <span>Selected Cakes ({items.length})</span>
+              </h4>
+              {cakeDiscountTotal > 0 && (
+                <span className="text-xs font-bold text-rose-700 bg-rose-100 px-2.5 py-0.5 rounded-full border border-rose-200">
+                  {currency}{cakeDiscountTotal} ছাড় প্রযোজ্য
+                </span>
+              )}
+            </div>
+            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+              {items.map((it) => {
+                const hasLineDiscount = it.selected_variant.sale_price !== undefined && it.selected_variant.sale_price < it.selected_variant.price;
+                const addonsTotal = it.selected_addons.reduce((s, a) => s + a.price, 0);
+                const lineOriginalTotal = (it.selected_variant.price + addonsTotal) * it.quantity;
+                const lineSavings = hasLineDiscount ? (it.selected_variant.price - it.selected_variant.sale_price!) * it.quantity : 0;
+                return (
+                  <div key={it.cart_item_id} className="p-2.5 bg-white rounded-xl border border-slate-200/70 flex items-center justify-between text-xs gap-3">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <img src={it.product.image_url} alt={it.product.name} className="w-11 h-11 object-cover rounded-lg border border-slate-200 shrink-0" />
+                      <div className="min-w-0">
+                        <div className="font-bold text-slate-900 truncate">{it.product.name}</div>
+                        <div className="text-[11px] text-slate-500">
+                          {it.selected_variant.name} {it.selected_flavor ? `• ${it.selected_flavor.name}` : ''} × {it.quantity}
+                        </div>
+                        {it.writing_message && (
+                          <div className="text-[10px] text-rose-600 italic truncate">
+                            "{it.writing_message}"
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      {hasLineDiscount && (
+                        <div className="flex items-center gap-1 justify-end">
+                          <span className="text-[10px] text-slate-400 line-through">
+                            {currency}{lineOriginalTotal}
+                          </span>
+                          <span className="text-[9px] bg-rose-100 text-rose-700 font-bold px-1 rounded">
+                            {currency}{lineSavings} ছাড়
+                          </span>
+                        </div>
+                      )}
+                      <div className="font-bold text-rose-600 text-sm">
+                        {currency}{it.total_price}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Complimentary Free Bakery Kit */}
+            <div className="bg-emerald-50/80 border border-emerald-200/80 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-2 text-xs text-emerald-950">
+              <span className="font-bold flex items-center gap-1.5 text-emerald-900">
+                <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{shopSettings?.complimentary_kit_title || 'প্রতিটি কেকের সাথে পাচ্ছেন:'}</span>
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold text-emerald-800">
+                {(shopSettings?.complimentary_kit_items && shopSettings.complimentary_kit_items.length > 0
+                  ? shopSettings.complimentary_kit_items
+                  : ['ফ্রি কেক কাটার ছুরি', 'ফ্রি মোমবাতি', 'প্রিমিয়াম বক্স ও রিবন']
+                ).map((it, idx) => (
+                  <span key={idx} className="bg-white px-2 py-0.5 rounded-lg border border-emerald-200 shadow-2xs">
+                    ✓ {it}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+
           {/* Customer Info */}
           <div className="space-y-3">
             <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
@@ -373,14 +569,20 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
               </div>
               <div>
                 <label className="text-xs font-semibold text-slate-600 block mb-1">
-                  Mobile number
+                  Mobile number (১১ ডিজিট)
+                  {customerPhone.trim() && (
+                    <span className={`ml-2 text-[10px] ${validateBangladeshiPhone(customerPhone).isValid ? 'text-emerald-600 font-bold' : 'text-rose-600 font-semibold'}`}>
+                      {validateBangladeshiPhone(customerPhone).isValid ? '✓ সঠিক ১১ ডিজিট' : `(${customerPhone.replace(/\D/g, '').length}/11)`}
+                    </span>
+                  )}
                 </label>
                 <input
                   type="tel"
                   required
-                  aria-label="Mobile number" autoComplete="tel" placeholder="Your contact number"
+                  maxLength={14}
+                  aria-label="Mobile number" autoComplete="tel" placeholder="017XXXXXXXX"
                   value={customerPhone}
-                  onChange={(e) => onPhoneChanged(e.target.value)}
+                  onChange={(e) => onPhoneChanged(e.target.value.replace(/[^\d+]/g, ''))}
                   className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 focus:outline-rose-500 text-slate-800"
                 />
               </div>
@@ -406,6 +608,113 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
                 placeholder="House, road, flat number, or a nearby landmark..."
                 className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 focus:outline-rose-500 text-slate-800"
               />
+            </div>
+
+            {/* Gift / Surprise Order Toggle & Form */}
+            <div className="bg-gradient-to-r from-pink-50 via-rose-50 to-amber-50 border border-pink-200/80 rounded-2xl p-3.5 space-y-3">
+              <label className="flex items-start sm:items-center gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isGift}
+                  onChange={(e) => setIsGift(e.target.checked)}
+                  className="mt-0.5 sm:mt-0 w-4 h-4 text-rose-600 rounded border-slate-300 focus:ring-rose-500 cursor-pointer"
+                />
+                <div className="flex-1">
+                  <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <Gift className="w-4 h-4 text-rose-600 inline shrink-0" />
+                    <span>প্রিয়জনকে সারপ্রাইজ বা উপহার হিসেবে পাঠান (Send as a Gift)</span>
+                  </span>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    রিসিভার ও আপনার তথ্য আলাদা থাকবে, কেকের বক্সে ইনভয়েস/দাম গোপন থাকবে।
+                  </p>
+                </div>
+              </label>
+
+              {isGift && (
+                <div className="space-y-3 pt-2.5 border-t border-pink-200/60 animate-in fade-in duration-200">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                        রিসিভারের নাম (যিনি কেক গ্রহণ করবেন) *
+                      </label>
+                      <input
+                        type="text"
+                        required={isGift}
+                        value={recipientName}
+                        onChange={(e) => setRecipientName(e.target.value)}
+                        placeholder="রিসিভারের পুরো নাম"
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-rose-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                        রিসিভারের মোবাইল নম্বর *
+                      </label>
+                      <input
+                        type="tel"
+                        required={isGift}
+                        value={recipientPhone}
+                        onChange={(e) => setRecipientPhone(e.target.value)}
+                        placeholder="01XXXXXXXXX"
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-rose-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                        আপনার নাম (প্রেরক / সেন্ডার)
+                      </label>
+                      <input
+                        type="text"
+                        value={senderName}
+                        onChange={(e) => setSenderName(e.target.value)}
+                        placeholder="আপনার নাম (যেমন: শুভাকাঙ্ক্ষী বা নাম)"
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-rose-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                        আপনার মোবাইল নম্বর
+                      </label>
+                      <input
+                        type="tel"
+                        value={senderPhone}
+                        onChange={(e) => setSenderPhone(e.target.value)}
+                        placeholder="01XXXXXXXXX"
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-rose-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                      💌 ফ্রি গ্রিটিং কার্ডে আপনার শুভেচ্ছা বার্তা (Gift Card Message)
+                    </label>
+                    <textarea
+                      rows={2}
+                      maxLength={140}
+                      value={giftCardMessage}
+                      onChange={(e) => setGiftCardMessage(e.target.value)}
+                      placeholder="যেমন: শুভ জন্মদিন মা! অনেক ভালোবাসা রইলো..."
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-rose-500"
+                    />
+                  </div>
+
+                  <label className="flex items-center gap-2 cursor-pointer bg-white/90 p-2.5 rounded-xl border border-pink-100">
+                    <input
+                      type="checkbox"
+                      checked={hidePriceOnBox}
+                      onChange={(e) => setHidePriceOnBox(e.target.checked)}
+                      className="w-3.5 h-3.5 text-rose-600 rounded cursor-pointer"
+                    />
+                    <span className="text-[11px] font-bold text-slate-700">
+                      ✓ কেকের বক্সে ইনভয়েস বা মূল্য গোপন রাখুন (সারপ্রাইজের জন্য প্রস্তাবিত)
+                    </span>
+                  </label>
+                </div>
+              )}
             </div>
           </div>
 
@@ -444,7 +753,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
                 <input
                   type="date" required min={localDate()} aria-label="Delivery date"
                   value={deliveryDate}
-                  onChange={(e) => setDeliveryDate(e.target.value)}
+                  onChange={(e) => { setDeliveryDate(e.target.value); setSelectedSlot(''); }}
                   className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 focus:outline-rose-500 text-slate-800"
                 />
               </div>
@@ -456,7 +765,8 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
                   onChange={(e) => setSelectedSlot(e.target.value)}
                   className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 focus:outline-rose-500 text-slate-800"
                 >
-                  {slots.filter((slot) => slot.is_active).map((slot) => (
+                  {!selectedDeliverySlot && <option value="" disabled>{availableSlots.length ? 'Choose a delivery time' : 'Choose another delivery date'}</option>}
+                  {availableSlots.map((slot) => (
                     <option key={slot.id} value={slot.slot_label}>
                       {slot.slot_label}
                     </option>
@@ -473,34 +783,137 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
               <span>3. Payment Method</span>
             </h4>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {(isLiveOrder ? [
-                { id: 'cod', label: 'Cash on delivery', sub: 'Pay when your order arrives' },
-              ] : [
-                { id: 'cod', label: 'Cash on delivery', sub: 'Demo selection' },
-                { id: 'bkash', label: 'bKash', sub: 'Preview only' },
-                { id: 'nagad', label: 'Nagad', sub: 'Preview only' },
-                { id: 'card', label: 'Card', sub: 'Preview only' },
-              ]).map((method) => {
-                const isSelected = (isLiveOrder ? 'cod' : paymentMethod) === method.id;
-                return (
-                  <button
-                    key={method.id}
-                    type="button"
-                    aria-pressed={isSelected}
-                    onClick={() => setPaymentMethod(method.id as PaymentMethod)}
-                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                      isSelected
-                        ? 'border-rose-600 bg-rose-50 text-rose-900 ring-1 ring-rose-400 font-bold'
-                        : 'border-slate-200 hover:border-slate-300 text-slate-700'
-                    }`}
-                  >
-                    <div className="text-xs">{method.label}</div>
-                    <div className="text-[10px] text-slate-500 font-normal mt-0.5">{method.sub}</div>
-                  </button>
-                );
-              })}
-            </div>
+            {isLiveOrder ? (
+              <div className="p-3 rounded-xl border border-rose-200 bg-rose-50/50 text-slate-800 text-xs">
+                <span className="font-bold block">ক্যাশ অন ডেলিভারি (Cash on Delivery)</span>
+                <span className="text-[11px] text-slate-500">
+                  কেক হাতে পেয়ে ডেলিভারি রাইডারের কাছে সম্পূর্ণ মূল্য পরিশোধ করুন।
+                </span>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {[
+                    { id: 'cod', label: 'ক্যাশ অন ডেলিভারি (COD)', sub: 'কেক হাতে পেয়ে সম্পূর্ণ মূল্য পরিশোধ' },
+                    { id: 'bkash', label: 'বিকাশ (bKash)', sub: 'সম্পূর্ণ বা ৫০০ টাকা অগ্রিম বুকিং' },
+                    { id: 'nagad', label: 'নগদ (Nagad)', sub: 'সম্পূর্ণ বা ৫০০ টাকা অগ্রিম বুকিং' },
+                  ].map((method) => {
+                    const isSelected = paymentMethod === method.id;
+                    return (
+                      <button
+                        key={method.id}
+                        type="button"
+                        aria-pressed={isSelected}
+                        onClick={() => setPaymentMethod(method.id as PaymentMethod)}
+                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                          isSelected
+                            ? 'border-rose-600 bg-rose-50 text-rose-900 ring-1 ring-rose-400 font-bold'
+                            : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                        }`}
+                      >
+                        <div className="text-xs font-bold">{method.label}</div>
+                        <div className="text-[10px] text-slate-500 font-normal mt-0.5">{method.sub}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* bKash & Nagad Payment Verification Box */}
+                {paymentMethod !== 'cod' && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-3 text-xs animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
+                      <div>
+                        <span className="text-[11px] text-slate-500 block">
+                          {paymentMethod === 'bkash' ? 'Aurora’s Cake বিকাশ নম্বর:' : 'Aurora’s Cake নগদ নম্বর:'}
+                        </span>
+                        <strong className="text-sm font-mono text-slate-900 font-bold">01711-234567</strong>
+                        <span className="text-[10px] text-slate-500 ml-1.5">(Personal / Send Money)</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText('01711234567');
+                          setCopiedNumber(true);
+                          setTimeout(() => setCopiedNumber(false), 2000);
+                        }}
+                        className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors"
+                      >
+                        {copiedNumber ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedNumber ? 'কপি হয়েছে' : 'কপি করুন'}</span>
+                      </button>
+                    </div>
+
+                    {/* Advance vs Full Option */}
+                    <div className="space-y-1.5">
+                      <label className="font-bold text-slate-700 block">পেমেন্টের ধরণ নির্বাচন করুন:</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPaymentMode('advance')}
+                          className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
+                            paymentMode === 'advance'
+                              ? 'border-rose-600 bg-rose-50 text-rose-950 font-bold ring-1 ring-rose-300'
+                              : 'border-slate-200 bg-white text-slate-700'
+                          }`}
+                        >
+                          <div className="font-bold text-xs">আংশিক অগ্রিম (Advance)</div>
+                          <div className="text-[10px] text-slate-500 mt-0.5">
+                            ৳{Math.min(estimatedTotal, 500)} অগ্রিম, বাকি ৳{Math.max(0, estimatedTotal - Math.min(estimatedTotal, 500))} ডেলিভারিতে ক্যাশ
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPaymentMode('full')}
+                          className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
+                            paymentMode === 'full'
+                              ? 'border-rose-600 bg-rose-50 text-rose-950 font-bold ring-1 ring-rose-300'
+                              : 'border-slate-200 bg-white text-slate-700'
+                          }`}
+                        >
+                          <div className="font-bold text-xs">সম্পূর্ণ পেমেন্ট (Full)</div>
+                          <div className="text-[10px] text-slate-500 mt-0.5">
+                            সম্পূর্ণ ৳{estimatedTotal} এখনই বিকাশ/নগদে পরিশোধ
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="font-bold text-slate-700 block mb-1">
+                          যে নম্বর থেকে টাকা পাঠিয়েছেন *
+                        </label>
+                        <input
+                          type="tel"
+                          required
+                          value={paymentSenderPhone}
+                          onChange={(e) => setPaymentSenderPhone(e.target.value)}
+                          placeholder="017XXXXXXXX"
+                          className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-rose-500 text-slate-800"
+                        />
+                      </div>
+                      <div>
+                        <label className="font-bold text-slate-700 block mb-1">
+                          ট্রানজেকশন আইডি (TrxID) *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={paymentTrxId}
+                          onChange={(e) => setPaymentTrxId(e.target.value.toUpperCase())}
+                          placeholder="যেমন: BL89K7M2"
+                          className="w-full px-3 py-2 text-xs font-mono uppercase rounded-xl border border-slate-200 bg-white focus:outline-rose-500 text-slate-800"
+                        />
+                      </div>
+                    </div>
+
+                    <p className="text-[10px] text-slate-500">
+                      টাকা পাঠিয়ে TrxID ফর্মে লিখে অর্ডার সম্পন্ন করুন। আমাদের কিচেন টিম তাৎক্ষণিকভাবে ভেরিফাই করে কনফার্মেশন পাঠাবে।
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
           {/* Coupon Code */}
@@ -519,12 +932,44 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
               />
               <button
                 type="button"
-                onClick={handleApplyCoupon}
+                onClick={() => handleApplyCoupon()}
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl cursor-pointer"
               >
                 Apply
               </button>
             </div>
+            {availableCoupons.length > 0 && (
+              <div className="space-y-1 pt-1">
+                <span className="text-[11px] text-slate-500 font-medium">Available Coupons (Click to apply):</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {availableCoupons.map((c) => {
+                    const isEligible = itemsSubtotal >= (c.min_order_amount || 0);
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => handleApplyCoupon(c.code)}
+                        className={`text-[11px] px-2.5 py-1 rounded-lg border font-medium flex items-center gap-1 transition-all cursor-pointer ${
+                          appliedCoupon === c.code
+                            ? 'bg-rose-50 border-rose-300 text-rose-700 font-bold'
+                            : 'bg-white border-slate-200 text-slate-700 hover:border-rose-300 hover:bg-rose-50/50'
+                        }`}
+                      >
+                        <span className="font-mono font-bold text-rose-600">{c.code}</span>
+                        <span className="text-slate-500">
+                          ({c.discount_type === 'percentage' ? `${c.discount_value}%` : `${currency}${c.discount_value}`} OFF)
+                        </span>
+                        {!isEligible && (
+                          <span className="text-[9px] text-amber-600 font-normal">
+                            (Min {currency}{c.min_order_amount})
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             {appliedCoupon && (
               <div className="text-xs text-emerald-700 bg-emerald-50 p-2 rounded-lg flex items-center gap-1.5 font-medium">
                 <CheckCircle className="w-3.5 h-3.5" />
@@ -555,8 +1000,20 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
 
           {/* Summary Breakdown */}
           <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-2 text-xs">
-            <div className="flex justify-between text-slate-600">
-              <span>Items Subtotal</span>
+            {cakeDiscountTotal > 0 && (
+              <div className="flex justify-between text-slate-500">
+                <span>Regular Price (আসল মূল্য)</span>
+                <span className="line-through font-semibold">{currency}{originalSubtotal}</span>
+              </div>
+            )}
+            {cakeDiscountTotal > 0 && (
+              <div className="flex justify-between text-rose-600 font-semibold">
+                <span>Special Cake Discount (কেক ছাড়)</span>
+                <span>-{currency}{cakeDiscountTotal}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-slate-700 font-medium">
+              <span>Items Subtotal (ছাড়ের পর মূল্য)</span>
               <span className="font-semibold">{currency}{itemsSubtotal}</span>
             </div>
             <div className="flex justify-between text-slate-600">
@@ -571,7 +1028,14 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
             )}
             <hr className="border-slate-200" />
             <div className="flex justify-between text-base font-bold text-slate-900 pt-1">
-              <span>{isLiveOrder ? 'Estimated total' : 'Preview total'}</span>
+              <div>
+                <div>{isLiveOrder ? 'Estimated total' : 'Preview total'}</div>
+                {(cakeDiscountTotal > 0 || estimatedDiscount > 0) && (
+                  <div className="text-[11px] font-semibold text-emerald-700">
+                    মোট সাশ্রয়: {currency}{cakeDiscountTotal + estimatedDiscount}
+                  </div>
+                )}
+              </div>
               <span className="text-rose-600 text-lg font-black">{currency}{estimatedTotal}</span>
             </div>
           </div>
@@ -603,7 +1067,8 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
           </fieldset>
           {unconfirmed && orderAttemptRef.current && <div className="space-y-3">
             <p role="status" className="text-xs text-slate-600">The original order is still unconfirmed. This retry uses its saved details and reference even if the current cake collection or delivery options have changed. The reference is kept on this device across closing this window or reloading the page.</p>
-            <button type="button" onClick={() => { void retryOriginalOrder(); }} disabled={isSubmitting} className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-3.5 px-4 rounded-2xl disabled:opacity-50">{isSubmitting ? 'Checking the original order...' : 'Retry original order'}</button>
+            <button type="button" onClick={() => { void retryOriginalOrder(); }} disabled={isSubmitting} className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-3.5 px-4 rounded-2xl disabled:opacity-50 cursor-pointer">{isSubmitting ? 'Checking the original order...' : 'Retry original order'}</button>
+            <button type="button" onClick={() => { void handleDiscardPending(); }} disabled={isSubmitting} className="w-full text-center text-xs text-slate-500 hover:text-rose-600 py-1.5 cursor-pointer">Discard this attempt & edit details</button>
           </div>}
         </form>
       </div>

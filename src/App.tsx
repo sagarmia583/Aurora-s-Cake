@@ -23,6 +23,7 @@ const SupabaseSyncModal = lazy(() => import('./components/SupabaseSyncModal').th
 const CustomCakeModal = lazy(() => import('./components/CustomCakeModal').then(m=>({default:m.CustomCakeModal})));
 const CustomerProfileModal = lazy(() => import('./components/CustomerProfileModal').then(m=>({default:m.CustomerProfileModal})));
 import { mockDb } from './services/mockDatabase';
+import { submitSheetReview } from './services/sheetReviews';
 import { loadBackendDatabaseStatus, unknownBackendDatabaseStatus } from './services/backendDatabaseStatus';
 import { useGoogleSheetContent } from './hooks/useGoogleSheetContent';
 const SheetContentPanel = lazy(() => import('./components/SheetContentPanel').then(m=>({default:m.SheetContentPanel})));
@@ -57,7 +58,8 @@ export default function App() {
   const sheetContent = useGoogleSheetContent();
   const publicData = sheetContent.data;
   const [isSheetContentOpen, setIsSheetContentOpen] = useState(false);
-  const [isStaffPortalOpen, setIsStaffPortalOpen] = useState(() => isStaffWorkspaceOpen(getBrowserWorkspaceStorage()));
+  const staffPage = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('staff') === '1';
+  const [isStaffPortalOpen, setIsStaffPortalOpen] = useState(() => staffPage || isStaffWorkspaceOpen(getBrowserWorkspaceStorage()));
   const openStaffPortal = () => { setStaffWorkspaceOpen(getBrowserWorkspaceStorage(),true); setIsStaffPortalOpen(true); };
   const closeStaffPortal = () => { setStaffWorkspaceOpen(getBrowserWorkspaceStorage(),false); setIsStaffPortalOpen(false); };
   const [isCustomerAccountOpen, setIsCustomerAccountOpen] = useState(false);
@@ -106,6 +108,17 @@ export default function App() {
 
   // Modals & Navigation
   const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
+  useEffect(()=>{
+    const title = publicData.settings.website_title || publicData.settings.shop_name;
+    document.title = selectedProductForDetail ? selectedProductForDetail.name+' · '+publicData.settings.shop_name : title;
+    const canonical = document.querySelector<HTMLLinkElement>('link[rel=canonical]');
+    if (canonical) {
+      const url = new URL(canonical.href);
+      const pathname = window.location.pathname || '/';
+      url.pathname = /^\/cake\/[a-z0-9-]+\/?$/.test(pathname) ? pathname : '/';
+      canonical.href = url.href;
+    }
+  },[publicData.settings,selectedProductForDetail]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   // A checkout keeps its original live target across catalog refreshes and close/reopen.
@@ -148,20 +161,31 @@ export default function App() {
 
   // Public reads never include orders. Confirmed private Sheet receipts are cached on this device.
   const refreshData = async () => {
-    setOrders([...loadConfirmedSheetOrders(), ...(import.meta.env.DEV ? mockDb.getOrders().filter(order => order.persistence !== 'google_sheets') : [])]);
+    const sheetOrders = loadConfirmedSheetOrders();
+    const orderMap = new Map<string, Order>();
+    sheetOrders.forEach(o => orderMap.set(o.id, o));
+    setOrders(Array.from(orderMap.values()));
     setCustomCakes(mockDb.getCustomCakes());
     setAuditLogs(mockDb.getAuditLogs());
   };
 
   useEffect(() => {
-    mockDb.applyPublicSnapshot(publicData);
+    mockDb.applyPublicSnapshot(publicData, { authoritative: true });
     const reconciled = reconcilePublicCart(cartRef.current, publicData);
     cartRef.current = reconciled.items;
     setCartItems(reconciled.items);
     if (reconciled.changed) setCartNotice('Your cake bag was updated to match the latest prices and available options. Please review it before checkout.');
-    setSelectedProductForDetail(previous => previous ? publicData.products.find(product => product.id === previous.id && product.is_active) ?? null : null);
-    setSettings(publicData.settings);
-    setProducts(publicData.products);
+    
+    // Public business data is authoritative in Sheets, including empty tables.
+    // Local Studio edits must never create products or prices on the live shop.
+    const effectiveSettings = publicData.settings;
+    const effectiveProducts = publicData.products;
+
+    const cakeSlug = (window.location.pathname || '/').match(/^\/cake\/([a-z0-9-]+)\/?$/)?.[1];
+    setSelectedProductForDetail(previous => effectiveProducts.find(product =>
+      product.is_active && (previous ? product.id === previous.id : !!cakeSlug && product.slug === cakeSlug)) ?? null);
+    setSettings(effectiveSettings);
+    setProducts(effectiveProducts);
     setCategories(publicData.categories);
     setFlavors(publicData.flavors);
     setAddons(publicData.addons);
@@ -170,14 +194,13 @@ export default function App() {
     setSlots(publicData.slots);
     setCoupons(publicData.coupons);
     setReviews(publicData.reviews);
-    document.title = publicData.settings.website_title || publicData.settings.shop_name;
     const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
-    if (icon) icon.href = publicData.settings.logo_url || '/favicon.svg';
+    if (icon) icon.href = effectiveSettings.logo_url || '/favicon.svg';
     for (const [selector, value] of [
-      ['meta[name="description"]', publicData.settings.website_description],
-      ['meta[property="og:title"]', publicData.settings.website_title || publicData.settings.shop_name],
-      ['meta[property="og:description"]', publicData.settings.website_description],
-    ]) document.querySelector(selector)?.setAttribute('content', value);
+      ['meta[name="description"]', effectiveSettings.website_description],
+      ['meta[property="og:title"]', effectiveSettings.website_title || effectiveSettings.shop_name],
+      ['meta[property="og:description"]', effectiveSettings.website_description],
+    ]) document.querySelector(selector)?.setAttribute('content', value || '');
   }, [publicData]);
 
   useEffect(() => {
@@ -192,6 +215,9 @@ export default function App() {
       unsubDb();
     };
   }, []);
+
+  // StaffPortal owns its authenticated live queue. Never copy all staff orders
+  // into the customer's receipt history or run a second competing poller.
 
   useEffect(() => {
     const controller = new AbortController();
@@ -208,6 +234,45 @@ export default function App() {
   // Cart operations
   const handleAddToCart = (item: CartItem) => {
     setCartItems((prev) => [item, ...prev]);
+  };
+
+  const handleAddReview = async (newReview: Omit<Review, 'id' | 'status' | 'created_at'>) => {
+    await submitSheetReview(sheetContent.endpoint,newReview);
+    await sheetContent.refresh(true);
+  };
+
+  const selectCake = (product: Product | null) => {
+    if (product && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(product.slug)) {
+      window.history?.replaceState(null, '', '/cake/'+product.slug);
+    } else if (!product && window.location.pathname?.startsWith('/cake/')) {
+      window.history?.replaceState(null, '', '/');
+    }
+    setSelectedProductForDetail(product);
+  };
+
+  const handleOrderNow = (item: CartItem) => {
+    setCartItems((prev) => [item, ...prev]);
+    selectCake(null);
+    if (checkoutSession) {
+      setIsCartOpen(false);
+      setIsCheckoutOpen(true);
+      return;
+    }
+    const recovery = inspectPendingCheckout(sheetContent.endpoint);
+    if (recovery.status === 'blocked') {
+      setCartNotice(recovery.message);
+      setIsCartOpen(true);
+      return;
+    }
+    const targetEndpoint = recovery.status === 'ready' ? recovery.pending.attempt.endpoint : sheetContent.endpoint;
+    if (targetEndpoint) {
+      setCheckoutSession({ endpoint: targetEndpoint });
+      setCartNotice('');
+      setIsCartOpen(false);
+      setIsCheckoutOpen(true);
+    } else {
+      setIsCartOpen(true);
+    }
   };
 
   const handleUpdateCartQuantity = (cartItemId: string, newQty: number) => {
@@ -470,14 +535,9 @@ export default function App() {
           <button type="button" disabled={profileSyncBusy} onClick={()=>setProfileSyncFailure(null)} className="text-xs underline disabled:opacity-50">Dismiss</button>
         </div>
       </div>}
-      {profileSyncHint&&<div role="status" className="mx-4 my-3 rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-xs text-emerald-950">
-        Your order is saved and linked. Automatic profile saving is not enabled yet; you can set the default delivery details for other devices in My bakery account.
-        <button type="button" onClick={()=>setIsCustomerAccountOpen(true)} className="ml-2 font-semibold underline">Edit saved delivery details</button>
-        <button type="button" onClick={()=>setProfileSyncHint(false)} className="ml-3 underline">Dismiss</button>
-      </div>}
       {/* Main Content Area: Responsive Website vs Mobile App */}
       <main id="main-content" className={viewMode === 'web' && activeRole === 'customer' ? 'ac-main' : 'ac-main ac-main--portal'}>
-        <Suspense fallback={<div className="py-20 text-center text-rose-700" role="status">Opening the studio…</div>}>
+        <Suspense fallback={<div className="py-20 text-center text-rose-700" role="status">Loading cakes…</div>}>
         {viewMode === 'mobile_app' ? (
           /* DEDICATED MOBILE APP VIEW */
           <MobileAppExperience
@@ -497,7 +557,7 @@ export default function App() {
             onUpdateCartQuantity={handleUpdateCartQuantity}
             onRemoveCartItem={handleRemoveCartItem}
             onOpenCheckout={openCheckout}
-            onSelectProductForDetail={(p) => setSelectedProductForDetail(p)}
+            onSelectProductForDetail={selectCake}
             onOpenCustomCake={() => setIsCustomCakeOpen(true)}
             onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
             onOpenSupabaseSync={() => setIsSupabaseSyncOpen(true)}
@@ -512,25 +572,30 @@ export default function App() {
                 settings={settings}
                 publicData={publicData}
                 products={products}
+                sheetStatus={sheetContent.status}
+                onRefreshSheet={() => void sheetContent.refresh()}
                 categories={categories}
                 flavors={flavors}
                 banners={banners}
                 reviews={reviews}
+                coupons={coupons}
                 currency={settings.currency}
-                onSelectProduct={(p) => setSelectedProductForDetail(p)}
+                onSelectProduct={selectCake}
                 onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
                 onOpenCustomCake={() => setIsCustomCakeOpen(true)}
                 onOpenProfile={() => setIsProfileOpen(true)}
                 searchQuery={searchQuery}
+                onAddToCart={handleAddToCart}
+                onOpenCart={() => setIsCartOpen(true)}
               />
             )}
 
             {activeRole === 'kitchen_manager' && (
-              <KitchenDisplay orders={demoOrders} currency={settings.currency} />
+              <KitchenDisplay orders={orders} currency={settings.currency} />
             )}
 
             {activeRole === 'delivery_man' && (
-              <DeliveryRiderPortal orders={demoOrders} currency={settings.currency} />
+              <DeliveryRiderPortal orders={orders} currency={settings.currency} endpoint={sheetContent.endpoint} />
             )}
 
             {(activeRole === 'super_admin' ||
@@ -542,12 +607,15 @@ export default function App() {
                 settings={settings}
                 products={products}
                 categories={categories}
-                orders={demoOrders}
+                orders={orders}
                 coupons={coupons}
                 customCakes={customCakes}
                 auditLogs={auditLogs}
                 currency={settings.currency}
                 role={activeRole}
+                endpoint={sheetContent.endpoint}
+                addons={addons}
+                flavors={flavors}
               />
             )}
           </>
@@ -614,8 +682,6 @@ export default function App() {
         </nav>
       )}
 
-      {activeRole !== 'customer' && <div className="mx-auto my-3 w-full max-w-6xl px-5 text-xs text-slate-500">Website content is managed in Google Sheets. These Studio tools are local demonstrations. Manage real orders in the private orders and order_items Sheet tabs. Content edits here are replaced on the next Sheet refresh.</div>}
-
       {isStaffPortalOpen && <Suspense fallback={null}><StaffPortal isOpen={isStaffPortalOpen} onClose={closeStaffPortal} endpoint={sheetContent.endpoint} onCatalogUpdated={() => { void sheetContent.refresh(); }} /></Suspense>}
       {isCustomerAccountOpen && <Suspense fallback={null}><CustomerAccountPortal open={isCustomerAccountOpen} onTrackOrder={id => { setLatestOrderId(id); setIsCustomerAccountOpen(false); setIsTrackOrderOpen(true); }} onClose={() => setIsCustomerAccountOpen(false)} endpoint={sheetContent.endpoint} localReceipts={orders.filter(o => o.persistence === 'google_sheets')} onIdentityToken={setCustomerGoogleToken} onSignOut={() => { removeConfirmedSheetOrdersById(restoredSessionOrderIds); setOrders(previous => previous.filter(order => !restoredSessionOrderIds.includes(order.id))); setRestoredSessionOrderIds([]); }} onRecover={handleRecoveredCustomerOrders} /></Suspense>}
       {isSheetContentOpen && <Suspense fallback={null}><SheetContentPanel isOpen={isSheetContentOpen} onClose={() => setIsSheetContentOpen(false)} endpoint={sheetContent.endpoint} status={sheetContent.status} orderSubmissionEnabled={publicData.order_submission_enabled} databaseBackend={databaseStatus.backend} onOpenStaffPortal={()=>{setIsSheetContentOpen(false);openStaffPortal();}} onRefresh={sheetContent.refresh} onSaveEndpoint={sheetContent.updateEndpoint}/></Suspense>}
@@ -627,8 +693,11 @@ export default function App() {
         allFlavors={flavors}
         allAddons={addons}
         currency={settings.currency}
-        onClose={() => setSelectedProductForDetail(null)}
+        reviews={reviews}
+        onAddReview={handleAddReview}
+        onClose={() => selectCake(null)}
         onAddToCart={handleAddToCart}
+        onOrderNow={handleOrderNow}
       />}
 
       {isProfileOpen && <CustomerProfileModal
@@ -647,6 +716,7 @@ export default function App() {
           setLatestOrderId(orderId);
           setIsTrackOrderOpen(true);
         }}
+        onAddReview={handleAddReview}
       />}
 
       {isCartOpen && <CartDrawer
@@ -683,6 +753,7 @@ export default function App() {
         currentOrderId={latestOrderId}
         onSelectedOrderChange={setLatestOrderId}
         currency={settings.currency}
+        onAddReview={handleAddReview}
       />}
 
       {isCustomCakeOpen && <CustomCakeModal

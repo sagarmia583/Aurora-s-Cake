@@ -6,7 +6,7 @@ type Diagnostic = { ok: boolean; message: string };
 export function FirebaseDiagnosticPanel() {
   const [diagnostic, setDiagnostic] = useState<Diagnostic>({
     ok: false,
-    message: 'Checking Firebase settings...',
+    message: 'Checking cloud settings...',
   });
 
   useEffect(() => {
@@ -16,7 +16,7 @@ export function FirebaseDiagnosticPanel() {
       setDiagnostic({
         ok: false,
         message: !status.enabled
-          ? 'Firebase disabled. Set VITE_FIREBASE_ENABLED=true and redeploy.'
+          ? 'Cloud services disabled. Set configuration and redeploy.'
           : 'Missing environment variables: ' + status.missing.join(', '),
       });
       return;
@@ -29,7 +29,7 @@ export function FirebaseDiagnosticPanel() {
       .catch((error: unknown) => {
         if (active) setDiagnostic({
           ok: false,
-          message: error instanceof Error ? error.message : 'Firebase SDK initialization failed.',
+          message: error instanceof Error ? error.message : 'Cloud SDK initialization failed.',
         });
       });
     return () => { active = false; };
@@ -43,7 +43,7 @@ export function FirebaseDiagnosticPanel() {
       padding: 16, maxWidth: 360, boxShadow: '0 8px 28px #0002',
       fontFamily: 'system-ui, sans-serif', fontSize: 14,
     }}>
-      <strong>Firebase connection check</strong>
+      <strong>Cloud connection check</strong>
       <p style={{ margin: '8px 0 0' }}>
         {diagnostic.ok ? 'Connected: ' : 'Not connected: '}{diagnostic.message}
       </p>

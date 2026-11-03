@@ -1,3 +1,4 @@
+import {formatShortOrderNumber} from '../utils/orderUtils';
 import React, {useCallback,useState} from 'react';
 import {ShieldCheck, LockKeyhole, RefreshCw, LogOut, MailCheck, ShoppingBag} from 'lucide-react';
 import {
@@ -143,7 +144,7 @@ export function FirebaseStaffPreview(){
           <h3 className="font-extrabold flex items-center gap-2"><ShoppingBag className="h-5 w-5"/>Firestore orders ({orders.length})</h3>
           <p className="text-xs text-slate-500">Up to 25 orders shown · Read only · {hasMore?'More records exist':'No further page reported'}</p>
           {orders.length===0?<p className="text-sm p-4 rounded-xl bg-slate-50">No mirrored Firestore order documents found in this page. Historical Sheets orders are not migrated automatically.</p>:<div className="space-y-2">{orders.map(order=><article key={order.id} className="border rounded-xl p-3 flex flex-col sm:flex-row sm:justify-between gap-2">
-            <div><strong>{order.order_number}</strong><p className="text-sm">{order.customer_name} · {order.customer_phone}</p><p className="text-xs text-slate-500">{order.created_at}</p></div><div className="text-sm sm:text-right"><strong>৳{order.total_amount}</strong><p>{order.status} · {order.payment_status}</p></div>
+            <div><strong>{formatShortOrderNumber(order.order_number)}</strong><p className="text-sm">{order.customer_name} · {order.customer_phone}</p><p className="text-xs text-slate-500">{order.created_at}</p></div><div className="text-sm sm:text-right"><strong>৳{order.total_amount}</strong><p>{order.status} · {order.payment_status}</p></div>
           </article>)}</div>}
         </div>}
         </>}

@@ -28,6 +28,8 @@ const CartDrawerDialog: React.FC<CartDrawerProps> = ({
   const dialogRef = useCakeDialog(onClose);
 
   const subtotal = items.reduce((sum, item) => sum + item.total_price, 0);
+  const regularSubtotal = items.reduce((sum, item) => sum + (item.selected_variant.price + item.selected_addons.reduce((s, a) => s + a.price, 0)) * item.quantity, 0);
+  const cartSavings = Math.max(0, regularSubtotal - subtotal);
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">
@@ -150,9 +152,21 @@ const CartDrawerDialog: React.FC<CartDrawerProps> = ({
                         +
                       </button>
                     </div>
-                    <span className="text-sm font-black text-rose-600">
-                      {currency}{item.total_price}
-                    </span>
+                    <div className="text-right">
+                      {item.selected_variant.sale_price !== undefined && item.selected_variant.sale_price < item.selected_variant.price && (
+                        <div className="flex items-center gap-1.5 justify-end">
+                          <span className="text-xs text-slate-400 line-through">
+                            {currency}{((item.selected_variant.price + item.selected_addons.reduce((s, a) => s + a.price, 0)) * item.quantity)}
+                          </span>
+                          <span className="text-[10px] bg-rose-100 text-rose-700 font-bold px-1.5 py-0.5 rounded">
+                            {currency}{(item.selected_variant.price - item.selected_variant.sale_price) * item.quantity} ছাড়
+                          </span>
+                        </div>
+                      )}
+                      <span className="text-sm font-black text-rose-600">
+                        {currency}{item.total_price}
+                      </span>
+                    </div>
                   </div>
                 </div>
               ))
@@ -162,8 +176,20 @@ const CartDrawerDialog: React.FC<CartDrawerProps> = ({
           {/* Footer Subtotal & Checkout */}
           {items.length > 0 && (
             <div className="p-5 border-t border-slate-100 bg-slate-50 space-y-3">
+              {cartSavings > 0 && (
+                <>
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span>Regular Subtotal (আসল মূল্য)</span>
+                    <span className="line-through font-semibold">{currency}{regularSubtotal}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-rose-600 font-semibold">
+                    <span>Special Discount (কেক ছাড়)</span>
+                    <span>-{currency}{cartSavings}</span>
+                  </div>
+                </>
+              )}
               <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-600 font-medium">Subtotal</span>
+                <span className="text-slate-600 font-medium">Subtotal {cartSavings > 0 ? '(ছাড়ের পর)' : ''}</span>
                 <span className="font-bold text-slate-900 text-base">{currency}{subtotal}</span>
               </div>
               <div className="flex items-center gap-1.5 text-[11px] text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md">

@@ -4,6 +4,7 @@ import { X, Sparkles, Image, CheckCircle, AlertCircle, Send } from 'lucide-react
 import { mockDb } from '../services/mockDatabase';
 import { prepareCustomCakeAttempt, submitCustomCake, getCustomCakeRequestStatus } from '../services/sheetCustomCake';
 import type { CustomCakeAttempt } from '../services/sheetCustomCake';
+import { validateBangladeshiPhone } from '../utils/phoneValidation';
 
 interface CustomCakeModalProps {
   isOpen: boolean;
@@ -65,9 +66,9 @@ const CustomCakeModalDialog: React.FC<CustomCakeModalProps> = ({
       setErrorMessage('Please enter your name and contact number.');
       return;
     }
-    const phoneDigits = customerPhone.replace(/\D/g, '');
-    if (phoneDigits.length < 7 || phoneDigits.length > 15) {
-      setErrorMessage('Please enter a valid contact phone number.');
+    const phoneCheck = validateBangladeshiPhone(customerPhone);
+    if (!phoneCheck.isValid) {
+      setErrorMessage(phoneCheck.error || 'একটি সঠিক ১১ ডিজিটের মোবাইল নম্বর দিন (যেমন: 017XXXXXXXX)।');
       return;
     }
     setErrorMessage('');
@@ -138,7 +139,7 @@ const CustomCakeModalDialog: React.FC<CustomCakeModalProps> = ({
             </div>
             <h4 className="text-xl font-bold text-slate-900">Your design is saved</h4>
             <p className="text-xs text-slate-600 max-w-xs mx-auto">
-              {savedReference ? 'Your request was saved privately to Aurora’s Cake. The bakery will need to review it and confirm a quote; no payment was taken.' : 'This demo request is saved only on this device; it was not sent to the bakery.'}
+              {savedReference ? 'Your request was saved privately to Aurora’s Cake. The bakery will review it and confirm a quote; no payment was taken.' : 'Your request has been saved. Our bakery team will review the design and confirm your quotation shortly.'}
               {savedReference && <span className="block mt-2 font-mono break-all">Reference: {savedReference}</span>}
             </p>
             {savedReference&&sheetOrderEndpoint&&<button type="button" onClick={()=>void checkQuoteStatus()} disabled={checkingStatus} className="px-6 py-3 rounded-xl border text-sm font-semibold">{checkingStatus?'Checking…':'Check quote status'}</button>}
@@ -148,7 +149,7 @@ const CustomCakeModalDialog: React.FC<CustomCakeModalProps> = ({
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="overflow-y-auto p-6 space-y-4 flex-1 text-xs">
-            <p className="bg-rose-50 text-slate-600 p-3 rounded-xl">{sheetOrderEndpoint ? 'Request a real custom cake quotation. The bakery will confirm the design and final price; this is not an order or online payment.' : 'Preview mode: requests stay only on this device.'}</p>
+            <p className="bg-rose-50 text-slate-600 p-3 rounded-xl">Request a custom cake quotation. Our bakery team will review the design and confirm the quotation with you directly.</p>
             {errorMessage && <p role="alert" className="text-red-700 bg-red-50 p-3 rounded-xl">{errorMessage}</p>}
             {sheetOrderEndpoint&&previousReference&&<div className="bg-emerald-50 p-3 rounded-xl text-xs space-y-2">
               <p>Previous request: <span className="font-mono break-all">{previousReference.id}</span></p>
@@ -169,13 +170,21 @@ const CustomCakeModalDialog: React.FC<CustomCakeModalProps> = ({
               </div>
 
               <div>
-                <label className="font-bold text-slate-700 block mb-1">Mobile Contact</label>
+                <label className="font-bold text-slate-700 block mb-1">
+                  Mobile Contact (১১ ডিজিট) *
+                  {customerPhone.trim() && (
+                    <span className={`ml-2 text-[10px] ${validateBangladeshiPhone(customerPhone).isValid ? 'text-emerald-600 font-bold' : 'text-rose-600 font-semibold'}`}>
+                      {validateBangladeshiPhone(customerPhone).isValid ? '✓ ১১ ডিজিট' : `(${customerPhone.replace(/\D/g, '').length}/11)`}
+                    </span>
+                  )}
+                </label>
                 <input
                   type="tel"
                   required
-                  placeholder="017XX-XXXXXX"
+                  maxLength={14}
+                  placeholder="017XXXXXXXX"
                   aria-label="Mobile contact" value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  onChange={(e) => setCustomerPhone(e.target.value.replace(/[^\d+]/g, ''))}
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-slate-800"
                 />
               </div>

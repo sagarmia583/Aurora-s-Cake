@@ -56,11 +56,12 @@ export const Navbar: React.FC<NavbarProps> = ({
   const text = (key: string) => data.content[key] ?? DEFAULT_PUBLIC_SITE_DATA.content[key] ?? '';
   const safeUrl = (value?: string) => value && /^(https?:\/\/|mailto:|tel:|#)/i.test(value.trim()) ? value.trim() : '';
   const facebookUrl = safeUrl(settings.facebook_url);
-  const logoUrl = settings.logo_url && /^(https?:\/\/|\/[^/])/i.test(settings.logo_url.trim()) ? settings.logo_url.trim() : '';
+  const logoUrl = settings.logo_url && /^(https?:\/\/|\/[^\/])/i.test(settings.logo_url.trim())
+    ? settings.logo_url.trim()
+    : '';
   const navigationLinks = data.links.filter(link => link.is_active && link.location === 'navigation' && safeUrl(link.url)).sort((a, b) => a.sort_order - b.sort_order);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [studioOpen, setStudioOpen] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -69,13 +70,11 @@ export const Navbar: React.FC<NavbarProps> = ({
       if (event.key === 'Escape') {
         setMobileOpen(false);
         setSearchOpen(false);
-        setStudioOpen(false);
       }
     };
     const onPointerDown = (event: PointerEvent) => {
       if (headerRef.current && !headerRef.current.contains(event.target as Node)) {
         setMobileOpen(false);
-        setStudioOpen(false);
       }
     };
     document.addEventListener('keydown', onKeyDown);
@@ -94,18 +93,16 @@ export const Navbar: React.FC<NavbarProps> = ({
     onRoleChange('customer');
     onViewModeChange('web');
     setMobileOpen(false);
-    setStudioOpen(false);
   };
   const customerAction = (action: () => void) => {
     setMobileOpen(false);
-    setStudioOpen(false);
     action();
   };
 
   return (
     <header ref={headerRef} className="ac-nav">
       <style>{`
-        .ac-nav{position:relative;z-index:40;background:#FFF9EE;color:#24352E;font-family:'Roboto',sans-serif}
+        .ac-nav{position:relative;z-index:40;background:#FFF9EE;color:#24352E;font-family:'Roboto', 'Noto Sans Bengali', Arial, sans-serif}
         .ac-nav button,.ac-nav a,.ac-nav input,.ac-nav select{font:inherit}
         .ac-nav button,.ac-nav a{-webkit-tap-highlight-color:transparent}
         .ac-nav button{cursor:pointer}
@@ -117,7 +114,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         .ac-nav-main{width:min(1220px,calc(100% - 80px));margin:auto;min-height:96px;padding:18px 0;display:flex;align-items:center;justify-content:space-between;gap:32px;border-bottom:1px solid #174b3b24}
         .ac-nav-brand{display:flex;align-items:center;gap:12px;flex-shrink:0}
         .ac-nav-brand-symbol{width:39px;height:45px;color:#174B3B}
-        .ac-nav-wordmark{display:block;font-family:'Roboto',sans-serif;font-size:29px;font-weight:800;line-height:1.05;letter-spacing:-1.1px}
+        .ac-nav-wordmark{display:block;font-family:'Roboto', 'Noto Sans Bengali', Arial, sans-serif;font-size:29px;font-weight:800;line-height:1.05;letter-spacing:-1.1px}
         .ac-nav-brand-sub{display:block;margin-top:6px;font-size:8px;letter-spacing:.17em;text-transform:uppercase;color:#174B3B}
         .ac-nav-links{display:flex;align-items:center;gap:27px;font-size:14px;font-weight:500}
         .ac-nav-social{display:inline-flex;align-items:center;gap:4px}.ac-nav-links a,.ac-nav-link{position:relative;padding:11px 0;white-space:nowrap}
@@ -142,7 +139,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         .ac-nav-search-input::placeholder{color:#174B3B}
         .ac-nav-search-submit{border:0;background:none;color:#174B3B;display:flex;align-items:center;gap:7px;font-size:11px!important;white-space:nowrap}
         .ac-nav-studio{position:absolute;top:38px;right:max(24px,calc((100vw - 1220px)/2));width:282px;border:1px solid #174b3b24;background:#FFF9EE;padding:22px;box-shadow:0 16px 40px #174b3b1c;z-index:51}
-        .ac-nav-studio-title{font-family:'Roboto',sans-serif;font-size:21px;font-weight:700;letter-spacing:-.5px;margin:0 0 17px}
+        .ac-nav-studio-title{font-family:'Roboto', 'Noto Sans Bengali', Arial, sans-serif;font-size:21px;font-weight:700;letter-spacing:-.5px;margin:0 0 17px}
         .ac-nav-studio label{font-size:9px;letter-spacing:.12em;text-transform:uppercase;display:block;margin-bottom:7px;color:#174B3B}
         .ac-nav-studio select{width:100%;padding:10px 8px;border:1px solid #174b3b24;background:#FFF9EE;color:#24352E;font-size:12px;margin-bottom:18px}
         .ac-nav-view-switch{display:flex;border:1px solid #174b3b24;margin-bottom:17px}
@@ -173,7 +170,6 @@ export const Navbar: React.FC<NavbarProps> = ({
       `}</style>
       <div className="ac-nav-top">
         <span>{settings.top_announcement_text ?? ''}</span>
-        {import.meta.env?.DEV && <button type="button" className="ac-nav-studio-toggle" aria-expanded={studioOpen} aria-controls="ac-studio-menu" onClick={() => setStudioOpen(!studioOpen)}>Studio <ChevronDown size={10} strokeWidth={1.5} /></button>}
       </div>
       <div className="ac-nav-main">
         <a className="ac-nav-brand" href="#top" onClick={openStorefront} aria-label={settings.shop_name + ' home'}>
@@ -225,27 +221,6 @@ export const Navbar: React.FC<NavbarProps> = ({
         <button type="button" className="ac-nav-mobile-small" onClick={() => customerAction(onOpenProfile)}>My account &amp; orders</button>
         <button type="button" className="ac-nav-mobile-small" onClick={() => customerAction(onOpenTrackOrder)}>Track an order</button>
       </nav>}
-      {import.meta.env?.DEV && studioOpen && <div id="ac-studio-menu" className="ac-nav-studio">
-        <h2 className="ac-nav-studio-title">Behind the bakery</h2>
-        <label htmlFor="ac-staff-role">Staff workspace</label>
-        <select id="ac-staff-role" value={activeRole} onChange={(event) => { onRoleChange(event.target.value as StaffRole | 'customer'); onViewModeChange('web'); setStudioOpen(false); }}>
-          {staffRoles.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}
-        </select>
-        <label>Experience</label>
-        <div className="ac-nav-view-switch">
-          <button type="button" aria-pressed={viewMode === 'web'} onClick={() => onViewModeChange('web')}>Website</button>
-          <button type="button" aria-pressed={viewMode === 'mobile_app'} onClick={() => onViewModeChange('mobile_app')}>Mobile app</button>
-        </div>
-        <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenTrackOrder)}><Clock size={14} /> Track an order</button>
-        {onOpenSheetSettings && <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenSheetSettings)}><Database size={14} /> Website data <span className="ac-nav-status" data-connected={isSheetConnected} title={isSheetConnected ? 'Website data connected' : 'Website data is not connected'} /></button>}
-        <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenSupabaseSync)}><Database size={14} /> Database connection <span className="ac-nav-status" data-connected={isSupabaseConnected || databaseBackend === 'google_sheets'} title={databaseBackendLabel(databaseBackend ?? (isSupabaseConnected ? 'supabase' : 'unknown'))} /></button>
-        <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenCacheHub)}><Zap size={14} /> Cache performance</button>
-        <button type="button" className="ac-nav-studio-action" onClick={() => customerAction(onOpenDbViewer)}><Database size={14} /> Database schema</button>
-      </div>}
-      {viewMode === 'web' && activeRole !== 'customer' && <div className="ac-nav-staff-notice">
-        <span>{staffRoles.find((role) => role.value === activeRole)?.label} workspace</span>
-        <button type="button" onClick={openStorefront}>Return to storefront</button>
-      </div>}
     </header>
   );
 };

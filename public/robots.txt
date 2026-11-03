@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: https://aurora-s-cake.sagarmia583.workers.dev/sitemap.xml

@@ -1,3 +1,4 @@
+import {formatShortOrderNumber} from '../utils/orderUtils';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, ShieldCheck, RefreshCw, Link2, LogOut } from 'lucide-react';
 import type { Order } from '../types';
@@ -135,7 +136,7 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
     catch(e){setError(e instanceof Error?e.message:'Could not recover your orders.');}
     finally{setBusy(false);}
   };
-  // Keep the phone customer's order history (and dispatch OTP) fresh while
+  // Keep the phone customer's order history fresh while
   // this authenticated account page is open. Never poll hidden tabs.
   useEffect(()=>{
     if(!open||!phoneAccount?.token)return;
@@ -243,8 +244,8 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
                 value={phoneForm.name} onChange={e=>setPhoneForm(f=>({...f,name:e.target.value}))} className="w-full border rounded-xl p-3"/>}
               <input required aria-label="Bangladesh mobile number" type="tel" autoComplete="tel" placeholder="01XXXXXXXXX"
                 value={phoneForm.phone} onChange={e=>setPhoneForm(f=>({...f,phone:e.target.value}))} className="w-full border rounded-xl p-3"/>
-              <input required aria-label="Account password" type="password" minLength={10}
-                autoComplete={phoneMode==='signup'?'new-password':'current-password'} placeholder="Password (at least 10 characters)"
+              <input required aria-label="Account password" type="password" minLength={4}
+                autoComplete={phoneMode==='signup'?'new-password':'current-password'} placeholder="Password (at least 4 characters)"
                 value={phoneForm.password} onChange={e=>setPhoneForm(f=>({...f,password:e.target.value}))} className="w-full border rounded-xl p-3"/>
               <button disabled={busy} type="submit" className="w-full bg-emerald-800 text-white rounded-xl p-3 font-bold disabled:opacity-50">
                 {busy?'Checking…':phoneMode==='signup'?'Sign up with phone':'Sign in'}
@@ -281,11 +282,11 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
             <details className="rounded-xl border border-emerald-200 bg-white p-3">
               <summary className="text-sm font-semibold cursor-pointer">Account security & password</summary>
               <form onSubmit={changeMyPassword} className="mt-3 space-y-2">
-                <input type="password" required minLength={10} autoComplete="current-password"
+                <input type="password" required minLength={4} autoComplete="current-password"
                   aria-label="Current customer password" placeholder="Current password" className="w-full border rounded-lg p-2"
                   value={passwords.current} onChange={e=>setPasswords(p=>({...p,current:e.target.value}))}/>
-                <input type="password" required minLength={10} autoComplete="new-password"
-                  aria-label="New customer password" placeholder="New password (10+ characters)" className="w-full border rounded-lg p-2"
+                <input type="password" required minLength={4} autoComplete="new-password"
+                  aria-label="New customer password" placeholder="New password (4+ characters)" className="w-full border rounded-lg p-2"
                   value={passwords.next} onChange={e=>setPasswords(p=>({...p,next:e.target.value}))}/>
                 <button type="submit" disabled={busy} className="bg-emerald-800 text-white text-sm rounded-lg px-3 py-2">Change password and sign out other devices</button>
               </form>
@@ -294,7 +295,7 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
               <summary className="text-sm font-semibold text-red-700 cursor-pointer">Close my phone account</summary>
               <form onSubmit={closeMyAccount} className="mt-3 space-y-2">
                 <p className="text-xs text-slate-700">This disables account access, clears editable profile details and revokes sessions. Financial order and payment records are retained securely for COD reconciliation.</p>
-                <input type="password" required minLength={10} autoComplete="current-password" placeholder="Confirm current password"
+                <input type="password" required minLength={4} autoComplete="current-password" placeholder="Confirm current password"
                   aria-label="Password to close customer account" className="w-full border rounded-lg p-2"
                   value={closingPassword} onChange={e=>setClosingPassword(e.target.value)}/>
                 <button type="submit" disabled={busy} className="border border-red-500 text-red-700 text-sm rounded-lg px-3 py-2">Close account</button>
@@ -306,26 +307,22 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
               {phoneHistory.length===0&&<p className="text-sm text-slate-600">No linked orders yet. Link an original receipt below or place a new order while signed in.</p>}
               {phoneHistory.map(order=><div key={order.id} className="text-sm p-3 bg-white rounded-xl break-all space-y-2">
                 <div className="flex items-center gap-2 justify-between flex-wrap">
-                  <p><strong>{order.order_number}</strong> · {order.status.replaceAll('_',' ')} · ৳{order.total_amount}</p>
+                  <p><strong>{formatShortOrderNumber(order.order_number)}</strong> · {order.status.replaceAll('_',' ')} · ৳{order.total_amount}</p>
                   {onTrackOrder&&<button type="button" onClick={()=>onTrackOrder(order.id)}
                     className="bg-emerald-800 text-white font-semibold rounded-xl px-3 py-2 text-xs">
                     Track live order
                   </button>}
                 </div>
                 {order.status==='out_for_delivery'&&
-                  <p className="rounded-lg bg-amber-50 border border-amber-200 p-3">
-                    <strong className="block text-amber-900">Delivery Verification OTP</strong>
-                    <span className="font-mono text-2xl font-bold tracking-widest text-amber-950">
-                      {/^\d{4}$/.test(order.delivery_otp)?order.delivery_otp:'Checking with bakery…'}
-                    </span>
-                    <span className="block text-xs text-amber-900 mt-1">Tell your rider only after receiving your cake.</span>
+                  <p className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-900 font-semibold">
+                    রাইডার আপনার কেক নিয়ে ডেলিভারির পথে।
                   </p>}
               </div>)}
             </div>
             {localReceipts.filter(order=>order.persistence==='google_sheets'&&
               !!order.customer_access_token&&!phoneHistory.some(saved=>saved.id===order.id)).map(order=>(
               <div key={order.id} className="flex flex-wrap gap-2 justify-between items-center text-sm bg-white p-2 rounded-xl">
-                <span className="break-all">{order.order_number} · ৳{order.total_amount}</span>
+                <span className="break-all">{formatShortOrderNumber(order.order_number)} · ৳{order.total_amount}</span>
                 <button type="button" disabled={busy} onClick={()=>void linkPhone(order)}
                   className="rounded-xl bg-emerald-900 text-white p-2 disabled:opacity-50">Link original receipt</button>
               </div>
@@ -350,9 +347,9 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
             <h3 className="font-bold text-emerald-950">Linked orders ({linked.length})</h3>
             <p className="text-sm text-slate-700">Orders linked to your verified Google account. Restore saves them to this device. Signing out clears only orders restored in this session; original guest receipts on this device remain.</p>
             {linked.map(o=><div key={o.id} className="text-xs break-all space-y-1">
-              <p>{o.order_number} · {o.status.replaceAll('_',' ')} · ৳{o.total_amount}</p>
-              {o.status==='out_for_delivery' && <p className="bg-amber-50 rounded-lg p-2 text-amber-950">
-                Delivery OTP: <strong className="font-mono text-xl tracking-widest">{/^\d{4}$/.test(o.delivery_otp)?o.delivery_otp:'Refresh to check'}</strong>
+              <p>{formatShortOrderNumber(o.order_number)} · {o.status.replaceAll('_',' ')} · ৳{o.total_amount}</p>
+              {o.status==='out_for_delivery' && <p className="bg-emerald-50 rounded-lg p-2 text-emerald-950 text-xs font-semibold">
+                রাইডার ডেলিভারির পথে
               </p>}
             </div>)}
             <div className="flex flex-wrap gap-2">
@@ -364,7 +361,7 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
             <h3 className="font-bold">Unlinked receipts on this device ({unlinked.length})</h3>
             <p className="text-sm text-slate-600">Link only receipts belonging to you. This permanently associates each order with the signed-in Google account. Do not link receipts on a shared device without checking ownership.</p>
             {unlinked.map(o=><div key={o.id} className="border-t py-2 flex justify-between items-center gap-2">
-              <p className="text-xs break-all">{o.order_number} · ৳{o.total_amount}</p>
+              <p className="text-xs break-all">{formatShortOrderNumber(o.order_number)} · ৳{o.total_amount}</p>
               <button type="button" disabled={busy} onClick={()=>void link(o)} className="shrink-0 flex gap-1 items-center bg-slate-900 text-white px-3 py-2 rounded-lg text-xs disabled:opacity-40"><Link2 size={13}/> Link</button>
             </div>)}
           </div>}

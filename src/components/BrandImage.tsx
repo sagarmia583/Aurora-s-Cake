@@ -13,10 +13,12 @@ export function BrandImage(props: Props) {
 
 function BrandImageSource({ brandName, alt, style, onError, ...props }: Props) {
   const [failed, setFailed] = useState(false);
+  const [fallbackFailed,setFallbackFailed]=useState(false);
   if (!failed) return <img {...props} alt={alt} style={style} onError={event => {
     setFailed(true);
     onError?.(event);
   }} />;
+  if(!fallbackFailed)return <img {...props} src="/images/aurora-logo.png" alt={alt} style={{...style,objectFit:'contain'}} data-brand-fallback onError={()=>setFallbackFailed(true)}/>;
 
   const initials = brandName.trim().split(/\s+/).filter(Boolean).slice(0, 2)
     .map(word => Array.from(word)[0]).join('').toLocaleUpperCase();

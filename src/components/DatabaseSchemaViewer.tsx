@@ -117,10 +117,8 @@ DECLARE
     v_order_id UUID;
     v_order_number TEXT;
     v_calculated_subtotal NUMERIC(10, 2) := 0;
-    v_delivery_otp VARCHAR(6);
 BEGIN
     -- Recalculates authoritatively using product_variants and product_addons tables
-    -- Generates 4-digit OTP for delivery verification
     -- Inserts into orders, order_items, order_status_history, payments, and deliveries
     RETURN jsonb_build_object('success', true, 'order_id', v_order_id);
 END;
@@ -146,7 +144,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;`,
               <Database className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-white">Supabase PostgreSQL Architecture</h3>
+              <h3 className="text-lg font-bold text-white">Cloud Database Architecture</h3>
               <p className="text-xs text-slate-400">Production migrations, RLS policies, and RPC functions</p>
             </div>
           </div>

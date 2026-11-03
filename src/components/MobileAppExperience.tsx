@@ -1,3 +1,4 @@
+import {formatShortOrderNumber} from '../utils/orderUtils';
 import React, { useState } from 'react';
 import {
   Smartphone,
@@ -47,6 +48,7 @@ import { mockDb } from '../services/mockDatabase';
 import type { PublicSiteData } from '../types/siteContent';
 import { DEFAULT_PUBLIC_SITE_DATA } from '../content/defaultSiteData';
 import { databaseBackendLabel, type DatabaseBackend } from '../services/backendDatabaseStatus';
+import { getProductDisplayStats } from '../services/productStats';
 
 interface MobileAppExperienceProps {
   settings: ShopSettings;
@@ -99,7 +101,13 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
 }) => {
   const text = (key: string) => publicData?.content[key] ?? DEFAULT_PUBLIC_SITE_DATA.content[key] ?? '';
   const activeBanner = banners.find(banner => banner.is_active);
-  const logoUrl = settings.logo_url?.trim();
+  const logoUrl = (() => {
+    const raw = settings.logo_url?.trim();
+    if (!raw) return '';
+    // Expired Facebook CDN URLs return 403 — use local fallback
+    if (raw.includes('fbcdn.net') || raw.includes('fna.fbcdn') || raw.includes('_nc_cat') || raw.includes('_nc_') || raw.includes('facebook.com')) return '';
+    return raw;
+  })();
   // Mobile app sub-persona
   const [appRole, setAppRole] = useState<'customer' | 'rider' | 'kitchen' | 'admin'>('customer');
   // Customer App active tab
@@ -110,7 +118,7 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
   const [appSearch, setAppSearch] = useState<string>('');
   // Selected category in catalog
   const [selectedCat, setSelectedCat] = useState<string>('all');
-  // Rider OTP inputs
+  // Rider handover controls
   const [riderOtpInputs, setRiderOtpInputs] = useState<Record<string, string>>({});
   const [riderOtpErrors, setRiderOtpErrors] = useState<Record<string, string>>({});
 
@@ -130,12 +138,7 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
 
   // Rider actions
   const handleVerifyOtp = (order: Order) => {
-    const entered = riderOtpInputs[order.id];
-    if (!entered) {
-      setRiderOtpErrors({ ...riderOtpErrors, [order.id]: 'Please enter the 4-digit OTP' });
-      return;
-    }
-    const res = mockDb.verifyDeliveryOTP(order.id, entered, 'Rahim Mia');
+    const res = mockDb.confirmDelivery(order.id, true, 'Rahim Mia');
     if (!res.success) {
       setRiderOtpErrors({ ...riderOtpErrors, [order.id]: res.message });
     } else {
@@ -201,7 +204,13 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
           >
             <Database className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Database:</span>
-            <span>{databaseBackendLabel(databaseBackend ?? (isSupabaseConnected ? 'supabase' : 'unknown'))}</span>
+            <span>
+              {databaseBackend === 'google_sheets'
+                ? 'Google Sheets'
+                : databaseBackend === 'supabase' || isSupabaseConnected
+                ? 'Cloud Database'
+                : 'Status unknown'}
+            </span>
           </button>
 
           <button
@@ -256,7 +265,7 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
               <div className="bg-white px-4 py-2.5 border-b border-slate-100 flex items-center justify-between shrink-0 shadow-xs">
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-rose-500 to-amber-500 flex items-center justify-center text-white text-base shadow-xs">
-                    {logoUrl ? <img src={logoUrl} alt="" width="32" height="32" className="w-full h-full object-contain bg-white" /> : <Cake className="w-5 h-5" aria-hidden="true" />}
+                    {logoUrl ? <img src={logoUrl} alt="" width="32" height="32" className="w-full h-full object-contain bg-white" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} /> : <Cake className="w-5 h-5" aria-hidden="true" />}
                   </div>
                   <div>
                     <h3 className="font-black text-xs text-slate-900 leading-tight">
@@ -412,6 +421,11 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
                                 alt={p.name}
                                 className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                               />
+                              {firstVar && firstVar.sale_price !== undefined && firstVar.sale_price < firstVar.price && (
+                                <div className="absolute top-1.5 left-1.5 bg-rose-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md shadow-xs">
+                                  {currency}{firstVar.price - firstVar.sale_price} ছাড়
+                                </div>
+                              )}
                               {p.rating > 0 && p.review_count > 0 && <div className="absolute top-1.5 right-1.5 bg-black/60 backdrop-blur-xs text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
                                 <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-400" />
                                 <span>{p.rating}</span>
@@ -424,15 +438,45 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
                             >
                               {p.name}
                             </h5>
+                            {(() => {
+                              const pStats = getProductDisplayStats(p);
+                              if (pStats.reviewCount === 0 && pStats.soldCount === 0) return null;
+                              return (
+                                <div className="flex items-center gap-1.5 mt-1 text-[10px]">
+                                  {pStats.reviewCount > 0 && (
+                                    <span className="flex items-center gap-0.5 font-bold text-amber-700">
+                                      <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-400" />
+                                      {pStats.ratingFormatted}
+                                    </span>
+                                  )}
+                                  {pStats.reviewCount > 0 && pStats.soldCount > 0 && (
+                                    <span className="text-slate-300">•</span>
+                                  )}
+                                  {pStats.soldCount > 0 && (
+                                    <span className="text-emerald-700 font-semibold flex items-center gap-0.5">
+                                      <Flame className="w-2.5 h-2.5 text-orange-500 fill-orange-500" />
+                                      {pStats.soldCount} বিক্রিত
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()}
                             <p className="text-[10px] text-slate-400 line-clamp-1 mt-0.5">
                               {firstVar?.name ?? 'Unavailable'}{p.category_name ? ' • ' + p.category_name : ''}
                             </p>
                           </div>
 
                           <div className="flex items-center justify-between pt-2 border-t border-slate-100 mt-2">
-                            <span className="text-xs font-black text-rose-600">
-                              {price !== undefined ? currency + price : 'Unavailable'}
-                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-xs font-black text-rose-600">
+                                {price !== undefined ? currency + price : 'Unavailable'}
+                              </span>
+                              {firstVar && firstVar.sale_price !== undefined && firstVar.sale_price < firstVar.price && (
+                                <span className="text-[10px] text-slate-400 line-through font-semibold">
+                                  {currency}{firstVar.price}
+                                </span>
+                              )}
+                            </div>
                             <button
                               onClick={() => handleQuickAdd(p)}
                               disabled={!available}
@@ -550,6 +594,38 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
                 </div>
               </div>
 
+              {/* Rider Mobile Cash Balance Banner */}
+              {(() => {
+                const rCash = mockDb.getRiderCashSummary('rider-1', 'Rahim Mia (Rider #1)');
+                return (
+                  <div className="bg-slate-800 text-white p-2.5 mx-3 mt-3 rounded-2xl flex items-center justify-between border border-slate-700 shadow-xs">
+                    <div>
+                      <span className="text-[9px] text-emerald-400 font-bold uppercase tracking-wider block">হাতে থাকা ক্যাশ ব্যালেন্স</span>
+                      <span className="text-sm font-black font-mono text-amber-300">
+                        {currency}{rCash.cash_in_hand.toLocaleString()}
+                      </span>
+                    </div>
+                    {rCash.cash_in_hand > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const res = mockDb.addRiderDeposit({
+                            rider_id: 'rider-1',
+                            rider_name: 'Rahim Mia (Rider #1)',
+                            amount: rCash.cash_in_hand,
+                            note: 'মোবাইল অ্যাপ থেকে কাউন্টারে জমা',
+                          });
+                          alert(res.message);
+                        }}
+                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded-xl transition-colors cursor-pointer shadow-xs"
+                      >
+                        কাউন্টারে জমা দিন ➔
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* Assigned Orders List */}
               <div className="flex-1 overflow-y-auto p-3 space-y-3">
                 <div className="flex items-center justify-between px-0.5">
@@ -574,7 +650,7 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
                         <div className="flex items-start justify-between">
                           <div>
                             <span className="font-mono text-xs font-bold text-rose-600">
-                              {order.order_number}
+                              {formatShortOrderNumber(order.order_number)}
                             </span>
                             <h5 className="font-black text-xs text-slate-900 mt-0.5">
                               {order.customer_name}
@@ -624,25 +700,13 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
                             </button>
                           )}
 
-                          {/* OTP verification input */}
-                          <div className="flex-1 flex items-center gap-1.5">
-                            <input
-                              type="text"
-                              maxLength={4}
-                              placeholder="4-digit OTP"
-                              value={riderOtpInputs[order.id] || ''}
-                              onChange={(e) =>
-                                setRiderOtpInputs({ ...riderOtpInputs, [order.id]: e.target.value })
-                              }
-                              className="w-24 px-2 py-1.5 text-xs text-center font-mono rounded-xl border border-slate-300"
-                            />
-                            <button
-                              onClick={() => handleVerifyOtp(order)}
-                              className="flex-1 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 cursor-pointer"
-                            >
-                              Verify &amp; Done
-                            </button>
-                          </div>
+                          {/* Direct delivery completion */}
+                          <button
+                            onClick={() => handleVerifyOtp(order)}
+                            className="flex-1 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 cursor-pointer shadow-xs"
+                          >
+                            ✓ Mark Delivered
+                          </button>
                         </div>
 
                         {riderOtpErrors[order.id] && (
@@ -692,7 +756,7 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
                       >
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-mono font-bold text-amber-400">
-                            {ord.order_number}
+                            {formatShortOrderNumber(ord.order_number)}
                           </span>
                           <span className="text-[10px] uppercase font-bold bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full">
                             {ord.status}
@@ -814,7 +878,7 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
                     >
                       <div>
                         <span className="font-bold text-slate-900">{ord.customer_name}</span>
-                        <p className="text-[10px] text-slate-400">{ord.order_number}</p>
+                        <p className="text-[10px] text-slate-400">{formatShortOrderNumber(ord.order_number)}</p>
                       </div>
                       <div className="text-right">
                         <span className="font-black text-rose-600 block">{currency}{ord.total_amount}</span>

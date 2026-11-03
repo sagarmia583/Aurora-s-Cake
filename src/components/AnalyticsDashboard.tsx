@@ -343,9 +343,9 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   }, [relevantOrders]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* 1. Header Bar with Timeframe Switcher & Filter Controls */}
-      <div className="bg-slate-900 text-white p-6 rounded-3xl shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div className="bg-slate-900 text-white p-3.5 sm:p-6 rounded-2xl sm:rounded-3xl shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <span className="text-xs bg-rose-500/20 text-rose-300 font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1">
@@ -504,7 +504,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
       </div>
 
       {/* 3. MAIN SALES TREND VISUALIZATION (Daily, Weekly, Monthly) */}
-      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-6">
+      <div className="bg-white p-3.5 sm:p-6 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs space-y-4 sm:space-y-6">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
           <div>
             <div className="flex items-center gap-2">
@@ -682,9 +682,9 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
       </div>
 
       {/* 4. TOP-PERFORMING PRODUCTS SECTION */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
         {/* Top-Performing Products Horizontal BarChart */}
-        <div className="lg:col-span-7 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+        <div className="lg:col-span-7 bg-white p-3.5 sm:p-6 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs space-y-4">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
             <div className="flex items-center gap-2">
               <Award className="w-5 h-5 text-amber-500" />
@@ -781,7 +781,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         </div>
 
         {/* Category Contribution Share (Donut Chart) */}
-        <div className="lg:col-span-5 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+        <div className="lg:col-span-5 bg-white p-3.5 sm:p-6 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs space-y-4">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div className="flex items-center gap-2">
               <PieIcon className="w-5 h-5 text-rose-600" />
@@ -844,21 +844,21 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
       </div>
 
       {/* 5. TOP-PERFORMING PRODUCTS LEADERBOARD TABLE */}
-      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+      <div className="bg-white p-3.5 sm:p-6 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="font-bold text-slate-900 text-base">Top Product Performance Leaderboard</h3>
-            <p className="text-xs text-slate-500">
+            <h3 className="font-bold text-slate-900 text-sm sm:text-base">Top Product Performance Leaderboard</h3>
+            <p className="text-[11px] sm:text-xs text-slate-500">
               Detailed breakdown of bestselling products, units sold, and revenue share.
             </p>
           </div>
-          <span className="text-xs bg-slate-100 text-slate-700 font-semibold px-3 py-1 rounded-full">
+          <span className="text-[10px] sm:text-xs bg-slate-100 text-slate-700 font-semibold px-2.5 sm:px-3 py-1 rounded-full shrink-0">
             {topProductsData.length} items ranked
           </span>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+        <div className="overflow-x-auto -mx-3.5 sm:mx-0 px-3.5 sm:px-0">
+          <table className="min-w-[550px] w-full text-left text-xs">
             <thead>
               <tr className="border-b border-slate-100 text-slate-400">
                 <th className="py-2.5 font-semibold">Rank</th>
@@ -941,7 +941,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
       </div>
 
       {/* 6. PAYMENT CHANNELS DISTRIBUTION CARD */}
-      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+      <div className="bg-white p-3.5 sm:p-6 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs space-y-4">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2">
             <CreditCard className="w-5 h-5 text-indigo-600" />

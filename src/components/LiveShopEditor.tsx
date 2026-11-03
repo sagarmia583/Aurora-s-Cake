@@ -52,7 +52,7 @@ export const LiveShopEditor:React.FC<Props>=({endpoint,token,onUpdated})=>{
   return <section className="rounded-2xl border border-emerald-200 bg-white p-5 space-y-4">
     <header className="flex items-center justify-between gap-2">
       <div><h3 className="text-lg font-black flex items-center gap-2"><Settings2 size={19}/> Live shop management</h3>
-        <p className="text-xs text-slate-600">Changes update the real Google Sheet, not the local demo.</p></div>
+        <p className="text-xs text-slate-600">Manage live shop information and settings.</p></div>
       <button type="button" onClick={()=>void load()} disabled={busy} className="flex gap-2 items-center text-sm border rounded-lg px-3 py-2"><RefreshCw size={15}/> Refresh</button>
     </header>
     {error&&<p role="alert" className="bg-red-50 p-3 text-red-800 rounded-xl text-sm">{error}</p>}

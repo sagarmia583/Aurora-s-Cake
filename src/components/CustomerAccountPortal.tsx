@@ -1,5 +1,6 @@
+import {formatShortOrderNumber} from '../utils/orderUtils';
 import React, { Suspense, useMemo, useState } from 'react';
-import { ClipboardCopy, KeyRound, MapPin, PackageCheck, Phone, ShieldCheck, X } from 'lucide-react';
+import { KeyRound, MapPin, PackageCheck, Phone, ShieldCheck, X } from 'lucide-react';
 import type { Order } from '../types';
 import { EmailSubscriptionPanel } from './EmailSubscriptionPanel';
 import { privatePost } from '../services/sheetStaffApi';
@@ -51,7 +52,7 @@ export const CustomerAccountPortal:React.FC<Props>=(props)=>{
       if(saved.saved!==true)throw new Error('Customer details were not confirmed.');
       localStorage.setItem('aurora_customer_profile_v1',JSON.stringify({...contact,name,phone,address}));
       setContact(previous=>({...previous,name,phone,address}));
-      setMessage('Contact details saved in the private bakery Google Sheet. Phone ownership is not verified.');
+      setMessage('Contact details saved successfully.');
     }catch(e){setError(e instanceof Error?e.message:'Saving your contact details failed.');}
     finally{setBusy(false);}
   };
@@ -133,23 +134,20 @@ export const CustomerAccountPortal:React.FC<Props>=(props)=>{
           </p>}
           {ownReceipts.slice(0,60).map(order=><article key={order.id} className="rounded-xl border p-3 flex gap-3 flex-wrap items-center justify-between">
             <div className="min-w-0">
-              <strong className="block">{order.order_number}</strong>
+              <strong className="block">{formatShortOrderNumber(order.order_number)}</strong>
               <p className="text-sm text-slate-600">{order.status.replaceAll('_',' ')} · ৳{order.total_amount}</p>
               {order.status==='out_for_delivery'&&
-                <p className="mt-1 text-amber-900 font-semibold">Delivery OTP: {/^\d{4}$/.test(order.delivery_otp)?order.delivery_otp:'Open tracking to refresh'}</p>}
+                <p className="mt-1 text-emerald-800 font-semibold text-xs">রাইডার ডেলিভারির পথে</p>}
             </div>
             <div className="flex gap-2 flex-wrap">
               {onTrackOrder&&<button type="button" onClick={()=>onTrackOrder(order.id)}
                 className="rounded-lg bg-emerald-800 text-white px-3 py-2 text-sm">Track order</button>}
-              <button type="button" onClick={()=>void copyReceipt(order)} className="rounded-lg border px-3 py-2 text-sm flex items-center gap-1">
-                <ClipboardCopy size={14}/> Copy private receipt
-              </button>
             </div>
           </article>)}
         </section>
         <section className="border rounded-2xl p-4 space-y-3">
           <h3 className="font-bold text-lg flex items-center gap-2"><KeyRound size={18}/> Recover an order on another device</h3>
-          <p className="text-xs text-slate-600">No password or SMS needed. Use the Order ID, phone and private key from your original receipt. A phone number alone cannot unlock another person's order or OTP.</p>
+          <p className="text-xs text-slate-600">No password or SMS needed. Use the Order ID, phone and private key from your original receipt. A phone number alone cannot unlock another person's order.</p>
           <form onSubmit={recover} className="grid sm:grid-cols-2 gap-3">
             <input required aria-label="Original Order ID" placeholder="Original Order ID (ord_...)" value={recovery.orderId}
               onChange={e=>setRecovery(p=>({...p,orderId:e.target.value}))} className="p-3 rounded-xl border"/>
@@ -164,7 +162,7 @@ export const CustomerAccountPortal:React.FC<Props>=(props)=>{
           </form>
         </section>
         <p className="text-xs text-slate-500 flex gap-2 items-start"><ShieldCheck size={16} className="shrink-0"/>
-          We never disclose customer names, addresses, complete order history or rider OTP through an anonymous phone-only search.
+          We never disclose customer names, addresses, complete order history through an anonymous phone-only search.
         </p>
         <EmailSubscriptionPanel endpoint={endpoint} onSignIn={()=>setShowGuest(false)}/>
         <button type="button" onClick={()=>setShowGuest(false)} className="w-full bg-emerald-800 text-white font-semibold p-3 rounded-xl">
