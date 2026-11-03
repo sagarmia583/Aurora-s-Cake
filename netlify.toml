@@ -1,5 +1,16 @@
 # Netlify Free deployment: security headers for customer and staff pages.
 # Build settings remain managed by the connected Netlify site.
+[[redirects]]
+  from = "/track-order"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/track-order"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    Referrer-Policy = "no-referrer"
+
 [[headers]]
   for = "/*"
   [headers.values]

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import relay from '../netlify/functions/operations.mjs';
+import { ORDER_RECEIPT_BASE, readOrderTrackingKey, websiteOrderTrackingLink } from '../apps/staff-mobile/src/orderTrackingLink';
 
 const origin='https://aurorascake.netlify.app';
 const endpoint=origin+'/api/operations';
@@ -44,4 +45,29 @@ test('free relay forwards selected action without printing Google tokens or expo
     globalThis.fetch=previous;
     if(oldEnv===undefined)delete process.env.AURORA_SCRIPT_POST_URL;else process.env.AURORA_SCRIPT_POST_URL=oldEnv;
   }
+});
+
+test('customer links use the website and keep the original private key in the fragment', () => {
+  const id = 'ord_11111111-1111-4111-8111-111111111111';
+  const key = 'a'.repeat(72);
+  const legacy = ORDER_RECEIPT_BASE + '?action=receipt&ref=' + id + '&access=' + key;
+  const tracking = new URL(websiteOrderTrackingLink(legacy, id));
+  assert.equal(tracking.origin + tracking.pathname, 'https://aurorascake.netlify.app/track-order');
+  assert.equal(tracking.search, '');
+  assert.deepEqual(readOrderTrackingKey(new URLSearchParams(tracking.hash.slice(1))), {orderId: id, accessKey: key});
+  assert.equal(websiteOrderTrackingLink(legacy, id.replace(/1$/, '2')), '');
+  assert.equal(websiteOrderTrackingLink(legacy.replace('script.google.com', 'example.com'), id), '');
+});
+
+test('the tracking read can use the pinned receipt service without enabling other actions', async () => {
+  const options = {scriptUrl: '', fetcher: (async (url, request) => {
+    assert.equal(url, configured);
+    assert.equal(JSON.parse(String(request?.body)).action, 'customer_shared_order');
+    return {ok:true,url:configured,text:async()=>JSON.stringify({ok:false,code:'forbidden'})} as Response;
+  }) as typeof fetch};
+  const response = await relay(make('customer_shared_order'), options);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Cache-Control'), 'no-store');
+  assert.equal((await response.json()).code, 'forbidden');
+  assert.equal((await relay(make('staff_orders'), options)).status, 503);
 });
