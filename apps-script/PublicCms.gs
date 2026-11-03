@@ -5,8 +5,8 @@
  */
 var AURORA_CMS_TABLES_=['settings','content','hero_slides','highlights','faqs','links','categories','products','product_variants','flavors','product_addons','banners','delivery_zones','delivery_slots','coupons','reviews'];
 var AURORA_CMS_BOOLEAN_FIELDS_=['is_active','is_featured','accepting_orders','delivery_enabled'];
-var AURORA_CMS_NUMBER_FIELDS_=['sort_order','base_price','sale_price','price','weight_grams','rating','review_count','delivery_fee','discount_value','min_order_amount','max_discount_amount','usage_count'];
-var AURORA_CMS_OPTIONAL_NUMBER_FIELDS_=['sale_price','max_discount_amount','rating'];
+var AURORA_CMS_NUMBER_FIELDS_=['sort_order','base_price','sale_price','price','weight_grams','rating','review_count','delivery_fee','discount_value','min_order_amount','max_discount_amount','usage_count','max_orders_per_day'];
+var AURORA_CMS_OPTIONAL_NUMBER_FIELDS_=['sale_price','max_discount_amount','rating','max_orders_per_day'];
 var AURORA_CMS_URL_FIELDS_=['image_url','logo_url','profile_image_url','facebook_url','instagram_url','youtube_url','tiktok_url','website_url','button_link','url','whatsapp_url','maps_url'];
 function auroraCmsTable_(name) {
   if(AURORA_CMS_TABLES_.indexOf(name)===-1)auroraReject_('forbidden','This table is not editable through the website.');
@@ -22,6 +22,7 @@ function auroraCmsRead_(book,name) {
   if(width>100||count>20001)auroraReject_('limit','This Sheet exceeds the current live editor limit.');
   var raw=sheet.getRange(1,1,count,width).getValues();
   var headers=raw.shift().map(function(cell){return String(cell).trim().toLowerCase();});
+  columns=columns.filter(function(field){return ['sold_count','max_orders_per_day'].indexOf(field)===-1||headers.indexOf(field)!==-1;});
   columns.forEach(function(field){if(headers.indexOf(field)<0||headers.indexOf(field)!==headers.lastIndexOf(field))auroraReject_('invalid_sheet','Missing or duplicate column: '+field);});
   var key=(name==='settings'||name==='content')?'key':'id';
   var rows=raw.map(function(rawRow,index){
@@ -45,6 +46,8 @@ function auroraCmsValidate_(name,field,value){
     if(value===''&&AURORA_CMS_OPTIONAL_NUMBER_FIELDS_.indexOf(field)!==-1)return '';
     if(typeof value!=='number'||!isFinite(value)||value<0||value>10000000)
       auroraReject_('invalid_value','Enter a valid non-negative number for '+field);
+    if(field==='max_orders_per_day'&&!Number.isInteger(value))
+      auroraReject_('invalid_value','Delivery slot capacity must be a whole number.');
     return Math.round(value*100)/100;
   }
   var str=auroraCmsString_(value,5000);
@@ -59,8 +62,20 @@ function auroraCmsValidate_(name,field,value){
   if(field==='sort_order'&&str.length>0)auroraReject_('invalid_value','Sort order must be numeric.');
   if(field==='slug'&&str&&!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(str))auroraReject_('invalid_slug','Slug must be lowercase letters, numbers and hyphens.');
   if(['allowed_flavor_ids','allowed_addon_ids','gallery_images'].indexOf(field)!==-1&&str){
-    try{var parsed=JSON.parse(str);if(!Array.isArray(parsed)||parsed.length>60||parsed.some(function(item){return typeof item!=='string'||item.length>150;}))throw new Error('bad');}
-    catch(_){auroraReject_('invalid_list','Provide a JSON array of strings for '+field);}
+    var maxItemLen=field==='gallery_images'?3000:150;
+    try{
+      var parsed=JSON.parse(str);
+      if(!Array.isArray(parsed))throw new Error('not_array');
+      if(parsed.length>60||parsed.some(function(item){return typeof item!=='string'||item.length>maxItemLen;}))throw new Error('bad');
+      str=JSON.stringify(parsed);
+    }catch(_){
+      var parts=str.split(/[\n,]+/).map(function(item){return item.trim();}).filter(Boolean);
+      if(parts.length>0&&parts.length<=60&&parts.every(function(item){return item.length<=maxItemLen;})){
+        str=JSON.stringify(parts);
+      } else {
+        auroraReject_('invalid_list','Provide a JSON array of strings for '+field);
+      }
+    }
   }
   return str;
 }
@@ -130,11 +145,11 @@ function auroraCmsPost_(input){
   if(action==='staff_cms_list'){
     var snapshot=auroraCmsRead_(auroraSpreadsheet_(),name);
     return {ok:true,table:name,columns:snapshot.columns,rows:auroraCmsRowsSafe_(snapshot),
-      total:snapshot.rows.length,truncated:snapshot.rows.length>500,can_delete:actor.role==='super_admin'};
+      total:snapshot.rows.length,truncated:snapshot.rows.length>500,can_delete:actor.role==='super_admin'||actor.role==='admin'};
   }
   if(['staff_cms_create','staff_cms_update','staff_cms_delete'].indexOf(action)===-1)
     auroraReject_('invalid_action','Unsupported website edit.');
-  if(action==='staff_cms_delete'&&actor.role!=='super_admin')auroraReject_('forbidden','Only Super Admin can archive public records.');
+  if(action==='staff_cms_delete'&&actor.role!=='super_admin'&&actor.role!=='admin')auroraReject_('forbidden','Only Super Admin or Admin can archive public records.');
   var lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))auroraReject_('busy','Another website change is being saved.');
   try {
@@ -143,6 +158,8 @@ function auroraCmsPost_(input){
     var draft=input.values;
     if(!draft||typeof draft!=='object'||Array.isArray(draft))auroraReject_('invalid_request','Send an object of editable values.');
     var fields=Object.keys(draft);
+    if(name==='products'&&fields.some(function(field){return ['sold_count','rating','review_count'].indexOf(field)!==-1;}))
+      auroraReject_('computed_field','Sales and review counts are computed from delivered orders and approved reviews.');
     if(action!=='staff_cms_delete'&&(fields.length===0||fields.length>table.columns.length))
       auroraReject_('invalid_request','Choose fields to save.');
     if(fields.some(function(k){return table.columns.indexOf(k)===-1||k===table.key||k==='created_at'}))
@@ -203,11 +220,16 @@ function auroraCmsPost_(input){
       if(action==='staff_cms_create') {
         table.sheet.getRange(table.sheet.getLastRow()+1,1,1,table.headers.length).setValues([table.headers.map(function(field){return auroraSheetCell_(row[field]);})]);
       }else{
-        var original=table.sheet.getRange(existing._row,1,1,table.headers.length).getValues()[0];
-        table.columns.forEach(function(field){original[table.headers.indexOf(field)]=auroraSheetCell_(row[field]);});
+        var range=table.sheet.getRange(existing._row,1,1,table.headers.length);
+        var original=range.getValues()[0];
+        var formulas=typeof range.getFormulas==='function'?range.getFormulas()[0]:[];
+        formulas.forEach(function(formula,index){if(formula)original[index]=formula;});
+        var changed=action==='staff_cms_delete'?[name==='reviews'?'status':'is_active']:fields;
+        changed.forEach(function(field){original[table.headers.indexOf(field)]=auroraSheetCell_(row[field]);});
         table.sheet.getRange(existing._row,1,1,original.length).setValues([original]);
       }
     }
+    if(name==='products'&&typeof auroraEnsureProductStats_==='function')auroraEnsureProductStats_(book);
     CacheService.getScriptCache().remove(auroraCacheKey_());
     return {ok:true,operation:action==='staff_cms_delete'?'archived':action==='staff_cms_create'?'created':'updated'};
   }finally{lock.releaseLock();}

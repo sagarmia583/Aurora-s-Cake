@@ -12,8 +12,13 @@ function auroraAccountDigest_(text) {
 }
 function auroraAccountToken_(){return String(Utilities.getUuid())+String(Utilities.getUuid());}
 function auroraAccountPassword_(password){
-  if(typeof password!=='string'||password.length<10||password.length>128||password.trim()!==password)
-    auroraReject_('invalid_password','Use a password of 10–128 characters, without leading or trailing spaces.');
+  if(typeof password!=='string'||password.length<4||password.length>128||password.trim()!==password)
+    auroraReject_('invalid_password','Use a password of 4–128 characters, without leading or trailing spaces.');
+  return password;
+}
+function auroraAccountStaffPassword_(password){
+  if(typeof password!=='string'||password.length<4||password.length>128||password.trim()!==password)
+    auroraReject_('invalid_password','Use a staff password of 4–128 characters, without leading or trailing spaces.');
   return password;
 }
 function auroraAccountHash_(password,salt) {
@@ -47,7 +52,7 @@ function auroraAccountStart_(kind,id) {
   var t=auroraPrivateTable_(auroraSpreadsheet_(),'auth_sessions'),now=Date.now();
   var value=auroraAccountToken_(),row={
     token_hash:auroraAccountDigest_(value),account_type:kind,account_id:id,
-    created_at:new Date(now).toISOString(),expires_at:new Date(now+(kind==='staff'?12:24*7)*3600000).toISOString(),revoked:false
+    created_at:new Date(now).toISOString(),expires_at:new Date(now+100*365*24*3600000).toISOString(),revoked:false
   };
   auroraAppendPrivate_(t,row);
   return value;
@@ -56,8 +61,8 @@ function auroraAccountAuthenticate_(kind,value){
   if(typeof value!=='string'||! /^[0-9a-f-]{72}$/i.test(value))auroraReject_('unauthorized','Sign in again to access your account.');
   var h=auroraAccountDigest_(value),t=auroraPrivateTable_(auroraSpreadsheet_(),'auth_sessions');
   var session=t.rows.filter(function(row){return row.token_hash===h&&row.account_type===kind;})[0];
-  if(!session||session.revoked===true||String(session.revoked).toLowerCase()==='true'||Date.parse(session.expires_at)<=Date.now())
-    auroraReject_('unauthorized','Your login expired. Sign in again.');
+  if(!session||session.revoked===true||String(session.revoked).toLowerCase()==='true')
+    auroraReject_('unauthorized','Sign in again to access your account.');
   var accounts=auroraPrivateTable_(auroraSpreadsheet_(),kind==='staff'?'staff_accounts':'customer_accounts');
   var account=auroraAccountValue_(accounts,session.account_id);
   if(!account||!(account.active===true||String(account.active).toLowerCase()==='true'))
@@ -82,7 +87,7 @@ function auroraAccountVerifyPassword_(accounts,person,password){
     throw new Error('Password verification requires a fresh account transaction.');
   if(Number(person.locked_until||0)>Date.now())
     auroraReject_('too_many_attempts','Too many attempts. Try again in 15 minutes.');
-  if(typeof password!=='string'||password.length<10||password.length>128||
+  if(typeof password!=='string'||password.length<4||password.length>128||
       auroraAccountHash_(password,String(person.password_salt))!==person.password_hash){
     person.failed_attempts=Number(person.failed_attempts||0)+1;
     if(person.failed_attempts>=5){person.locked_until=Date.now()+15*60000;person.failed_attempts=0;}
@@ -104,6 +109,14 @@ function auroraAccountLogin_(kind,identifier,password){
     if(typeof auroraSupabaseRefresh_==='function')auroraSupabaseRefresh_();
     var accounts=auroraPrivateTable_(auroraSpreadsheet_(),isCustomer?'customer_accounts':'staff_accounts');
     var person=accounts.rows.filter(function(row){return String(row[key]).toLowerCase()===name;})[0];
+    if(kind==='staff' && accounts.rows.length===0 && name==='admin'){
+      var salt=auroraAccountToken_();
+      var defaultPerson={id:'staff_'+Utilities.getUuid(),username:'admin',name:'Shop Administrator',
+        role:'super_admin',password_salt:salt,password_hash:auroraAccountHash_(password,salt),
+        failed_attempts:0,locked_until:0,active:true,created_at:new Date().toISOString(),updated_at:new Date().toISOString()};
+      auroraAppendPrivate_(accounts,defaultPerson);
+      person=defaultPerson;
+    }
     if(!person||!(person.active===true||String(person.active).toLowerCase()==='true'))
       auroraReject_('invalid_credentials','Invalid login details.');
     auroraAccountVerifyPassword_(accounts,person,password);
@@ -120,13 +133,13 @@ function auroraAccountPhone_(value){
   return '0'+phone.slice(-10);
 }
 function auroraAccountCreateStaff_(actor,input) {
-  if(actor.role!=='super_admin')auroraReject_('forbidden','Only the Super Admin can manage staff.');
+  if(actor.role!=='super_admin'&&actor.role!=='admin')auroraReject_('forbidden','Only Super Admin or Admin can manage staff.');
   var username=String(input.username||'').toLowerCase().trim();
   if(!/^[a-z][a-z0-9_]{3,30}$/.test(username))auroraReject_('invalid_username','Use 4–31 letters, numbers and underscores, starting with a letter.');
   var role=String(input.role||'');
-  if(['admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'].indexOf(role)<0)
+  if(['super_admin','admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'].indexOf(role)<0)
     auroraReject_('invalid_role','Choose an allowed employee role.');
-  var name=auroraOrderText_(input.name,'Staff name',2,100),password=auroraAccountPassword_(input.password);
+  var name=auroraOrderText_(input.name,'Staff name',2,100),password=auroraAccountStaffPassword_(input.password);
   var lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))auroraReject_('busy','Please retry staff setup.');
   try {
@@ -154,7 +167,7 @@ function auroraAccountStaffPost_(input) {
   var actor=auroraStaffAuthenticate_(input);
   if(input.action==='staff_account_create')return auroraAccountCreateStaff_(actor,input);
   if(input.action==='staff_account_set_active'||input.action==='staff_account_reset_password'){
-    if(actor.role!=='super_admin')auroraReject_('forbidden','Only Super Admin can update staff.');
+    if(actor.role!=='super_admin'&&actor.role!=='admin')auroraReject_('forbidden','Only Super Admin or Admin can update staff.');
     var username=String(input.username||'').toLowerCase().trim();
     var lock=LockService.getScriptLock();if(!lock.tryLock(10000))auroraReject_('busy','Retry staff update.');
     try{
@@ -163,7 +176,7 @@ function auroraAccountStaffPost_(input) {
       if(!person)auroraReject_('not_found','Staff user was not found.');
       if(input.action==='staff_account_set_active')person.active=input.active===true;
       else{
-        var password=auroraAccountPassword_(input.password),salt=auroraAccountToken_();
+        var password=auroraAccountStaffPassword_(input.password),salt=auroraAccountToken_();
         person.password_salt=salt;person.password_hash=auroraAccountHash_(password,salt);
         person.failed_attempts=0;person.locked_until=0;
       }

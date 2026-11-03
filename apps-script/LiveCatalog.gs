@@ -5,7 +5,16 @@
  */
 function auroraCatalogSnapshot_(book) {
   var products=auroraRows_(book,'products').map(function(row) {
-    return {id:String(row.id),name:String(row.name||''),is_active:auroraActive_(row.is_active)};
+    return {
+      id:String(row.id),
+      name:String(row.name||''),
+      category_id:String(row.category_id||''),
+      description:String(row.description||''),
+      base_price:Number(row.base_price||0),
+      sale_price:row.sale_price===''?'':Number(row.sale_price),
+      image_url:String(row.image_url||''),
+      is_active:auroraActive_(row.is_active)
+    };
   });
   var variants=auroraRows_(book,'product_variants').map(function(row) {
     return {id:String(row.id),product_id:String(row.product_id),name:String(row.name||''),
@@ -20,7 +29,7 @@ function auroraCatalogSnapshot_(book) {
 }
 function auroraCatalogueValue_(table,field,value) {
   var allowed={
-    products:['name','description','image_url','is_active'],
+    products:['name','description','image_url','is_active','price','base_price'],
     product_variants:['price','sale_price','is_active'],
     settings:['shop_name','accepting_orders','delivery_enabled']
   };
@@ -28,10 +37,12 @@ function auroraCatalogueValue_(table,field,value) {
     auroraReject_('forbidden','This field cannot be changed through the admin panel.');
   }
   if (field==='is_active'||field==='accepting_orders'||field==='delivery_enabled') {
-    if (typeof value!=='boolean') auroraReject_('invalid_value','Set the switch to true or false.');
-    return value;
+    if (value===true || value===false) return value;
+    if (value==='true'||value==='TRUE'||value===1||value==='1') return true;
+    if (value==='false'||value==='FALSE'||value===0||value==='0') return false;
+    auroraReject_('invalid_value','Set the switch to true or false.');
   }
-  if (field==='price'||field==='sale_price') {
+  if (field==='price'||field==='base_price'||field==='sale_price') {
     if (field==='sale_price'&&value==='') return '';
     if (typeof value!=='number'||!Number.isFinite(value)||value<0||value>10000000) {
       auroraReject_('invalid_price','Cake price must be a valid non-negative number.');
@@ -72,6 +83,9 @@ function auroraCatalogPost_(input) {
       .map(function(value){return String(value).trim().toLowerCase();});
     var key=tableName==='settings'?'key':'id';
     var targetColumn=tableName==='settings'?'value':field;
+    if (tableName==='products' && field==='price' && headers.indexOf('price')<0 && headers.indexOf('base_price')>=0) {
+      targetColumn='base_price';
+    }
     var keyIndex=headers.indexOf(key), fieldIndex=headers.indexOf(targetColumn);
     if (keyIndex<0||fieldIndex<0||headers.lastIndexOf(key)!==keyIndex||
         headers.lastIndexOf(targetColumn)!==fieldIndex) auroraReject_('invalid_sheet','Missing or duplicate expected column.');

@@ -18,6 +18,7 @@ import {d1ApiHandler} from './d1/api.js';
 import {d1MediaHandler} from './d1/media.js';
 import {runSupabaseScheduledHealth} from './supabaseHealth.js';
 import {supabaseHealthStatusHandler} from './supabaseHealthStatus.js';
+import {storefrontSeo} from './storefrontSeo.js';
 
 const routes = new Map([
   ['/api/operations', operations],
@@ -47,6 +48,10 @@ export default {
     if (handler) return handler({request,env});
     // API requests must never receive the React index.html fallback.
     if (pathname.startsWith('/api/')) return json(404,{ok:false,error:'Unknown API route.'});
+    if (pathname === '/sitemap.xml' || pathname.startsWith('/cake/')) {
+      const seo = await storefrontSeo({request,env,asset:path=>env.ASSETS.fetch(new Request(new URL(path,request.url)))});
+      if (seo) return seo;
+    }
     // Wrangler handles normal assets before the Worker. This is a safe fallback.
     return env.ASSETS.fetch(request);
   },
