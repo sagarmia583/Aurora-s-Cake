@@ -25,12 +25,9 @@ export default defineConfig(({mode}) => {
     process.env.VITE_SHEETS_POST_PROXY = '/api/operations';
   }
   return {
+    // Shared order helpers live under staff-mobile, but the web build uses the root TypeScript config.
+    tsconfig: './tsconfig.json',
     plugins: [react(), tailwindcss(), bakeryApi(env.VITE_GOOGLE_SHEETS_URL), orderReceiptPreview()],
-    // The web app imports shared modules from apps/staff-mobile/src. Without an
-    // explicit tsconfig, Vite would pick up apps/staff-mobile/tsconfig.json for
-    // those files, which extends `expo/tsconfig.base` — and Expo is only
-    // installed inside the mobile app, not at the repo root.
-    tsconfig: path.resolve(import.meta.dirname, 'tsconfig.json'),
     define: { __AURORA_BUILD_ID__: JSON.stringify(buildId.slice(0,12)) },
     resolve: {
       alias: {
