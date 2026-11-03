@@ -63,12 +63,15 @@ Photography is illustrative catalogue imagery. Source references and the generat
 
 The separate native Staff app is in [apps/staff-mobile](apps/staff-mobile/README.md).
 It uses the existing role-verified Apps Script backend through the Cloudflare `/api/operations` API,
-with employee Username/Password, encrypted session persistence, fast order
-list, Kitchen, Rider, COD OTP and staff-specific permissions.
+with employee Username/Password, encrypted native session persistence,
+Kitchen, Rider, COD OTP and staff-specific permissions.
 
-The source is under the draft branch; it is **not** a signed APK/IPA.
-Vercel Production must expose `/api/operations` and the latest Apps Script
-must be deployed before native staff login works. See the app README for
+The app runs the same authenticated Staff Portal as the website, including the
+website CMS, costings, team, custom cakes, order workflow and print layouts.
+Both clients use the existing Google Sheets backend. The old native prototype
+is retained as `NativeStaffPreview.tsx` and is not the running entry point.
+This source is **not** a signed APK/IPA. The current Cloudflare Worker must expose
+the matching website and `/api/operations`. See the app README for local preview,
 Expo SDK 58, Android APK and iOS test/build instructions.
 
 ## Firebase (optional foundation)

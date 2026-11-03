@@ -2,9 +2,12 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import {execFileSync} from 'node:child_process';
-import {defineConfig} from 'vite';
+import {defineConfig, loadEnv} from 'vite';
+import {bakeryApi} from './scripts/vite-bakery-api.mjs';
+import {orderReceiptPreview} from './scripts/vite-order-preview.mjs';
 
-export default defineConfig(() => {
+export default defineConfig(({mode}) => {
+  const env=loadEnv(mode,process.cwd(),'');
   // Include the exact Git build revision in the Firebase migration preview.
   // This is PUBLIC metadata, not a credential; useful when browser caches
   // or Cloudflare rollouts serve a prior JavaScript asset.
@@ -22,7 +25,7 @@ export default defineConfig(() => {
     process.env.VITE_SHEETS_POST_PROXY = '/api/operations';
   }
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), bakeryApi(env.VITE_GOOGLE_SHEETS_URL), orderReceiptPreview()],
     define: { __AURORA_BUILD_ID__: JSON.stringify(buildId.slice(0,12)) },
     resolve: {
       alias: {
@@ -30,6 +33,10 @@ export default defineConfig(() => {
       },
     },
     server: {
+      host: '0.0.0.0',
+      port: 3000,
+      strictPort: true,
+      cors: true,
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
