@@ -61,7 +61,9 @@ export async function getSession(token:string):Promise<StaffSession>{
       riders.push({email:x.email,name:x.name});
   }
   return {name:p.name,email:p.email,username:typeof p.username==='string'?p.username:undefined,
-    role:p.role as Role,riders};
+    profile_image_url:typeof p.profile_image_url==='string'?p.profile_image_url:undefined,
+    logo_url:typeof p.logo_url==='string'?p.logo_url:undefined,
+    role:p.role as Role,riders,staff_profiles:Array.isArray(p.staff_profiles)?(p.staff_profiles as any):[]};
 }
 export async function restore():Promise<{token:string;session:StaffSession}|null>{
   const token=await SecureStore.getItemAsync(KEY);
@@ -76,7 +78,7 @@ export async function clearSession(token?:string):Promise<void>{
 }
 export async function ordersFor(token:string):Promise<StaffOrder[]>{
   const data=await post('staff_orders',{auth_token:token});
-  if(!Array.isArray(data.orders)||data.orders.length>500||
+  if(!Array.isArray(data.orders)||
       data.snapshot_complete===false||(data.orders.length===0&&data.snapshot_complete!==true)||
       !data.orders.every(isOrder))
     throw new ApiError('Staff order snapshot incomplete. Keeping previous data.','invalid_snapshot');
@@ -88,4 +90,120 @@ export async function mutate(token:string,order:StaffOrder,operation:Operation,e
   if(!isOrder(result.order)||result.order.id!==order.id)
     throw new ApiError('Order update response could not be verified. Refresh orders.','invalid_response');
   return result.order;
+}
+export async function createStaffAccount(token:string,name:string,username:string,password:string,role:string):Promise<{username:string}>{
+  const res=await post('staff_account_create',{auth_token:token,name,username,password,role});
+  return {username:String(res.username||username)};
+}
+export async function changeStaffStatus(token:string,username:string,active:boolean):Promise<void>{
+  await post('staff_account_set_active',{auth_token:token,username,active});
+}
+export async function resetStaffPassword(token:string,username:string,password:string):Promise<void>{
+  await post('staff_account_reset_password',{auth_token:token,username,password});
+}
+export async function createManualOrder(token:string,orderData:Record<string,unknown>):Promise<any>{
+  return await post('create_order',{auth_token:token,...orderData});
+}
+export { buildSheetOrderPayload } from './domain';
+export async function fetchCatalog(token:string):Promise<any>{
+  return await post('staff_catalog',{auth_token:token});
+}
+export async function updateCatalog(token:string,table:string,field:string,recordId:string,value:unknown):Promise<void>{
+  await post('staff_catalog_update',{auth_token:token,table,field,record_id:recordId,value});
+}
+export async function fetchCustomCakes(token:string):Promise<any[]>{
+  const res=await post('staff_custom_cakes',{auth_token:token});
+  return Array.isArray(res.requests)?res.requests:[];
+}
+export async function quoteCustomCake(token:string,cakeId:string,quoteAmount:number,staffNotes?:string):Promise<void>{
+  await post('staff_custom_quote',{auth_token:token,cake_id:cakeId,quote_amount:quoteAmount,staff_notes:staffNotes});
+}
+
+export interface PublicSheetData {
+  settings?: {
+    shop_name?: string;
+    logo_url?: string;
+    profile_image_url?: string;
+    phone?: string | number;
+    whatsapp?: string | number;
+    email?: string;
+    address?: string;
+    opening_time?: string;
+    closing_time?: string;
+    currency?: string;
+    mobile_subtitle?: string;
+    website_title?: string;
+  };
+  products?: Array<{
+    id: string;
+    name: string;
+    base_price?: number;
+    price?: number;
+    sale_price?: number;
+    category_id?: string;
+    category_name?: string;
+    is_active?: boolean;
+    image_url?: string;
+    description?: string;
+    weight_label?: string;
+  }>;
+  categories?: Array<{ id: string; name: string; slug?: string; description?: string; image_url?: string }>;
+  zones?: Array<{
+    id: string;
+    name: string;
+    delivery_fee: number;
+    estimated_time?: string;
+    is_active?: boolean;
+  }>;
+  slots?: Array<any>;
+  coupons?: Array<{
+    id: string;
+    code: string;
+    discount_type: 'percentage' | 'fixed';
+    discount_value: number;
+    min_order_amount: number;
+    max_discount_amount?: number;
+    usage_count?: number;
+    is_active: boolean;
+  }>;
+  flavors?: Array<{
+    id: string;
+    name: string;
+    color_hex?: string;
+    is_active?: boolean;
+  }>;
+  addons?: Array<{
+    id: string;
+    name: string;
+    price: number;
+    image_url?: string;
+    is_active?: boolean;
+  }>;
+}
+
+export async function fetchPublicSheetData(): Promise<PublicSheetData | null> {
+  const urls: string[] = [];
+  try {
+    const origin = new URL(operationsUrl()).origin;
+    urls.push(`${origin}/api/public`);
+  } catch {}
+  urls.push('https://script.google.com/macros/s/AKfycbw38J4AzlYkAhNtyDAp_CP34fUk9Epae6xz46AQFbF9ye1VsZjxTXmzbJgs52WEoWETMw/exec?action=public');
+
+  for (const url of urls) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 12000);
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (res.ok) {
+        const json = await res.json();
+        if (json && json.ok && json.data) {
+          return json.data as PublicSheetData;
+        }
+      }
+    } catch {
+      // Continue to next URL
+    }
+  }
+  return null;
 }

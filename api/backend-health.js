@@ -3,7 +3,7 @@
  * Never accepts arbitrary target URLs, tokens or credentials.
  */
 import { migrationFreezeStatus } from '../cloudflare/shared.js';
-const EXPECTED_RELEASE='aurora-2026-10-30-supabase-store-r3';
+import { EXPECTED_RELEASE } from '../functions/api/backend-health.js';
 const JSON_HEADERS={'Content-Type':'application/json; charset=utf-8',
   'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
 export default async function handler(req,res){

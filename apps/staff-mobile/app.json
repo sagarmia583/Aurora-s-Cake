@@ -3,8 +3,9 @@
     "name": "Aurora's Cake Staff",
     "slug": "auroras-cake-staff",
     "scheme": "aurorastaff",
-    "version": "0.1.0",
+    "version": "0.1.3",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "bundleIdentifier": "com.aurorascake.staff",
@@ -12,18 +13,70 @@
     },
     "android": {
       "package": "com.aurorascake.staff",
-      "edgeToEdgeEnabled": true
+      "versionCode": 4,
+      "softwareKeyboardLayoutMode": "resize",
+      "permissions": [
+        "android.permission.VIBRATE",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.RECEIVE_BOOT_COMPLETED"
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableMinifyInReleaseBuilds": false,
+            "enableShrinkResourcesInReleaseBuilds": false
+          }
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "কেক ও দোকানের ছবি বাছতে photo library ব্যবহার করুন।",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
       [
         "expo-secure-store",
         {
           "configureAndroidBackup": true
         }
-      ]
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "enableBackgroundRecording": false,
+          "enableBackgroundPlayback": false
+        }
+      ],
+      "expo-font",
+      "expo-background-task",
+      [
+        "expo-notifications",
+        {
+          "sounds": [
+            "./assets/aurora_chime_v2.wav",
+            "./assets/aurora_chime_v3.wav"
+          ],
+          "enableBackgroundRemoteNotifications": false,
+          "enableRemoteNotifications": true
+        }
+      ],
+      "expo-build-properties"
     ],
     "extra": {
-      "eas": {}
-    }
+      "eas": {
+        "projectId": "9c4110c4-65cd-45b5-9b76-60ddac28ca41"
+      }
+    },
+    "owner": "sagarmia583"
   }
 }

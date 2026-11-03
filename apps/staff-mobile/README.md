@@ -1,68 +1,45 @@
-# Aurora's Cake — Staff Mobile (Android and iOS)
+# Aurora’s Cake — native staff workspace
 
-Expo SDK 58 / React Native native staff app. This is source code, not yet a signed APK or IPA.
+`App.tsx` loads bundled fonts through `src/native/FontBootstrap.tsx`, then `src/native/NativeApp.tsx`. It renders React Native screens. The prior wrapper and sample-data prototype remain reference files and are not imported by this entry.
 
-## What it does
-- Employee Username + Password sign-in. No new Gmail or paid service for Kitchen/Rider staff.
-- Persistent session encrypted on the phone by Expo SecureStore; 12-hour backend expiry, revocation, and logout.
-- Role-based Dashboard: Kitchen, Order Manager, Dispatch Manager, Delivery Rider, Admin and Accountant.
-- My Tasks, Orders, Account; fast virtualized order list, pull refresh and foreground automatic refresh approximately every 30 seconds.
-- Rider: Pick Up > Start Delivery > Ask Customer for OTP > Confirm Full COD cash > Verify/Deliver.
-- OTP never sent to rider by API; issued to customer's private tracking only after dispatch.
-- Inline stage update after server success. Failed network requests preserve existing list; no offline mutation queue.
+The native workspace includes Today/next action, searchable orders, three-step COD checkout, date-specific kitchen batches, OTP-free COD handover, private customer view links, customer lookup, custom quotes, staff access, native website CMS/photo upload, reports/collection printing, item costings and a bundled three-note chime. Admin can prepare and self-deliver an order. Business data comes from the same live Google Sheets backend as the website. No sample inventory, simulated balances or local-only successful sales are used in live mode.
 
-## Required backend before native login works
-1. Back up Google Sheet and install/deploy latest ALL-IN-ONE Code.gs using Apps Script New version.
-2. Run setupSheetDatabase() to add private staff_accounts and auth_sessions if absent.
-3. In the Super Admin web dashboard create active employee username/password accounts.
-4. The current Cloudflare Worker at `https://aurora-s-cake.sagarmia583.workers.dev` must expose working POST `/api/operations`, configured with the verified Apps Script `/exec` runtime URL. See [Cloudflare setup](../../docs/CLOUDFLARE_WORKER_SETUP.md).
-5. Check the actual Cloudflare deployment and staff permissions before building the app. Keep Vercel/Netlify retired; do not remove protection to make a preview URL work.
+Staff sign-in is verified by the backend and stored in Expo SecureStore. Existing native sessions can be revalidated. Fresh installs use a staff username/password created in web Staff & access; this redesign does not configure a new native Google OAuth client. Password-session logout waits for the server’s revocation acknowledgment. Uncertain orders retain an encrypted original request reference and require an explicit retry.
 
-## Run with Expo in Windows PowerShell
+Orders/catalogue refresh every 8–12 seconds while active and on foreground/pull-to-refresh. Public caching can add about 20 seconds. Foreground keep-awake defaults on after login. BackgroundTask requests a minimum 15-minute sync interval, subject to the OS, network and battery. The app can also register for new-order push using its linked EAS project. Delivery requires Android FCM or iOS APNs credentials and the backend push access token. A device build is needed to verify background scheduling, push and custom sound. Reports describe their loaded-order snapshot. Migration/Firebase diagnostic controls remain in web administration.
 
-    cd apps/staff-mobile
-    Copy-Item .env.example .env
-    npm install
-    npx expo install --fix
-    npx expo start
+Start Vite with `npm run dev` at the repository root. In this directory run `npm install`, then `npx expo start --lan --port 8081`. On the same Wi-Fi, use an Expo Go version compatible with SDK 58. The current app development URL is `exp://192.168.1.11:8081`; the API uses the explicitly configured private-LAN website on port 3000 in development. Release builds ignore the local override and use the approved production API.
 
-Edit EXPO_PUBLIC_OPERATIONS_URL in .env if the real production Vercel hostname changes.
-Only trusted HTTPS Vercel API origins ending in /api/operations are accepted by the native API client.
-No OAuth Client Secret, service password, Google API key, or customer credential belongs in .env.
+The development-only visual preview is `http://localhost:8081/?preview=1`. It uses explicitly labeled sample fixtures, blocks live changes, and is ignored in release builds and on Android/iOS. It is a design preview, not production browser sign-in.
 
-## Build an Android APK
+## Android and iOS builds
 
-    npm install -g eas-cli
-    eas login
-    eas build:configure
-    eas build --platform android --profile preview
+Run the following from `apps/staff-mobile`. This checkout is linked to the [Aurora’s Cake Expo project](https://expo.dev/accounts/sagarmia583/projects/auroras-cake-staff).
 
-EAS Build Free tier has usage limits. An Android APK can be shared to test phones directly without Play Store membership.
-Building an APK needs your Expo account and Android signing setup; no APK is included in the source repository.
+```powershell
+npm ci
+npm run typecheck
+npx expo export --platform android --platform ios --output-dir dist-native-release
+eas build --platform android --profile preview
+eas build --platform android --profile android-release
+eas build --platform ios --profile ios-simulator
+eas build --platform ios --profile ios-device
+```
 
-## Test on iPhone / iOS simulator
+The Android `preview` profile produces a signed installable APK. The iOS simulator profile produces a simulator archive for Xcode on macOS. The iPhone profile produces an ad hoc IPA after the owner configures Apple Developer signing and registers the device. Use `production` for store builds. In a source export without a Git checkout, set `$env:EAS_NO_VCS='1'` before running EAS. The Hermes export verifies both bundles. Test installed-device sound, photo access and physical printing separately.
 
-    eas build --platform ios --profile preview
+The Android `android-release` profile produces a signed AAB as the primary archive and a signed APK in the additional artifacts. Use the APK to test a direct install, then upload the AAB to Google Play Console → Testing → Internal testing. Google Play publication requires the owner’s developer account, Play App Signing and the applicable listing, access and review steps. [Google Play testing tracks](https://support.google.com/googleplay/android-developer/answer/9845334)
 
-This project config intentionally creates an unsigned iOS SIMULATOR preview, not a device IPA.
-Expo Go is an additional development option if the installed Expo Go release supports Expo SDK 58.
-For signed physical iPhone Ad Hoc / TestFlight / App Store distribution Apple Developer Program normally costs $99/year.
-Expo Free does not bypass Apple distribution requirements.
+Android 0.1.1 disables release code shrinking after reproducing a launch crash in AndroidX WorkManager’s startup provider on the previous APK. Keep this build property until release-device tests pass with a targeted rule or a fixed dependency. The app displays `STARTUP_MODULE` or `STARTUP_RENDER` when the JavaScript workspace fails to start, with a link to the web staff panel.
 
-## Mandatory real-world COD acceptance test
-1. Owner creates kitchen01, dispatch01 and rider01 from web Super Admin.
-2. Each mobile login works on separate devices; close/reopen each app and verify secure session restore.
-3. Customer places confirmed small COD order; Manager confirms it, Kitchen prepares, Dispatcher assigns rider01.
-4. Assigned rider alone sees Pick Up/Start Delivery. Unassigned rider cannot change that order.
-5. After Start Delivery, customer with original receipt sees their private OTP; Rider enters it and confirms full cash.
-6. Wrong OTP is refused; valid OTP sets Delivered, COD Paid and clears one-time code.
-7. Disable an employee in the web dashboard and confirm old session cannot perform an update.
-8. Disconnect/reconnect internet; previous list remains but no mutation is falsely marked successful.
+Android 0.1.2 uses a compact login card and a scrollable form with Android keyboard resize and iOS keyboard insets. Order history provides per-stage alerts for new changes, and the chime uses the separate `aurora-orders-chime-v3` Android channel so the new sound applies after updating. Device media/notification volume and permissions still apply.
 
-## Limitations
-- Source and automated tests do not prove a working APK/IPA on real devices. Both physical platforms require testing.
-- Foreground refresh only; push notifications and offline write queues are not implemented.
-- Native app reads the existing role-authorized Google Sheets snapshot; large Sheets or Apps Script quotas can still cause delays.
-- No public CMS delete access, order deletion, customer password/OTP disclosure or payment ledger edits.
+Instant locked-screen alerts require the prepared `staff-order-alerts-r5` Apps Script release, Expo push access token, and Android FCM or iOS APNs. Password staff accounts receive alerts relevant to their role. If remote registration is unavailable, the app can notify from the latest order sync while open and from OS-scheduled background refresh when permitted.
 
-Code: App.tsx (interface), src/api.ts (secure transport), src/domain.ts (permissions), eas.json (build profiles).
+For the website, run `npm run build` from the repository root for the `dist` assets. The Worker entry is `cloudflare/worker.js` and the deployment settings are in `wrangler.toml`. Verify the package with `npx wrangler@4 deploy --dry-run --outdir dist-worker-release`. The production backend source is `apps-script/Code.AllInOne.gs`. Deploy it as a new version of the existing web app to retain the live Google Sheet and current endpoint.
+
+Research, feature coverage, screenshots and verification: [native redesign report](../../docs/NATIVE_APP_REDESIGN_2026-11-01.md).
+
+Latest backend release and setup steps are in the [web and app audit](../../docs/FULL_WEB_APP_AUDIT_2026-11-03.md). Embedded fonts use Roboto for Latin and Noto Sans Bengali for Bengali. The app includes both OFL notices under More → Fonts & licenses.
+
+POS is available from order details → POS print. It defaults to 80mm USB/Wi-Fi and also supports 58mm. Cash Memo and Box Label include offline-generated Website and Facebook QR codes. Their destinations use the public Sheet settings with the live shop links as fallback. Kitchen tickets omit promotional QR codes. Printing uses the OS print dialog and installed driver. The bundled app icon is the current public Sheet logo. See [POS, numbers and logo](../../docs/POS_NUMBERS_LOGO_2026-11-01.md) for hardware setup.

@@ -1,6 +1,7 @@
 {
   "cli": {
-    "version": ">= 16.0.0"
+    "version": ">= 16.0.0",
+    "appVersionSource": "local"
   },
   "build": {
     "development": {
@@ -11,7 +12,21 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk"
-      },
+      }
+    },
+    "android-release": {
+      "extends": "production",
+      "buildArtifactPaths": ["android/app/build/outputs/apk/release/*.apk"],
+      "android": {
+        "applicationArchivePath": "android/app/build/outputs/bundle/release/*.aab",
+        "gradleCommand": ":app:assembleRelease :app:bundleRelease"
+      }
+    },
+    "ios-device": {
+      "distribution": "internal"
+    },
+    "ios-simulator": {
+      "distribution": "internal",
       "ios": {
         "simulator": true
       }
