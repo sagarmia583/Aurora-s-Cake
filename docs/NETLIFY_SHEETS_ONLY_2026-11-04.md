@@ -21,3 +21,16 @@
 ## Pending and excluded work
 
 D1/R2 migration and Firebase/Supabase mirroring are explicitly out of scope. Historical files remain in source for reference but are not authoritative. Finance/Inventory R8 integration and physical mobile/printer tests require separate staging acceptance before production.
+
+
+## Automated read-only release gate
+
+A GitHub Actions workflow named **Verify Netlify + Google Sheets release** now checks deployment configuration, Netlify Functions, source/bundle parity, TypeScript, a Netlify-mode build and release-smoke fixtures without accessing production.
+
+Once the exact Netlify site and its server environment are confirmed, run the **read-only** local command:
+
+    node scripts/check-netlify-sheets-release.mjs https://YOUR-SITE.netlify.app
+
+It makes only unauthenticated GET calls to /api/backend-health and /api/public. It rejects a non-Google-Sheets backend, incorrect Apps Script release, frozen/unknown writes, missing products and leakage of private order/auth fields. The URL must be a *.netlify.app site; for a verified owner-controlled custom domain set AURORA_APPROVED_NETLIFY_ORIGIN to that exact HTTPS origin.
+
+A passing read-only check is not proof of COD, accounting, POS, device printing, migration or production deploy. First back up the existing Google Sheet and Apps Script version. Test order creation, idempotent retry, gift receipt, account expiry, kitchen/rider/COD workflow on staging data; keep PR draft until then.
