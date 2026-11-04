@@ -39,6 +39,12 @@ test('Netlify health checks Google Sheets release without returning Script Prope
   assert.equal(body.up_to_date,true);
   assert.equal(body.database_backend,'google_sheets');
   assert.equal('SECRET' in body,false);
+  const otherBackend=await health(request('/api/backend-health'),{scriptUrl,
+    fetcher:async()=>({ok:true,url:'https://script.googleusercontent.com/relay',json:async()=>({
+      ok:true,service:'aurora_public_content',release:'aurora-2026-11-03-staff-order-alerts-r5',
+      database_backend:'supabase'})} as Response)});
+  assert.equal(otherBackend.status,503);
+  assert.equal((await otherBackend.json()).code,'unexpected_database_backend');
 });
 
 test('live gift order payload preserves recipient, price privacy, idempotent retries',()=>{
