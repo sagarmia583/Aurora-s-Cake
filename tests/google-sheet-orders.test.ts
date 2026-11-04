@@ -97,6 +97,7 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean;supabase?:
     vm.runInContext(fs.readFileSync(new URL('../apps-script/Code.AllInOne.gs',import.meta.url),'utf8'),context);
   } else {
   vm.runInContext(fs.readFileSync(new URL('../apps-script/Code.gs',import.meta.url),'utf8'),context);
+  vm.runInContext(fs.readFileSync(new URL('../apps-script/OrderNumbers.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/StaffOperations.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/AccountAuth.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/CustomerMaster.gs',import.meta.url),'utf8'),context);
