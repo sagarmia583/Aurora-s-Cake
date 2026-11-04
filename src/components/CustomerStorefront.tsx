@@ -6,6 +6,7 @@ import { DEFAULT_PUBLIC_SITE_DATA } from '../content/defaultSiteData';
 import { BrandImage } from './BrandImage';
 import { StorefrontPrice } from './StorefrontPrice';
 import { getProductDisplayStats, isProductNew } from '../services/productStats';
+import { formatFreeGiftBadge, formatFreeGiftList, cleanFreeGiftItems } from '../utils/freeGifts';
 
 interface CustomerStorefrontProps {
   settings: ShopSettings;
@@ -72,6 +73,11 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
   const text = (key: string) => data.content[key] ?? DEFAULT_PUBLIC_SITE_DATA.content[key] ?? '';
   const reviews = publicData ? publicData.reviews : suppliedReviews;
   const coupons = publicData ? publicData.coupons : (suppliedCoupons || []);
+  // The owner edits the 'ফ্রি উপহার' tab; Apps Script exposes its allowlisted
+  // setting as a list. No gift is promised unless the Sheet supplies one.
+  const freeGiftItems = cleanFreeGiftItems(settings.complimentary_kit_items);
+  const freeGiftBadge = formatFreeGiftBadge(freeGiftItems);
+  const freeGiftList = formatFreeGiftList(freeGiftItems);
   const [copiedCouponCode, setCopiedCouponCode] = useState<string | null>(null);
   const [isCouponsExpanded, setIsCouponsExpanded] = useState<boolean>(true);
 
@@ -250,8 +256,8 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
           </div>
 
           {/* Continuous Running Breaking News Marquee Track */}
-          <div className="overflow-hidden relative w-full flex items-center">
-            <div className="ac-breaking-marquee flex items-center gap-4 sm:gap-6 whitespace-nowrap group-hover/ticker:[animation-play-state:paused] hover:[animation-play-state:paused]">
+          <div className="ac-breaking-viewport overflow-hidden relative w-full flex items-center">
+            <div className="ac-breaking-marquee flex items-center gap-4 sm:gap-6 whitespace-nowrap">
               {marqueeItems.map((c, idx) => {
                 const remaining = c.usage_limit ? Math.max(0, c.usage_limit - (c.usage_count || 0)) : null;
                 const isCopied = copiedCouponCode === c.code;
@@ -423,9 +429,11 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
                 <span className="text-[10px] bg-slate-100 text-slate-700 font-medium px-1.5 py-0.5 rounded">
                   ✓ হালাল
                 </span>
-                <span className="text-[10px] bg-emerald-50 text-emerald-800 font-medium px-1.5 py-0.5 rounded border border-emerald-200/60">
-                  ✓ ফ্রি ছুরি ও মোমবাতি
-                </span>
+                {freeGiftBadge && (
+                  <span title={freeGiftList} className="text-[10px] bg-emerald-50 text-emerald-800 font-medium px-1.5 py-0.5 rounded border border-emerald-200/60 max-w-full break-words">
+                    {freeGiftBadge}
+                  </span>
+                )}
               </div>
 
               {(stats.reviewCount > 0 || stats.soldCount > 0) && (
@@ -673,8 +681,8 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
               </h3>
               <p className="text-xs text-slate-600 max-w-2xl leading-relaxed">
                 • <strong>ডেলিভারি পাওয়ার সাথে সাথে:</strong> কেক কাটার আগ পর্যন্ত বক্সসহ ফ্রিজে (৪°-৮° সে.) রাখুন।<br/>
-                • <strong>সেরা স্বাদ পেতে:</strong> খাওয়ার ১৫ মিনিট আগে ফ্রিজ থেকে বের করুন, যাতে ক্রিম ও স্পঞ্জ রুম টেম্পারেচারে পারফেক্ট সফট হয়।<br/>
-                • <strong>ফ্রি কিট:</strong> প্রতিটি কেকের সাথে ফ্রি কেক কাটার ছুরি, রঙিন মোমবাতি ও আকর্ষণীয় রিবন হ্যান্ডেল বক্স দেওয়া হয়।
+                • <strong>সেরা স্বাদ পেতে:</strong> খাওয়ার ১৫ মিনিট আগে ফ্রিজ থেকে বের করুন, যাতে ক্রিম ও স্পঞ্জ রুম টেম্পারেচারে পারফেক্ট সফট হয়।
+                {freeGiftList && <><br/>• <strong>{settings.complimentary_kit_title?.trim() || 'ফ্রি উপহার'}:</strong> প্রতিটি কেকের সঙ্গে বিনামূল্যে {freeGiftList} দেওয়া হয়।</>}
               </p>
             </div>
           </div>
