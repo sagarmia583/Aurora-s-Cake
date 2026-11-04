@@ -16,7 +16,19 @@ const googleIdToken=/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 export const isStaffSessionCredential=(value:string):boolean=>
   value.length>0&&value.length<=10000&&(employeeSession.test(value)||googleIdToken.test(value));
 export function getBrowserWorkspaceStorage():WorkspaceStorage|null{
-  try{return typeof window!=='undefined'?(nativeStaffHost()?window.sessionStorage:(window.localStorage||window.sessionStorage)):null;}catch{return null;}
+  try{
+    if(typeof window==='undefined')return null;
+    // Keep logins across refresh, not across browser restarts or shared PCs.
+    // Discard historical persistent bearer tokens without copying them.
+    if(!nativeStaffHost()){
+      try{
+        window.localStorage?.removeItem(STAFF_SESSION_KEY);
+        window.localStorage?.removeItem(STAFF_WORKSPACE_KEY);
+        window.localStorage?.removeItem(STAFF_TAB_KEY);
+      }catch{/* Storage may be blocked; only use this tab's sessionStorage. */}
+    }
+    return window.sessionStorage;
+  }catch{return null;}
 }
 function nativeStaffHost():{postMessage:(value:string)=>void}|undefined {
   return typeof window!=='undefined' ? (window as Window & {ReactNativeWebView?:{postMessage:(value:string)=>void}}).ReactNativeWebView : undefined;
