@@ -328,6 +328,26 @@ function auroraOrderRequest_(input) {
     coupon_code:auroraOptionalText_(input.coupon_code,'Coupon code',60).toUpperCase(),
     order_note:auroraOptionalText_(input.order_note,'Order note',1000),payment_method:'cod',expected_total:input.expected_total
   };
+  if(input.is_gift!==undefined && typeof input.is_gift!=='boolean')
+    auroraReject_('invalid_request','Invalid gift selection.');
+  if(input.is_gift===true){
+    var recipient=auroraOrderText_(input.recipient_name,'Gift recipient name',2,100);
+    var recipientPhone=auroraOrderText_(input.recipient_phone,'Gift recipient phone',11,30);
+    if(!/^01[3-9]\\d{8}$/.test(recipientPhone))
+      auroraReject_('invalid_phone','Enter a valid recipient mobile number.');
+    var senderPhone=auroraOptionalText_(input.sender_phone,'Gift sender phone',30);
+    if(senderPhone && !/^01[3-9]\\d{8}$/.test(senderPhone))
+      auroraReject_('invalid_phone','Enter a valid gift sender mobile number.');
+    if(input.hide_price_on_box!==undefined && typeof input.hide_price_on_box!=='boolean')
+      auroraReject_('invalid_request','Invalid gift receipt option.');
+    normalized.is_gift=true;
+    normalized.recipient_name=recipient;
+    normalized.recipient_phone=recipientPhone;
+    normalized.sender_name=auroraOptionalText_(input.sender_name,'Gift sender name',100)||normalized.customer_name;
+    normalized.sender_phone=senderPhone;
+    normalized.hide_price_on_box=input.hide_price_on_box!==false;
+    normalized.gift_card_message=auroraOptionalText_(input.gift_card_message,'Gift message',140);
+  }
   if (input.checkout_proof !== undefined) {
     var proof=auroraOrderText_(input.checkout_proof,'Checkout security proof',72,72).toLowerCase();
     if(!/^(?:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}){2}$/.test(proof)) {
@@ -469,7 +489,7 @@ function auroraBuildOrder_(book,request,orders) {
   if (subtotal > 10000000 || total > 10000000) auroraReject_('order_too_large','The order amount exceeds the supported limit.');
   if (request.expected_total !== undefined && Math.abs(request.expected_total - total) > 0.0100000001) auroraReject_('price_changed','Prices or delivery charges changed. Refresh your bag and review the total before placing the order.');
   var now = new Date().toISOString();
-  return {
+  var receipt = {
     persistence:'google_sheets',id:orderId,order_number:'AC-' + today.replace(/-/g,'') + '-' + request.request_id.replace(/-/g,'').toUpperCase(),
     customer_name:request.customer_name,customer_phone:request.customer_phone,delivery_address:request.delivery_address,
     delivery_zone:{id:String(zone.id),name:String(zone.name || ''),delivery_fee:deliveryFee,estimated_time:String(zone.estimated_time || ''),is_active:true},
@@ -478,6 +498,18 @@ function auroraBuildOrder_(book,request,orders) {
     delivery_otp:'',customer_access_token:auroraNewCustomerCapability_(),cod_amount:total,cod_collected:false,created_at:now,updated_at:now,items:items,
     history:[{id:'history_' + request.request_id,status:'pending',notes:'Order received in Google Sheets',created_at:now,actor_name:'Customer'}]
   };
+  // Keep gift preferences in the private canonical receipt_json, without
+  // adding fragile columns to existing customer/order Sheets.
+  if(request.is_gift===true){
+    receipt.is_gift=true;
+    receipt.recipient_name=request.recipient_name;
+    receipt.recipient_phone=request.recipient_phone;
+    receipt.sender_name=request.sender_name;
+    receipt.sender_phone=request.sender_phone;
+    receipt.hide_price_on_box=request.hide_price_on_box;
+    receipt.gift_card_message=request.gift_card_message;
+  }
+  return receipt;
 }
 function auroraPrivateTable_(book,name) {
   var required = PRIVATE_ORDER_SCHEMAS[name];

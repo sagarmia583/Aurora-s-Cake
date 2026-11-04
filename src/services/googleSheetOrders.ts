@@ -20,6 +20,13 @@ export interface SheetOrderDraft {
   cart_items: SheetOrderCartLine[];
   coupon_code?: string;
   order_note?: string;
+  is_gift?: boolean;
+  recipient_name?: string;
+  recipient_phone?: string;
+  sender_name?: string;
+  sender_phone?: string;
+  hide_price_on_box?: boolean;
+  gift_card_message?: string;
   payment_method: 'cod';
   /** Compare-only quote guard; the server computes every authoritative price. */
   expected_total?: number;
@@ -152,8 +159,25 @@ function cleanDraft(input: SheetOrderDraft): SheetOrderDraft {
     ...(input.coupon_code?.trim() ? { coupon_code: input.coupon_code.trim().toUpperCase() } : {}),
     ...(input.order_note?.trim() ? { order_note: input.order_note.trim() } : {}),
     payment_method: 'cod',
+    ...(input.is_gift === true ? {
+      is_gift: true, recipient_name: (input.recipient_name || '').trim(),
+      recipient_phone: (input.recipient_phone || '').trim(),
+      sender_name: (input.sender_name || '').trim(),
+      sender_phone: (input.sender_phone || '').trim(),
+      hide_price_on_box: input.hide_price_on_box !== false,
+      gift_card_message: (input.gift_card_message || '').trim(),
+    } : {}),
     ...(input.expected_total !== undefined ? { expected_total: input.expected_total } : {}),
   };
+  if (input.is_gift !== undefined && typeof input.is_gift !== 'boolean') throw new SheetOrderSubmissionError('Invalid gift order.', false);
+  if (draft.is_gift) {
+    const recipient = (draft.recipient_name || '').trim(), phone = (draft.recipient_phone || '').trim();
+    const sender = (draft.sender_phone || '').trim();
+    if (recipient.length < 2 || recipient.length > 100 || !/^01[3-9]\\d{8}$/.test(phone) ||
+        (sender && !/^01[3-9]\\d{8}$/.test(sender)) ||
+        (draft.sender_name || '').length > 100 || (draft.gift_card_message || '').length > 140)
+      throw new SheetOrderSubmissionError('Add a valid gift recipient name and phone number.', false);
+  }
   if (draft.expected_total !== undefined && !isAmount(draft.expected_total)) throw new SheetOrderSubmissionError('The estimated order total is unavailable. Review your bag and try again.', false);
   if (![draft.customer_name, draft.customer_phone, draft.delivery_address, draft.delivery_zone_id, draft.delivery_slot].every(hasText) || !/^\d{4}-\d{2}-\d{2}$/.test(draft.delivery_date) || !draft.cart_items.length) throw new SheetOrderSubmissionError('Complete the contact, delivery and cake details before placing an order.', false);
   if (draft.cart_items.some(item => !hasText(item.product_id) || !hasText(item.variant_id) || !Number.isInteger(item.quantity) || item.quantity < 1 || !item.addon_ids.every(hasText))) throw new SheetOrderSubmissionError('One of the selected cakes or quantities is unavailable. Review your bag and try again.', false);
@@ -183,6 +207,13 @@ function matchesOriginalReceipt(order: Order, attempt: SheetOrderAttempt): boole
     for (const key of ['customer_name', 'customer_phone', 'delivery_address', 'delivery_slot', 'delivery_date'] as const) {
       if (order[key] !== original[key]) return false;
     }
+    if (Boolean(order.is_gift) !== Boolean(original.is_gift)) return false;
+    if (original.is_gift && (
+      order.recipient_name !== original.recipient_name ||
+      order.recipient_phone !== original.recipient_phone ||
+      (order.gift_card_message || '') !== (original.gift_card_message || '') ||
+      Boolean(order.hide_price_on_box) !== Boolean(original.hide_price_on_box)
+    )) return false;
     if (order.delivery_zone.id !== original.delivery_zone_id ||
       (order.coupon_code || '') !== (original.coupon_code || '') ||
       (order.order_note || '') !== (original.order_note || '') ||
