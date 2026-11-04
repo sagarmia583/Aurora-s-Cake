@@ -15,7 +15,7 @@ const SESSION = "aurora_native_session_v2";
 export function endpoint() {
   const production = validateStaffOperationsUrl(
     process.env.EXPO_PUBLIC_OPERATIONS_URL ||
-      "https://aurora-s-cake.sagarmia583.workers.dev/api/operations",
+      "https://aurorascake.netlify.app/api/operations",
   );
   const dev =
     typeof __DEV__ !== "undefined" &&

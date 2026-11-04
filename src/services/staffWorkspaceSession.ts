@@ -16,7 +16,7 @@ const googleIdToken=/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 export const isStaffSessionCredential=(value:string):boolean=>
   value.length>0&&value.length<=10000&&(employeeSession.test(value)||googleIdToken.test(value));
 export function getBrowserWorkspaceStorage():WorkspaceStorage|null{
-  try{return typeof window!=='undefined'?(nativeStaffHost()?window.sessionStorage:(window.localStorage||window.sessionStorage)):null;}catch{return null;}
+  try{return typeof window!=='undefined'?(nativeStaffHost()?window.sessionStorage:(window.sessionStorage)):null;}catch{return null;}
 }
 function nativeStaffHost():{postMessage:(value:string)=>void}|undefined {
   return typeof window!=='undefined' ? (window as Window & {ReactNativeWebView?:{postMessage:(value:string)=>void}}).ReactNativeWebView : undefined;

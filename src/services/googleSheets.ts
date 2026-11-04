@@ -274,7 +274,8 @@ export function usesSameOriginBakeryApi(): boolean {
   // hostname is a reliable way to keep checkout behind its secure API relay.
   const cloudflareHost=typeof window!=='undefined' &&
     /(?:^|\.)(?:workers|pages)\.dev$/i.test(window.location.hostname);
-  return configured || cloudflareHost || import.meta.env?.DEV === true;
+  const netlifyHost=typeof window!=='undefined' && /\.netlify\.app$/i.test(window.location.hostname);
+  return configured || netlifyHost || cloudflareHost || import.meta.env?.DEV === true;
 }
 
 export function resolveSheetsPostEndpoint(endpoint: string): string {

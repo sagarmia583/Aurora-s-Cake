@@ -196,13 +196,8 @@ export function validateBangladeshiPhone(input: string | undefined | null): Phon
 
   return { isValid: true, phone: digits, digits };
 }
-export const STAFF_PRODUCTION_OPERATIONS_URL = 'https://aurora-s-cake.sagarmia583.workers.dev/api/operations';
-const STAFF_API_ORIGINS = new Set([
-  'https://aurora-s-cake.sagarmia583.workers.dev',
-  'https://aurora-s-cake.pages.dev',
-  // Retained for an existing owner-configured build; retired hosting is not re-enabled.
-  'https://aurora-s-cake.vercel.app',
-]);
+export const STAFF_PRODUCTION_OPERATIONS_URL = 'https://aurorascake.netlify.app/api/operations';
+const STAFF_API_ORIGINS = new Set(['https://aurorascake.netlify.app']);
 export function validateStaffOperationsUrl(raw:string):string {
   if(!raw)throw new Error('App API URL is not configured. Set EXPO_PUBLIC_OPERATIONS_URL before building.');
   let url:URL;

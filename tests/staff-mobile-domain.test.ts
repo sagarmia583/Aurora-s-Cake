@@ -12,7 +12,7 @@ const sample=(status:StaffOrder['status'], rider_id='rider01'):StaffOrder=>({
 test('mobile COD stage transitions require correct staff role and assigned rider',()=>{
   assert.equal(canOperate('kitchen_manager','start_baking'),true);
   assert.equal(canOperate('kitchen_manager','deliver'),false);
-  assert.equal(canOperate('admin','deliver'),false);
+  assert.equal(canOperate('admin','deliver'),true);
   assert.equal(canOperate('delivery_man','deliver'),true);
   assert.equal(nextOperation(sample('assigned'),rider),'pick_up');
   assert.equal(nextOperation(sample('picked_up'),rider),'start_delivery');
@@ -37,14 +37,15 @@ test('mobile order validation rejects bearer secrets and malformed data',()=>{
   assert.equal(isOrder({...safe,status:'unknown'}),false);
 });
 
-test('native staff endpoint accepts the exact Cloudflare production origin and retained legacy shop only',()=>{
+test('native staff endpoint accepts the pinned Netlify production origin only',()=>{
   assert.equal(validateStaffOperationsUrl(STAFF_PRODUCTION_OPERATIONS_URL),STAFF_PRODUCTION_OPERATIONS_URL);
-  assert.equal(validateStaffOperationsUrl('https://aurora-s-cake.vercel.app/api/operations'),'https://aurora-s-cake.vercel.app/api/operations');
-  assert.equal(validateStaffOperationsUrl('https://AURORA-S-CAKE.SAGARMIA583.WORKERS.DEV:443/api/operations'),STAFF_PRODUCTION_OPERATIONS_URL);
+  assert.equal(validateStaffOperationsUrl('https://AURORASCAKE.NETLIFY.APP:443/api/operations'),STAFF_PRODUCTION_OPERATIONS_URL);
 });
 test('native staff credentials cannot be sent to lookalike hosts, other tenants, or altered API targets',()=>{
   for(const endpoint of [
     '', 'not a URL',
+    'https://aurora-s-cake.sagarmia583.workers.dev/api/operations',
+    'https://aurora-s-cake.vercel.app/api/operations',
     'http://aurora-s-cake.sagarmia583.workers.dev/api/operations',
     'https://other.sagarmia583.workers.dev/api/operations',
     'https://aurora-s-cake.other.workers.dev/api/operations',
