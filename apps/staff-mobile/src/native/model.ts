@@ -406,3 +406,13 @@ export function mergeOrders(previous: StaffOrder[], incoming: StaffOrder[]) {
   return next.length === previous.length && next.every((order, index) => order === previous[index])
     ? previous : next;
 }
+
+/** A corrupt Sheet row must not erase last-known orders, but valid incoming
+ * orders may still be safely added or advanced. Only a COMPLETE snapshot may
+ * remove an old record.
+ */
+export function mergeOrderSnapshot(previous:StaffOrder[],incoming:StaffOrder[],complete:boolean):StaffOrder[]{
+  if(complete)return mergeOrders(previous,incoming);
+  const received=new Set(incoming.map(order=>order.id));
+  return mergeOrders(previous,[...incoming,...previous.filter(order=>!received.has(order.id))]);
+}

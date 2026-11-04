@@ -1,3 +1,4 @@
+import {mergeOrderSnapshot} from '../apps/staff-mobile/src/native/model';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {canOperate,isOrder,validateStaffOperationsUrl,STAFF_PRODUCTION_OPERATIONS_URL,nextOperation,visibleOrders,type StaffOrder,type StaffSession} from '../apps/staff-mobile/src/domain';
@@ -61,4 +62,16 @@ test('native staff credentials cannot be sent to lookalike hosts, other tenants,
     STAFF_PRODUCTION_OPERATIONS_URL+'/',
     'https://aurora-s-cake.sagarmia583.workers.dev/api/public',
   ]) assert.throws(()=>validateStaffOperationsUrl(endpoint),Error,endpoint);
+});
+
+
+test('partial Google Sheets snapshot preserves older active orders and adds new valid orders',()=>{
+  const previous=[sample('preparing'),sample('pending','rider02')];
+  const latest=[{...sample('ready'),updated_at:'2026-10-25T11:00:00Z'}];
+  const partial=mergeOrderSnapshot(previous,latest,false);
+  assert.equal(partial.length,2);
+  assert.equal(partial.find(o=>o.id==='ord_123456789')?.status,'ready');
+  assert.equal(partial.some(o=>o.rider_id==='rider02'),true);
+  const complete=mergeOrderSnapshot(previous,latest,true);
+  assert.equal(complete.length,1);
 });
