@@ -53,6 +53,22 @@ export function reconcileStaffOrders(previous:readonly StaffOrder[],incoming:rea
   });
   return sameSnapshot(previous,next)?previous as StaffOrder[]:next;
 }
+/** Preserve older order IDs on partial snapshots but accept new, valid
+ * orders and newer stage updates. Only an authoritative complete list can
+ * remove missing orders. Session-owner cache isolation is unchanged.
+ */
+export function reconcileStaffOrderSnapshot(
+  previous:readonly StaffOrder[],incoming:readonly StaffOrder[],complete:boolean
+):StaffOrder[]{
+  if(complete)return reconcileStaffOrders(previous,incoming);
+  if(!validateStaffOrderList(incoming))
+    throw new Error('Invalid or incomplete staff order snapshot.');
+  const ids=new Set(incoming.map(order=>order.id));
+  return reconcileStaffOrders(previous,[
+    ...incoming,...previous.filter(order=>!ids.has(order.id))
+  ]);
+}
+
 /** A same-tab continuity cache: read ONLY after backend validates the session.
  * It never becomes authorization, and it expires after 30 minutes.
  */

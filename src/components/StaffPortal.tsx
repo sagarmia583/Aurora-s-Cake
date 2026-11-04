@@ -1,11 +1,11 @@
 import { shopErrorMessage } from '../utils/shopErrorMessage';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, RefreshCw, ShieldCheck, Truck, PackageCheck, LayoutDashboard, ShoppingBag, UsersRound, CakeSlice, Store, Search, ChevronDown, ChevronUp, LogOut, Clock3, BadgeCheck, ArrowRight, AlertCircle, CreditCard, MapPin, Calculator, Printer, Phone, User, FileText, CheckCircle, Eye } from 'lucide-react';
-import { checkStaffSession, getStaffOrders, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, signOutStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword, lookupStaffCustomer, backfillFirebaseOrders, verifyFirebaseMirrorFromStaff } from '../services/sheetStaffApi';
+import { checkStaffSession, getStaffOrderSnapshot, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, signOutStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword, lookupStaffCustomer, backfillFirebaseOrders, verifyFirebaseMirrorFromStaff } from '../services/sheetStaffApi';
 import type { StaffCustomerMatch, StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
 import { getBrowserWorkspaceStorage, loadStaffCredential, saveStaffCredential, clearStaffCredential, loadStaffTab, saveStaffTab } from '../services/staffWorkspaceSession';
-import { reconcileStaffOrders, loadStaffOrdersSnapshot, saveStaffOrdersSnapshot, clearStaffOrdersSnapshot } from '../services/staffOrderSnapshot';
+import { reconcileStaffOrders, reconcileStaffOrderSnapshot, loadStaffOrdersSnapshot, saveStaffOrdersSnapshot, clearStaffOrdersSnapshot } from '../services/staffOrderSnapshot';
 import { activeStaffOrderAlertIds, detectNewStaffOrderAlerts } from '../services/staffOrderAlerts';
 import { 
   isOrderBeepEnabled, 
@@ -158,6 +158,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [staffProfiles, setStaffProfiles] = useState<StaffProfile[]>([]);
   const [refreshingStaff, setRefreshingStaff] = useState(false);
   const [error, setError] = useState('');
+  const [snapshotWarning,setSnapshotWarning]=useState('');
   const [loading, setLoading] = useState(false);
   const [busyOrderId, setBusyOrderId] = useState('');
   const [riderEmail, setRiderEmail] = useState('');
@@ -379,7 +380,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       if(liveIdentityToken.current!==token)return;
       liveIdentityToken.current=undefined;
       clearStaffCredential(getBrowserWorkspaceStorage());clearStaffOrdersSnapshot(getBrowserWorkspaceStorage());
-      setIdentity(null);setOrders([]);setStaffProfiles([]);setActiveTab('overview');setError('');
+      setIdentity(null);setOrders([]);setStaffProfiles([]);setActiveTab('overview');setError('');setSnapshotWarning('');
     }catch{
       if(liveIdentityToken.current===token)setError('Sign out could not be confirmed. Retry before leaving this device.');
     }finally{setSigningOut(false);}
@@ -450,19 +451,21 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     ordersRefreshInFlight.current=identity.token;
     setLoadingOrders(true);
     try {
-      const fresh = await getStaffOrders(endpoint, identity.token);
+      const snapshot=await getStaffOrderSnapshot(endpoint,identity.token);
+      const fresh=snapshot.orders;
       // A response from an old identity/request must never overwrite the
       // currently signed-in employee's orders.
       if(liveIdentityToken.current!==identity.token||!liveIsOpen.current)return;
-      const prior=lastServerOrdersRef.current;
       const currentIdentity=identity.role+':'+identity.email;
+      const prior=alertedIdentityRef.current===currentIdentity?lastServerOrdersRef.current:null;
       if(alertedIdentityRef.current!==currentIdentity){
         alertedIdentityRef.current=currentIdentity;
         lastServerOrdersRef.current=null;
         setUnreadOrderAlerts([]);
       }
+      const verified=prior?reconcileStaffOrderSnapshot(prior,fresh,snapshot.complete):fresh;
       if(prior){
-        const added=detectNewStaffOrderAlerts(prior,fresh,identity.role,identity.email);
+        const added=detectNewStaffOrderAlerts(prior,verified,identity.role,identity.email);
         if(added.length){
           setUnreadOrderAlerts(current=>[...new Set([...current,...added])]);
           if(beepEnabled) playOrderBeep();
@@ -480,12 +483,14 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
             }catch{/* Not all browsers support system notifications. */}
           }
         }
-        setUnreadOrderAlerts(current=>activeStaffOrderAlertIds(fresh,current,identity.role,identity.email));
+        setUnreadOrderAlerts(current=>activeStaffOrderAlertIds(verified,current,identity.role,identity.email));
       }
-      lastServerOrdersRef.current=fresh;
-      setOrders(previous=>reconcileStaffOrders(previous,fresh));
+      lastServerOrdersRef.current=verified;
+      setOrders(previous=>reconcileStaffOrderSnapshot(previous,fresh,snapshot.complete));
       setUpdatedAt(new Date().toLocaleTimeString());
-      setViewingSavedOrders(false);
+      if(snapshot.complete||fresh.length>0)setViewingSavedOrders(false);
+      setSnapshotWarning(snapshot.complete?'':snapshot.invalidReceipts+
+        ' unreadable Google Sheets receipt row(s). Valid new orders are shown; older orders have been preserved. Repair the affected Sheet rows before accepting financial totals as final.');
     } catch (caught) {
       if(liveIdentityToken.current===identity.token&&liveIsOpen.current)
         setError((shopErrorMessage(caught, 'Unable to load orders.'))+' Your previous order list has been kept.');
@@ -618,6 +623,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
             <button aria-label="Dismiss error" type="button" onClick={()=>setError('')} className="p-1 rounded-lg hover:bg-rose-100"><X size={16}/></button>
           </div>}
           {backendWarning&&<p role="alert" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-sm font-medium text-amber-950">{backendWarning}</p>}
+          {identity&&snapshotWarning&&<p role="status" className="mx-4 sm:mx-6 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-950">{snapshotWarning}</p>}
           {!oauthClientId ? (
             <div role="alert" className="m-6 rounded-2xl bg-amber-50 p-6 text-amber-900">Google sign-in is temporarily unavailable.</div>
           ) : restoringSession && !identity ? (
