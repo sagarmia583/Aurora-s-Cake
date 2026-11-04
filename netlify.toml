@@ -1,3 +1,14 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[build.environment]
+  # The storefront and staff portal use Netlify Functions as their one backend relay.
+  VITE_SHEETS_POST_PROXY = "/api/operations"
+  VITE_FIREBASE_ENABLED = "false"
+  VITE_SUPABASE_ENABLED = "false"
+
 # Netlify Free deployment: security headers for customer and staff pages.
 # Build settings remain managed by the connected Netlify site.
 [[redirects]]

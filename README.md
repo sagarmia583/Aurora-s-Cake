@@ -2,13 +2,25 @@
 
 A responsive forest-green, pistachio and apricot bakery storefront using locally hosted Roboto, built with React, TypeScript, Vite and Tailwind CSS.
 
-## Current production deployment
+## Current production deployment — Netlify + Google Sheets only
 
-Production runs on [Cloudflare Workers](https://aurora-s-cake.sagarmia583.workers.dev), with Google Apps Script and Google Sheets behind the same-origin bakery APIs. Vercel and Netlify are retired targets. Use [Cloudflare Worker setup](docs/CLOUDFLARE_WORKER_SETUP.md) for runtime bindings and deployment checks.
+The owner-selected deployment is **Netlify**. The only operational datastore is
+**Google Sheets**, accessed through **Google Apps Script**. The browser and staff
+web portal use Netlify same-origin functions `/api/public` (GET) and
+`/api/operations` (POST); Apps Script remains the authoritative validator and
+writer. Do **not** enable Cloudflare Workers, D1/R2, Supabase or Firebase as
+production backends. Old source and migrations are retained solely as historical
+references; they are not part of this Netlify deployment.
 
-D1/R2 is an isolated migration foundation: the existing D1 database is bound, but D1 preview/mutations and Firebase migration flags remain disabled. Historical data, R2 media and customer checkout have not been migrated merely by adding this binding. See [D1/R2 migration status and prerequisites](docs/CLOUDFLARE_D1_R2_MIGRATION.md).
+Set `AURORA_SCRIPT_POST_URL` in the Netlify dashboard to the approved existing
+Apps Script `/exec` endpoint (server-side variable; never a client secret).
+The Netlify build config sets `VITE_SHEETS_POST_PROXY=/api/operations` and
+turns alternate datastore flags off. Keep the public `VITE_GOOGLE_SHEETS_URL`
+pointing at the same Apps Script deployment. See
+[Netlify + Sheets production checklist](docs/NETLIFY_SHEETS_ONLY_2026-11-04.md).
 
-GitHub CI, Worker publication and Apps Script publication are separate. Check the active Worker revision, backend health and public catalogue after each deployment; a passing build alone does not verify production.
+A GitHub commit or Netlify deploy does not publish Apps Script. Deploy the updated
+Apps Script bundle separately after a private backup and staging acceptance tests.
 
 ## Run locally
 
