@@ -30,6 +30,8 @@ jobs:
         run: node --test tests/netlify-release-smoke.test.mjs
       - name: Confirm Apps Script single-file bundle matches modules
         run: node scripts/build-apps-script.mjs --check
+      - name: Test staging Apps Script isolation and COD acceptance harness
+        run: node --test tests/staging-cod-acceptance.test.mjs
       - name: TypeScript
         run: npm run lint
       - name: Build with Netlify environment
