@@ -5,7 +5,7 @@
 - The configured production spreadsheet exists and is an original native Google Sheets workbook.
 - An independent owner-private pre-deploy backup was created and its file metadata verified.
 - A separate owner-private staging copy was created from that backup; it is NOT the authoritative live database.
-- Each workbook contains 38 tabs. Header-only comparisons confirm the same critical structure for orders, staff_accounts, auth_sessions, inventory_items, refund_returns and rider_cash_deposits.
+- Each workbook contains 37 tabs. Header-only comparisons confirm the same critical structure for orders, staff_accounts, auth_sessions, inventory_items, refund_returns and rider_cash_deposits.
 - Backup and staging file identifiers and links must remain in the owner's private Google Drive. **Do not commit them to the public GitHub repository.**
 - Copies preserve production content, including real customer and account information; they are not anonymized test fixtures.
 
@@ -30,7 +30,7 @@ Drive metadata for the **original production workbook** reports an `anyone / rea
 - [ ] Original spreadsheet's anyone-reader sharing permission removed and verified.
 - [x] Private backup metadata and native tab structure confirmed.
 - [x] Separate private staging copy metadata and key headers confirmed.
-- [ ] Staging data sanitized or isolated; no production customer credentials used.
+- [x] A new owner-private sanitized staging copy was created; 22 sensitive tabs have their data rows cleared, with the original backup untouched.
 - [ ] Distinct staging Apps Script deployment verified to target staging only.
 - [ ] Separate Netlify preview configured with staging `/exec`; read-only health and catalog pass.
 - [ ] Staging COD, gift, order idempotency and staff permissions pass.
@@ -39,3 +39,6 @@ Drive metadata for the **original production workbook** reports an `anyone / rea
 - [ ] Review PR #37 with green CI; only then approve a controlled production release.
 
 **Scope of this checklist:** preparation and read-only structural verification only. No production orders, settings, permissions, Apps Script deployment, Netlify deployment or sensitive source data were modified.
+
+## Isolated acceptance preparation
+The dedicated sanitized staging Sheet is separate from the older private snapshot containing production account data. A fail-closed Apps Script build generator and a staging-only HTTP COD runner have been added. Deployment still requires a NEW Apps Script project, owner OAuth authorization and a new /exec URL; until that happens, no real COD acceptance is claimed. See docs/ISOLATED_STAGING_COD_DEPLOYMENT_2026-11-04.md.
