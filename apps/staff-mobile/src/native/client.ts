@@ -202,13 +202,14 @@ export async function signOut(token: string) {
 }
 export async function getOrders(token: string) {
   const d = await request("staff_orders", {}, token);
-  if (
-    !Array.isArray(d.orders) ||
-    d.snapshot_complete !== true ||
-    !d.orders.every(isOrder)
-  )
-    throw new Error("Live order list অসম্পূর্ণ। আগের তথ্য দেখানো হচ্ছে।");
-  return d.orders as StaffOrder[];
+  if (!Array.isArray(d.orders) || typeof d.snapshot_complete!=='boolean' ||
+      !d.orders.every(isOrder))
+    throw new Error("Live order list অবৈধ। আগের তথ্য দেখানো হচ্ছে।");
+  // A partly corrupt Sheet may still contain important NEW valid orders.
+  // The UI merges them into the last verified snapshot without deleting old rows.
+  const result=d.orders as (StaffOrder[] & {snapshotComplete:boolean});
+  result.snapshotComplete=d.snapshot_complete===true;
+  return result;
 }
 export async function changeOrder(
   token: string,

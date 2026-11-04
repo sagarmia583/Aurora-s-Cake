@@ -181,12 +181,12 @@ function auroraFastOrderList_(table){
   return table.sheet.getRange(2,index,last-1,1).getValues().map(function(values){return {receipt_json:values[0]};});
 }
 function auroraOperationsOrders_(actor, table) {
-  var list = [], complete = true;
+  var list = [], complete = true, invalidReceipts = 0;
   table.rows.forEach(function(row) {
     var order;
     try { order = JSON.parse(String(row.receipt_json || '')); }
-    catch (_) { complete = false; return; }
-    if (!order || !order.id) { complete = false; return; }
+    catch (_) { complete = false; invalidReceipts++; return; }
+    if (!order || !order.id) { complete = false; invalidReceipts++; return; }
     if (actor.role === 'delivery_man' && String(order.rider_id || '').toLowerCase() !== actor.email) return;
     if (actor.role === 'kitchen_manager' && ['pending','cancelled','delivered'].indexOf(order.status) !== -1) return;
     // Staff never receives the delivery OTP or the customer's bearer capability.
@@ -214,7 +214,7 @@ function auroraOperationsOrders_(actor, table) {
   return {orders:list.filter(function(order) {
     if (order.status !== 'delivered' && order.status !== 'cancelled') return true;
     return recentHistory++ < 100;
-  }),complete:complete};
+  }),complete:complete,invalid_receipts:invalidReceipts};
 }
 function auroraOperationsPost_(input) {
   var actor = auroraStaffAuthenticate_(input);
@@ -284,7 +284,7 @@ function auroraOperationsPost_(input) {
   var book = auroraSpreadsheet_(), table = auroraFastOrderTable_(book);
   if (input.action === 'staff_orders') {
     var snapshot=auroraOperationsOrders_(actor,{rows:auroraFastOrderList_(table)});
-    return {ok:true,snapshot_complete:snapshot.complete,snapshot_at:new Date().toISOString(),
+    return {ok:true,snapshot_complete:snapshot.complete,invalid_receipts:snapshot.invalid_receipts,snapshot_at:new Date().toISOString(),
       orders:snapshot.orders,role:actor.role};
   }
   if (input.action !== 'staff_mutate') auroraReject_('invalid_action','Unknown staff action.');

@@ -42,6 +42,8 @@ if(Platform.OS!=='web'){
     try{
       const auth=await readBackgroundSession();if(!auth)return BackgroundTask.BackgroundTaskResult.Success;
       const [orders]=await Promise.all([getOrders(auth.token),getCatalog()]);
+      // Do not treat a partial Sheet read as proof that older jobs disappeared.
+      if(!orders.snapshotComplete)return BackgroundTask.BackgroundTaskResult.Success;
       // A missing baseline never announces historical orders as new work.
       const before=await readRecord<Seen>(SecureStore,KEY);
       const current=JSON.parse(await SecureStore.getItemAsync('aurora_native_session_v2')||'null');

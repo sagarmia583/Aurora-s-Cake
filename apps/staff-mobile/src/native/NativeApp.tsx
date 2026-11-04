@@ -179,7 +179,13 @@ export default function NativeApp() {
       ) {
         try {
           const previous = ordersRef.current;
-          const next = mergeOrders(previous, results[0].value);
+          const incoming = results[0].value;
+          const present = new Set(incoming.map(order => order.id));
+          const preserved = incoming.snapshotComplete ? incoming :
+            [...incoming, ...previous.filter(order => !present.has(order.id))];
+          const next = mergeOrders(previous, preserved);
+          if (!incoming.snapshotComplete)
+            errors.push("একটি পুরোনো Sheet row ক্ষতিগ্রস্ত। নতুন বৈধ অর্ডার দেখানো হচ্ছে, আগের অর্ডার মুছিনি।");
           if(stageOwner.current===owner.token&&next!==previous)
             announceStages(orderStageUpdates(orderStages(previous),next));
           stageOwner.current=owner.token;
