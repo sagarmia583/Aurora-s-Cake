@@ -63,7 +63,7 @@ export function prepareStaging({sheetId,outDir=outputDir}){
   fs.writeFileSync(path.join(outDir,'Code.gs'),code);
   fs.writeFileSync(path.join(outDir,'appsscript.json'),JSON.stringify({
     timeZone:'Asia/Dhaka',exceptionLogging:'STACKDRIVER',runtimeVersion:'V8',
-    webapp:{access:'ANYONE',executeAs:'USER_DEPLOYING'}
+    webapp:{access:'ANYONE_ANONYMOUS',executeAs:'USER_DEPLOYING'}
   },null,2)+'\n');
   fs.writeFileSync(path.join(outDir,'.claspignore'),
     '.clasp.json\n.clasprc.json\nnode_modules/**\n');
