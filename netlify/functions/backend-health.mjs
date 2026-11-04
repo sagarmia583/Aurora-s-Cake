@@ -18,6 +18,7 @@ export default async function health(request,{scriptUrl=process.env.AURORA_SCRIP
    const state=await res.json();
    if(state?.ok!==true||state.service!=='aurora_public_content')return json(502,{ok:false,code:'backend_invalid_response'});
    const version=typeof state.release==='string'?state.release:'unknown';
+   if(state.database_backend!=='google_sheets')return json(503,{ok:false,code:'unexpected_database_backend'});
    return json(200,{ok:true,provider:'google_sheets',expected_release:EXPECTED_RELEASE,
      installed_release:version,up_to_date:version===EXPECTED_RELEASE,
      database_backend:state.database_backend==='google_sheets'?'google_sheets':'unexpected',
