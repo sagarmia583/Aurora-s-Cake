@@ -154,7 +154,7 @@ test('private COD submission recomputes Sheet sale price, add-ons per quantity, 
   const h=harness();
   const input=request({subtotal:1,total_amount:1,payment_status:'paid',cart_items:[{...(request().cart_items[0]),unit_price:1,total_price:1}]});
   const response=h.post(input);
-  assert.equal(response.success,true);assert.equal(response.persisted,true);
+  assert.equal(response.success,true,JSON.stringify(response));assert.equal(response.persisted,true);
   const order=response.order;
   assert.equal(order.persistence,'google_sheets');assert.equal(order.subtotal,1700);assert.equal(order.discount_amount,120);assert.equal(order.total_amount,1680);
   assert.equal(order.items[0].unit_price,800);assert.equal(order.items[0].addons[0].subtotal,100);assert.equal(order.items[0].quantity,2);

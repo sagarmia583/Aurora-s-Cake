@@ -42,7 +42,7 @@ const item: CartItem = {
 };
 const zone = { id: 'zone-1', name: 'Test zone', delivery_fee: 60, estimated_time: 'Today', is_active: true };
 const receipt = (): Order => ({
-  id: 'order-1', order_number: 'AC-1', customer_name: 'Test buyer', customer_phone: '0000000000', delivery_address: 'Test address',
+  id: 'order-1', order_number: 'AC-1', customer_name: 'Test buyer', customer_phone: '01700000000', delivery_address: 'Test address',
   delivery_zone: zone, delivery_slot: 'Morning', delivery_date: '2099-12-01', status: 'pending', subtotal: 400, delivery_fee: 60,
   discount_amount: 0, total_amount: 460, payment_method: 'cod', payment_status: 'pending', delivery_otp: '',
   cod_amount: 460, cod_collected: false, created_at: '2099-12-01T00:00:00.000Z', updated_at: '2099-12-01T00:00:00.000Z',
@@ -65,7 +65,7 @@ async function update(renderer: ReactTestRenderer, props: Props) {
   await act(async () => renderer.update(React.createElement(CheckoutModal, props)));
 }
 async function fill(renderer: ReactTestRenderer) {
-  for (const [label, value] of [['Full name', 'Test buyer'], ['Mobile number', '0000000000'], ['Street address', 'Test address'], ['Delivery date', '2099-12-01']]) {
+  for (const [label, value] of [['Full name', 'Test buyer'], ['Mobile number', '01700000000'], ['Street address', 'Test address'], ['Delivery date', '2099-12-01']]) {
     await act(async () => renderer.root.findByProps({ 'aria-label': label }).props.onChange({ target: { value } }));
   }
 }

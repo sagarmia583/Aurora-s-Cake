@@ -12,7 +12,7 @@ const sample=(status:StaffOrder['status'], rider_id='rider01'):StaffOrder=>({
 test('mobile COD stage transitions require correct staff role and assigned rider',()=>{
   assert.equal(canOperate('kitchen_manager','start_baking'),true);
   assert.equal(canOperate('kitchen_manager','deliver'),false);
-  assert.equal(canOperate('admin','deliver'),false);
+  assert.equal(canOperate('admin','deliver'),true); // verified admin can act as self-delivery override
   assert.equal(canOperate('delivery_man','deliver'),true);
   assert.equal(nextOperation(sample('assigned'),rider),'pick_up');
   assert.equal(nextOperation(sample('picked_up'),rider),'start_delivery');
