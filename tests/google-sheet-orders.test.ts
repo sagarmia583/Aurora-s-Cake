@@ -36,6 +36,7 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean;supabase?:
     coupons:[['id','code','discount_type','discount_value','min_order_amount','max_discount_amount','is_active'],['c1','SAVE10','percentage',10,100,120,true]],
   };
   if(!options.withoutPrivate){tables.orders=[ORDER_HEADERS];tables.order_items=[ITEM_HEADERS];tables.custom_cake_requests=[CUSTOM_HEADERS];tables.staff_accounts=[STAFF_HEADERS];tables.customer_accounts=[CUSTOMER_HEADERS];tables.auth_sessions=[SESSION_HEADERS];tables.customer_master=[MASTER_HEADERS];tables.customer_contact_requests=[CONTACT_HEADERS];}
+  const debugErrors:string[]=[];
   const reads:string[]=[];const writes:string[]=[];const rangeReads:{name:string,row:number,col:number,height:number,width:number}[]=[];
   const throttles=new Map<string,string>();
   let failNextItemWrite=false;let failAfterOrderWrite=false;let acquired=0;
@@ -65,7 +66,7 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean;supabase?:
   });
   const book={getSheetByName:(name:string)=>{reads.push(name);return name in tables?sheet(name):null;},insertSheet:(name:string)=>{tables[name]=[];return sheet(name);}};
   const context:Record<string,any>={
-    console:{log:()=>{},error:()=>{}},Date,JSON,Object,Array,String,Math,
+    console:{log:()=>{},error:(...parts:unknown[])=>debugErrors.push(parts.map(String).join(' ')),warn:()=>{}},Date,JSON,Object,Array,String,Math,
     Session:{getActiveUser:()=>({getEmail:()=> 'owner@example.com'}),getEffectiveUser:()=>({getEmail:()=> 'owner@example.com'})},
     SpreadsheetApp:{openById:()=>book,getActiveSpreadsheet:()=>book},
     PropertiesService:{getScriptProperties:()=>({getProperty:(key:string)=>key==='AURORA_GOOGLE_CLIENT_ID'?'test-client.apps.googleusercontent.com':key==='AURORA_STAFF_USERS'?STAFF_CONFIG:options.supabase&&key==='AURORA_DATABASE_BACKEND'?'supabase':options.supabase&&key==='AURORA_SUPABASE_SERVICE_KEY'?'sb_secret_'+ 'private-test-fixture'.repeat(3):null})},
@@ -108,7 +109,7 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean;supabase?:
   const get=(action:string)=>JSON.parse(context.doGet({parameter:{action}}).content);
   const records=(name:string)=>tables[name].slice(1).map(row=>Object.fromEntries(tables[name][0].map((key,index)=>[String(key),row[index]])));
   const change=(name:string,key:string,value:unknown)=>{const col=tables[name][0].indexOf(key);tables[name][1][col]=value;};
-  return {tables,reads,writes,rangeReads,context,post,get,records,change,failItems:()=>{failNextItemWrite=true;},failOrderAck:()=>{failAfterOrderWrite=true;},conflictCommit:()=>{conflictCommit=true;},loseCommitAck:()=>{lostCommitAck=true;},lockCount:()=>acquired};
+  return {tables,reads,writes,rangeReads,debugErrors,context,post,get,records,change,failItems:()=>{failNextItemWrite=true;},failOrderAck:()=>{failAfterOrderWrite=true;},conflictCommit:()=>{conflictCommit=true;},loseCommitAck:()=>{lostCommitAck=true;},lockCount:()=>acquired};
 }
 
 test('active private Supabase adapter commits checkout once, survives lost acknowledgement and preserves receipt compatibility',()=>{
@@ -154,7 +155,7 @@ test('private COD submission recomputes Sheet sale price, add-ons per quantity, 
   const h=harness();
   const input=request({subtotal:1,total_amount:1,payment_status:'paid',cart_items:[{...(request().cart_items[0]),unit_price:1,total_price:1}]});
   const response=h.post(input);
-  assert.equal(response.success,true,JSON.stringify(response));assert.equal(response.persisted,true);
+  assert.equal(response.success,true,JSON.stringify({response,errors:h.debugErrors}));assert.equal(response.persisted,true);
   const order=response.order;
   assert.equal(order.persistence,'google_sheets');assert.equal(order.subtotal,1700);assert.equal(order.discount_amount,120);assert.equal(order.total_amount,1680);
   assert.equal(order.items[0].unit_price,800);assert.equal(order.items[0].addons[0].subtotal,100);assert.equal(order.items[0].quantity,2);
