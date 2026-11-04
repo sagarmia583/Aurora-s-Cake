@@ -17,11 +17,11 @@ export default defineConfig(({mode}) => {
       encoding:'utf8',stdio:['ignore','pipe','ignore']
     }).trim();}catch{buildId='local';}
   }
-  // Cloudflare Pages must route *all* order/staff POSTs through its same-origin
-  // API so the server can mirror backend-verified commits to Firestore.
-  // Without this default a missing build variable would silently send orders
-  // straight to Apps Script and bypass the Firebase mirror.
-  if (process.env.CF_PAGES === '1') {
+  // Netlify is the production host. Enforce its same-origin /api/operations
+  // relay for all private Google Sheets writes, including custom domains.
+  // Keep the old CF_PAGES branch only for legacy build tests; no other
+  // database or production host is enabled by this configuration.
+  if (process.env.NETLIFY === 'true' || process.env.CF_PAGES === '1') {
     process.env.VITE_SHEETS_POST_PROXY = '/api/operations';
   }
   return {
