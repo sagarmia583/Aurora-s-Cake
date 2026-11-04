@@ -11,6 +11,12 @@
 
 # Netlify Free deployment: security headers for customer and staff pages.
 # Build settings remain managed by the connected Netlify site.
+# Cake share links must load the React storefront on hard refresh.
+[[redirects]]
+  from = "/cake/*"
+  to = "/index.html"
+  status = 200
+
 [[redirects]]
   from = "/track-order"
   to = "/index.html"
