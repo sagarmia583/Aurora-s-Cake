@@ -66,7 +66,7 @@ test('native staff credentials cannot be sent to lookalike hosts, other tenants,
 
 
 test('partial Google Sheets snapshot preserves older active orders and adds new valid orders',()=>{
-  const previous=[sample('preparing'),sample('pending','rider02')];
+  const previous=[sample('preparing'),{...sample('pending','rider02'),id:'ord_987654321',order_number:'AC-302'}];
   const latest=[{...sample('ready'),updated_at:'2026-10-25T11:00:00Z'}];
   const partial=mergeOrderSnapshot(previous,latest,false);
   assert.equal(partial.length,2);
