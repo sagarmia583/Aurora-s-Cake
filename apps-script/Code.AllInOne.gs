@@ -344,10 +344,10 @@ function auroraOrderRequest_(input) {
   if(input.is_gift===true){
     var recipient=auroraOrderText_(input.recipient_name,'Gift recipient name',2,100);
     var recipientPhone=auroraOrderText_(input.recipient_phone,'Gift recipient phone',11,30);
-    if(!/^01[3-9]\\d{8}$/.test(recipientPhone))
+    if(!/^01[3-9]\d{8}$/.test(recipientPhone))
       auroraReject_('invalid_phone','Enter a valid recipient mobile number.');
     var senderPhone=auroraOptionalText_(input.sender_phone,'Gift sender phone',30);
-    if(senderPhone && !/^01[3-9]\\d{8}$/.test(senderPhone))
+    if(senderPhone && !/^01[3-9]\d{8}$/.test(senderPhone))
       auroraReject_('invalid_phone','Enter a valid gift sender mobile number.');
     if(input.hide_price_on_box!==undefined && typeof input.hide_price_on_box!=='boolean')
       auroraReject_('invalid_request','Invalid gift receipt option.');

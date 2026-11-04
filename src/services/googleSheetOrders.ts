@@ -173,8 +173,8 @@ function cleanDraft(input: SheetOrderDraft): SheetOrderDraft {
   if (draft.is_gift) {
     const recipient = (draft.recipient_name || '').trim(), phone = (draft.recipient_phone || '').trim();
     const sender = (draft.sender_phone || '').trim();
-    if (recipient.length < 2 || recipient.length > 100 || !/^01[3-9]\\d{8}$/.test(phone) ||
-        (sender && !/^01[3-9]\\d{8}$/.test(sender)) ||
+    if (recipient.length < 2 || recipient.length > 100 || !/^01[3-9]\d{8}$/.test(phone) ||
+        (sender && !/^01[3-9]\d{8}$/.test(sender)) ||
         (draft.sender_name || '').length > 100 || (draft.gift_card_message || '').length > 140)
       throw new SheetOrderSubmissionError('Add a valid gift recipient name and phone number.', false);
   }
