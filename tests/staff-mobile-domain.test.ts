@@ -19,7 +19,7 @@ test('mobile COD stage transitions require correct staff role and assigned rider
   assert.equal(nextOperation(sample('out_for_delivery'),rider),'deliver');
   assert.equal(nextOperation(sample('out_for_delivery'),otherRider),null);
   assert.equal(nextOperation(sample('delivered'),rider),null);
-  assert.equal(nextOperation(sample('ready'),owner),'assign');
+  assert.equal(nextOperation(sample('ready'),owner),'start_delivery'); // admin can self-deliver
 });
 test('mobile list isolates rider assignments and displays their actionable steps',()=>{
   const orders=[sample('assigned'),sample('out_for_delivery','rider02'),sample('picked_up')];
