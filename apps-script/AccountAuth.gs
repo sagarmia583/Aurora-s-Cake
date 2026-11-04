@@ -52,7 +52,7 @@ function auroraAccountStart_(kind,id) {
   var t=auroraPrivateTable_(auroraSpreadsheet_(),'auth_sessions'),now=Date.now();
   var value=auroraAccountToken_(),row={
     token_hash:auroraAccountDigest_(value),account_type:kind,account_id:id,
-    created_at:new Date(now).toISOString(),expires_at:new Date(now+100*365*24*3600000).toISOString(),revoked:false
+    created_at:new Date(now).toISOString(),expires_at:new Date(now+(kind==='staff'?7:30)*24*3600000).toISOString(),revoked:false
   };
   auroraAppendPrivate_(t,row);
   return value;
@@ -63,6 +63,13 @@ function auroraAccountAuthenticate_(kind,value){
   var session=t.rows.filter(function(row){return row.token_hash===h&&row.account_type===kind;})[0];
   if(!session||session.revoked===true||String(session.revoked).toLowerCase()==='true')
     auroraReject_('unauthorized','Sign in again to access your account.');
+  // Enforce server-side expiry even for previously minted 100-year tokens.
+  var issued=Date.parse(String(session.created_at||''));
+  var expiry=Date.parse(String(session.expires_at||''));
+  var now=Date.now(),maxAge=(kind==='staff'?7:30)*24*3600000;
+  if(!Number.isFinite(issued)||!Number.isFinite(expiry)||issued>now+60000||
+     expiry<=now||now-issued>=maxAge)
+    auroraReject_('unauthorized','Your session expired. Please sign in again.');
   var accounts=auroraPrivateTable_(auroraSpreadsheet_(),kind==='staff'?'staff_accounts':'customer_accounts');
   var account=auroraAccountValue_(accounts,session.account_id);
   if(!account||!(account.active===true||String(account.active).toLowerCase()==='true'))

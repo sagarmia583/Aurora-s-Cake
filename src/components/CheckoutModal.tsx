@@ -373,6 +373,22 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     setIsSubmitting(true);
     try {
       if (liveOrderEndpoint) {
+        // Until dedicated gift columns are deployed, persist instructions
+        // in the existing private Sheets order_note field instead of dropping them.
+        const giftInstructions = isGift ? [
+          '[GIFT DELIVERY]',
+          'Recipient: ' + recipientName.trim(),
+          'Recipient phone: ' + recipientPhone.trim(),
+          'Sender: ' + (senderName.trim() || customerName.trim()),
+          'Sender phone: ' + (senderPhone.trim() || customerPhone.trim()),
+          'Hide price on packaging: ' + (hidePriceOnBox ? 'YES' : 'NO'),
+          ...(giftCardMessage.trim() ? ['Gift card: ' + giftCardMessage.trim()] : []),
+        ] : [];
+        const combinedNote = [orderNote.trim(), ...giftInstructions].filter(Boolean).join('\n');
+        if(combinedNote.length > 1000) {
+          setErrorMessage('Gift information exceeds the 1000-character order note limit. Please shorten the text.');
+          return;
+        }
         orderAttemptRef.current = createSheetOrderAttempt(liveOrderEndpoint, {
           customer_name: customerName,
           customer_phone: customerPhone,
@@ -389,7 +405,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
             quantity: item.quantity,
           })),
           ...(appliedCoupon ? { coupon_code: appliedCoupon } : {}),
-          ...(orderNote.trim() ? { order_note: orderNote } : {}),
+          ...(combinedNote ? { order_note: combinedNote } : {}),
           payment_method: 'cod',
           expected_total: estimatedTotal,
         }, orderAttemptRef.current);
