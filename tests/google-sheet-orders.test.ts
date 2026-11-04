@@ -1140,3 +1140,49 @@ test('password-free receipt recovery needs both original long key and phone; OTP
   assert.equal(recovered.order.customer_access_token,created.customer_access_token);
   assert.equal('password_hash' in recovered.order,false);
 });
+
+test('Google Sheets staff feed reports a corrupt receipt but still returns valid new orders',()=>{
+  const h=harness({singleFile:true});
+  const first=h.post(request());assert.equal(first.persisted,true);
+  const columns=h.tables.orders[0],bad=h.tables.orders[1].slice();
+  bad[columns.indexOf('id')]='ord_corrupt_fixture';
+  bad[columns.indexOf('receipt_json')]='{malformed-json';
+  bad[columns.indexOf('request_id')]='b1111111-2222-4333-8444-555555555555';
+  h.tables.orders.push(bad);
+  const second=h.post(request({
+    request_id:'c1111111-2222-4333-8444-555555555555',
+    checkout_proof:'cccccccc-1111-4111-8111-111111111111dddddddd-2222-4222-8222-222222222222'
+  }));
+  assert.equal(second.persisted,true,JSON.stringify(second));
+  const snapshot=h.post({action:'staff_orders',id_token:ADMIN_TOKEN});
+  assert.equal(snapshot.ok,true);
+  assert.equal(snapshot.snapshot_complete,false);
+  assert.equal(snapshot.invalid_receipts,1);
+  assert.equal(snapshot.orders.length,2);
+  assert.equal(snapshot.orders.some((o:{id:string})=>o.id===first.order.id),true);
+  assert.equal(snapshot.orders.some((o:{id:string})=>o.id===second.order.id),true);
+  assert.equal(h.records('orders').length,3,'broken rows must not be deleted automatically');
+});
+test('Google Sheets staff feed returns more than 100 active orders without truncation',()=>{
+  const h=harness({singleFile:true});
+  const first=h.post(request());assert.equal(first.persisted,true);
+  const columns=h.tables.orders[0],base=h.tables.orders[1];
+  for(let i=0;i<125;i++){
+    const row=base.slice(),order={...first.order,
+      id:'ord_'+randomUUID(),order_number:'AUR-TEST-'+String(i+1).padStart(3,'0'),
+      request_id:randomUUID(),created_at:new Date(1762000000000+i*1000).toISOString(),
+      updated_at:new Date(1762000000000+i*1000).toISOString()};
+    row[columns.indexOf('id')]=order.id;
+    row[columns.indexOf('order_number')]=order.order_number;
+    row[columns.indexOf('request_id')]=order.request_id;
+    row[columns.indexOf('request_hash')]='fixture-'+i;
+    row[columns.indexOf('created_at')]=order.created_at;
+    row[columns.indexOf('updated_at')]=order.updated_at;
+    row[columns.indexOf('receipt_json')]=JSON.stringify(order);
+    h.tables.orders.push(row);
+  }
+  const snapshot=h.post({action:'staff_orders',id_token:ADMIN_TOKEN});
+  assert.equal(snapshot.ok,true);
+  assert.equal(snapshot.snapshot_complete,true);
+  assert.equal(snapshot.orders.filter((o:{status:string})=>o.status==='pending').length,126);
+});
