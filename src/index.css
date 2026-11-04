@@ -267,10 +267,28 @@ img { max-width:100%; }
   display: flex;
   width: max-content;
   animation: ac-marquee 28s linear infinite;
+  will-change: transform;
 }
-.ac-breaking-marquee:hover,
-.ac-breaking-marquee:focus-within {
-  animation-play-state: paused;
+/* Mobile Safari can keep :hover/:focus-within active after a coupon tap.
+ * Pause only for desktop-style pointers; coarse touch must keep scrolling. */
+@media (hover: hover) and (pointer: fine) {
+  .ac-breaking-marquee:hover,
+  .ac-breaking-marquee:focus-within {
+    animation-play-state: paused;
+  }
+}
+@media (hover: none), (pointer: coarse) {
+  .ac-breaking-marquee {
+    animation-play-state: running;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ac-breaking-marquee {
+    animation: none;
+  }
+  .ac-breaking-viewport {
+    overflow-x: auto;
+  }
 }
 
 @media(min-width:801px) and (max-width:1050px){.ac-hero{gap:30px;padding-inline:30px;min-height:525px}.ac-hero h1{font-size:49px;letter-spacing:-2px}.ac-heading-flower{font-size:27px;margin-left:6px}.ac-hero-visual{height:375px}.ac-hero .ac-button{font-size:12px;padding-inline:18px}.ac-hero .ac-text-button{font-size:12px}.ac-hero-footnote{font-size:10px}}
