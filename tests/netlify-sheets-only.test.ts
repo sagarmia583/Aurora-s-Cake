@@ -10,10 +10,10 @@ const request=(path:string,method='GET')=>new Request(host+path,{method});
 
 test('Netlify public catalog is read-only, validates source host and never returns private data',async()=>{
   const calls:string[]=[];
-  const fetcher=async (url:string,opts:RequestInit)=>{
-    calls.push(url);
-    assert.equal(opts.method,'GET');
-    assert.equal(opts.credentials,'omit');
+  const fetcher:typeof fetch=async (url,opts)=>{
+    calls.push(String(url));
+    assert.equal(opts?.method,'GET');
+    assert.equal(opts?.credentials,'omit');
     return {ok:true,url:'https://script.googleusercontent.com/relay',text:async()=>JSON.stringify({
       ok:true,schema_version:1,data:{products:[{id:'cake-1',name:'Cake'}],settings:{shop_name:'Aurora'}}
     })} as Response;
