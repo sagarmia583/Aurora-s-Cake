@@ -14,17 +14,20 @@ git fetch origin
 git checkout fix/netlify-google-sheets-only-20261104
 npm ci
 node scripts/build-apps-script.mjs --check
-node scripts/prepare-staging-apps-script.mjs --sheet-id "<PRIVATE_SANITIZED_STAGING_SHEET_ID>"
 npm install -g @google/clasp
 clasp login
+New-Item -ItemType Directory -Force .aurora-staging-apps-script | Out-Null
 cd .aurora-staging-apps-script
 clasp create --type standalone --title "Aurora Cake - ISOLATED COD STAGING"
+cd ..
+node scripts/prepare-staging-apps-script.mjs --sheet-id "<PRIVATE_SANITIZED_STAGING_SHEET_ID>"
+cd .aurora-staging-apps-script
 clasp push
 ~~~
 
-Important: create a **NEW** Apps Script project. Do not paste or reuse production .clasp.json or an existing deployment ID. The generated folder is ignored by Git. It writes Code.gs and appsscript.json. The staging script hardcodes the sanitized Sheet ID; it refuses mismatched Script Properties, refuses a non-Google-Sheets database, disables staging new-order push notifications, and does not generate production receipt-view links.
+Important: create a **NEW** Apps Script project. Do not paste or reuse production .clasp.json or an existing deployment ID. The generated folder is ignored by Git. Create the empty NEW project FIRST: clasp create pulls its initial files into the directory. Generate the guarded staging files AFTERWARD to replace those blank files, then push. It writes Code.gs and appsscript.json. The staging script hardcodes the sanitized Sheet ID; it refuses mismatched Script Properties, refuses a non-Google-Sheets database, disables staging new-order push notifications, and does not generate production receipt-view links.
 
-Open the **NEW** project in Apps Script. Choose Deploy > New deployment > Web app; set Execute as: Me (the Sheet owner), Who has access: Anyone, then authorize it. Record the newly created **staging-only** /exec URL. Keep the sanitized Google Sheet Restricted/private. The web app can run as its authorized owner without making the Sheet itself public.
+Open the **NEW** project in Apps Script. Choose Deploy > New deployment > Web app; set Execute as: Me (the Sheet owner), Who has access: Anyone (anonymous guest checkout allowed), then authorize it. The staging manifest specifies access ANYONE_ANONYMOUS and executeAs USER_DEPLOYING. Record the newly created **staging-only** /exec URL. Keep the sanitized Google Sheet Restricted/private. The web app can run as its authorized owner without making the Sheet itself public.
 
 Authoritative deployment documentation:
 https://developers.google.com/apps-script/concepts/deployments
