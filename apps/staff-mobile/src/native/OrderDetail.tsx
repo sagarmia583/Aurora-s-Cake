@@ -205,6 +205,16 @@ export function OrderDetail({
           </View>
         ))}
       </View>
+      {o.is_gift && (
+        <View style={[T.card, { backgroundColor: C.peach }]}>
+          <Text style={T.h2}>🎁 সারপ্রাইজ গিফট ডেলিভারি</Text>
+          <Text style={T.body}>প্রাপক: {o.recipient_name || o.customer_name || '—'}</Text>
+          {!!o.recipient_phone && <Text style={T.body}>প্রাপকের ফোন: {o.recipient_phone}</Text>}
+          {o.hide_price_on_box && <Text style={T.h3}>বক্স / গিফট কার্ডে মূল্য উল্লেখ করবেন না</Text>}
+          {!!o.gift_card_message && <Text style={T.body}>💌 {o.gift_card_message}</Text>}
+          {!!o.sender_name && <Text style={T.sub}>প্রেরক: {o.sender_name}</Text>}
+        </View>
+      )}
       {!!o.order_note && (
         <View style={[T.card, { backgroundColor: C.peach }]}>
           <Text style={T.eyebrow}>REMEMBER THIS</Text>
@@ -219,14 +229,14 @@ export function OrderDetail({
             {zoneName(o)} · {o.rider_name || "Rider নির্ধারণ হয়নি"}
           </Text>
           <View style={T.row}>
-            {o.customer_phone && (
+            {(o.is_gift && o.recipient_phone || o.customer_phone) && (
               <Button
                 kind="ghost"
-                label="Call customer"
+                label={o.is_gift && o.recipient_phone ? "Call recipient" : "Call customer"}
                 style={{ flex: 1 }}
                 onPress={() =>
                   void Linking.openURL(
-                    "tel:" + o.customer_phone!.replace(/[^+0-9]/g, ""),
+                    "tel:" + (o.is_gift && o.recipient_phone ? o.recipient_phone : o.customer_phone || '').replace(/[^+0-9]/g, ""),
                   )
                 }
               />

@@ -77,6 +77,8 @@ export interface StaffOrder {
   delivery_fee?:number;message_on_cake?:string;
   subtotal?:number;discount_amount?:number;coupon_code?:string;
   cod_collected?:boolean;items?:OrderItem[];
+  is_gift?:boolean;recipient_name?:string;recipient_phone?:string;
+  sender_name?:string;sender_phone?:string;gift_card_message?:string;hide_price_on_box?:boolean;
   customer_share_url?:string;
 }
 export const roles:Role[] = ['super_admin','admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'];
@@ -93,7 +95,7 @@ export const roleLabel:Record<Role,string>={
 };
 export function canOperate(role:Role,op:Operation):boolean{
   if(role==='super_admin'||role==='admin')return true;
-  // Preserve existing website rule: riders alone perform handover and OTP.
+  // Preserve existing website rule: riders handle handover; delivery OTP is intentionally disabled.
   if(op==='pick_up'||op==='start_delivery'||op==='deliver')return role==='delivery_man';
   if(role==='order_manager')return op==='confirm'||op==='cancel';
   if(role==='kitchen_manager')return op==='start_baking'||op==='mark_ready';
