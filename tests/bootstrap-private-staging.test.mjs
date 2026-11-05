@@ -15,3 +15,14 @@ test('staging PowerShell requires a new clasp project and refuses production She
   assert.doesNotMatch(ps,/clasp[^\\n]*--force/i);
   assert.doesNotMatch(ps,/\bclasp\s+(?:deploy|redeploy|undeploy)\b/i);
 });
+
+const upgrade=readFileSync(new URL('../scripts/upgrade-existing-staging-safe.ps1',import.meta.url),'utf8');
+test('existing staging updater validates expected clasp project ID and hardened source before push',()=>{
+  assert.match(upgrade,/\$config\.scriptId -cne \$ExpectedScriptId/);
+  assert.match(upgrade,/STOP: linked Apps Script project ID does not match/);
+  assert.match(upgrade,/STOP: this is the production Sheet ID/);
+  assert.match(upgrade,/staging_auth_hardened:true/);
+  assert.match(upgrade,/setupAuroraStagingOwnerOnce/);
+  assert.match(upgrade,/UPDATE-ONLY-STAGING/);
+  assert.doesNotMatch(upgrade,/clasp[^\n]*(?:create|clone|deploy|undeploy|redeploy)/i);
+});
