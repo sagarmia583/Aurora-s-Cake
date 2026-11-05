@@ -1,0 +1,17 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+
+const ps=readFileSync(new URL('../scripts/bootstrap-private-cod-staging.ps1',import.meta.url),'utf8');
+test('staging PowerShell requires a new clasp project and refuses production Sheet ID',()=>{
+  assert.match(ps,/STOP: the supplied ID is the original production Google Sheet/);
+  assert.match(ps,/\.clasp\.json/);
+  assert.match(ps,/Refusing to reuse or overwrite it/);
+  assert.match(ps,/CREATE-STAGING/);
+  assert.match(ps,/--type standalone/);
+  assert.match(ps,/prepare-staging-apps-script\.mjs/);
+  assert.match(ps,/build-apps-script\.mjs/);
+  assert.doesNotMatch(ps,/\bclasp\s+clone\b/i);
+  assert.doesNotMatch(ps,/clasp[^\\n]*--force/i);
+  assert.doesNotMatch(ps,/\bclasp\s+(?:deploy|redeploy|undeploy)\b/i);
+});

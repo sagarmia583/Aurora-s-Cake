@@ -65,3 +65,37 @@ The runner prints only a test order reference and total, not bearer credentials.
 - [ ] Netlify staging preview checked separately with staging-only /exec URL.
 
 No production Sheet, Netlify site or live Apps Script deployment was modified. Do not merge PR #37 to production before these checks pass.
+
+
+## Windows PowerShell safe deployment helper (no production writes)
+A guarded, interactive helper is available on this PR:
+`scripts/bootstrap-private-cod-staging.ps1`.
+It requires the ID of the **sanitized staging** Sheet (which remains private and
+is now shared with the production owner's Google account as an Editor). The
+existing production Sheet ID is explicitly refused. It creates only a **new**
+Apps Script project and uploads the generated one-file Google Sheets backend.
+
+From a local checkout of the PR branch, with Node.js 20+ and the official
+`@google/clasp` CLI installed, run:
+
+~~~powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap-private-cod-staging.ps1 -SheetId "<SANITIZED_STAGING_SHEET_ID>"
+~~~
+
+Choose the Google account that can edit the staging Sheet during the interactive
+clasp login. Enable Apps Script API access at
+https://script.google.com/home/usersettings if clasp requests it. The helper
+will NOT reuse an existing `.clasp.json`, and does not automatically make any
+deployment or submit an order. It opens the newly created project. Finish
+**Deploy > New deployment > Web app > Execute as me > Anyone**, authorize it
+and keep the new staging `/exec` URL separate from production.
+
+Only after deploying, run the **zero-write read-only** acceptance command:
+
+~~~powershell
+node scripts/accept-staging-cod.mjs --url "<NEW_STAGING_EXEC_URL>" --sheet-id "<SANITIZED_STAGING_SHEET_ID>"
+~~~
+
+After its staging fingerprint passes, explicitly request one synthetic COD test
+with `--commit` and inspect the isolated staging Sheet for a single order.
+No authentication tokens, script IDs or staging Sheet IDs are placed in GitHub.
