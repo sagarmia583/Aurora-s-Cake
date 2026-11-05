@@ -116,14 +116,7 @@ function auroraAccountLogin_(kind,identifier,password){
     if(typeof auroraSupabaseRefresh_==='function')auroraSupabaseRefresh_();
     var accounts=auroraPrivateTable_(auroraSpreadsheet_(),isCustomer?'customer_accounts':'staff_accounts');
     var person=accounts.rows.filter(function(row){return String(row[key]).toLowerCase()===name;})[0];
-    if(kind==='staff' && accounts.rows.length===0 && name==='admin'){
-      var salt=auroraAccountToken_();
-      var defaultPerson={id:'staff_'+Utilities.getUuid(),username:'admin',name:'Shop Administrator',
-        role:'super_admin',password_salt:salt,password_hash:auroraAccountHash_(password,salt),
-        failed_attempts:0,locked_until:0,active:true,created_at:new Date().toISOString(),updated_at:new Date().toISOString()};
-      auroraAppendPrivate_(accounts,defaultPerson);
-      person=defaultPerson;
-    }
+
     if(!person||!(person.active===true||String(person.active).toLowerCase()==='true'))
       auroraReject_('invalid_credentials','Invalid login details.');
     auroraAccountVerifyPassword_(accounts,person,password);
@@ -131,6 +124,37 @@ function auroraAccountLogin_(kind,identifier,password){
     var token=auroraAccountStart_(kind,person.id);
     if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
     return {person:person,token:token};
+  }finally{lock.releaseLock();}
+}
+/**
+ * OWNER-ONLY FIRST ADMIN BOOTSTRAP (not a web route).
+ * To initialize on a new private Sheet, the owner creates Script Property
+ * AURORA_FIRST_OWNER_PASSWORD (a strong 16+ character temporary password)
+ * and runs THIS function manually in the Apps Script editor. The property
+ * is removed immediately after successfully hashing and storing the account.
+ * An unauthenticated login must never establish a super admin.
+ */
+function setupAuroraFirstStaffOwnerOnce(){
+  var owner=auroraRequireInteractiveSetup_();
+  if(typeof auroraStagingGuard_==='function')auroraStagingGuard_();
+  var props=PropertiesService.getScriptProperties();
+  var password=String(props.getProperty('AURORA_FIRST_OWNER_PASSWORD')||'');
+  if(password.length<16||password.length>128||password.trim()!==password||
+     !/[A-Z]/.test(password)||!/[a-z]/.test(password)||
+     !/[0-9]/.test(password)||!/[^A-Za-z0-9]/.test(password))
+    throw new Error('Set a temporary owner password with 16+ characters, mixed case, a number and a symbol in Script Properties.');
+  var lock=LockService.getScriptLock();
+  if(!lock.tryLock(10000))throw new Error('Owner account setup is busy.');
+  try{
+    var table=auroraPrivateTable_(auroraSpreadsheet_(),'staff_accounts');
+    if(table.rows.length!==0)throw new Error('Staff accounts already exist; refusing to overwrite or create a second owner.');
+    var salt=auroraAccountToken_(),now=new Date().toISOString();
+    auroraAppendPrivate_(table,{id:'staff_'+Utilities.getUuid(),username:'admin',
+      name:'Shop Owner',role:'super_admin',password_salt:salt,
+      password_hash:auroraAccountHash_(password,salt),
+      failed_attempts:0,locked_until:0,active:true,created_at:now,updated_at:now});
+    props.deleteProperty('AURORA_FIRST_OWNER_PASSWORD');
+    return {ok:true,configured:true,username:'admin',role:'super_admin',owner:owner,temporary_password_deleted:true};
   }finally{lock.releaseLock();}
 }
 function auroraAccountPhone_(value){

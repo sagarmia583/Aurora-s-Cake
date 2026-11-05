@@ -1186,3 +1186,37 @@ test('Google Sheets staff feed returns more than 100 active orders without trunc
   assert.equal(snapshot.snapshot_complete,true);
   assert.equal(snapshot.orders.filter((o:{status:string})=>o.status==='pending').length,126);
 });
+
+test('empty staff Sheet rejects unauthenticated self-assigned first admin account',()=>{
+  const h=harness({singleFile:true});
+  const result=h.post({action:'staff_password_login',username:'admin',password:'AttackerTestPass2026!'});
+  assert.equal(result.code,'invalid_credentials');
+  assert.equal(h.records('staff_accounts').length,0);
+});
+test('one-time editor-only owner bootstraps a hashed admin and deletes temporary Script Property',()=>{
+  const h=harness({singleFile:true});
+  const props=new Map<string,string>();
+  h.context.PropertiesService={getScriptProperties:()=>({
+    getProperty:(key:string)=>props.get(key)||null,
+    setProperty:(key:string,val:string)=>{props.set(key,val);},
+    deleteProperty:(key:string)=>{props.delete(key);}
+  })};
+  assert.throws(()=>h.context.setupAuroraFirstStaffOwnerOnce(),/temporary owner password/);
+  const secret='SecureTemporaryOwner2026!Password';
+  props.set('AURORA_FIRST_OWNER_PASSWORD',secret);
+  h.context.Session={getActiveUser:()=>({getEmail:()=>'different@example.com'}),
+    getEffectiveUser:()=>({getEmail:()=>'owner@example.com'})};
+  assert.throws(()=>h.context.setupAuroraFirstStaffOwnerOnce(),/directly in the Apps Script editor/);
+  assert.equal(h.records('staff_accounts').length,0);
+  h.context.Session={getActiveUser:()=>({getEmail:()=>'owner@example.com'}),
+    getEffectiveUser:()=>({getEmail:()=>'owner@example.com'})};
+  const setup=h.context.setupAuroraFirstStaffOwnerOnce();
+  assert.equal(setup.configured,true);
+  assert.equal(setup.temporary_password_deleted,true);
+  assert.equal(props.has('AURORA_FIRST_OWNER_PASSWORD'),false);
+  assert.equal(h.records('staff_accounts').length,1);
+  assert.equal(h.post({action:'staff_password_login',username:'admin',password:secret}).role,'super_admin');
+  assert.equal(h.post({action:'setupAuroraFirstStaffOwnerOnce'}).code,'invalid_action');
+  props.set('AURORA_FIRST_OWNER_PASSWORD',secret);
+  assert.throws(()=>h.context.setupAuroraFirstStaffOwnerOnce(),/already exist/);
+});
