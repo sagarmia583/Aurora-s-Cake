@@ -97,10 +97,14 @@ export async function acceptStagingStaff({
     ['accountant','tacct'+random]
   ];
   const people={};
+  const created=[];
+  let result=null, stageError=null, disabled=0;
+  try {
   for(const [role,username] of roles){
     const password='T7!x'+randomBytes(20).toString('base64url')+'Ab';
     await checked({action:'staff_account_create',...asAdmin,username,
       name:'Staging '+role,role,password},'Create '+role);
+    created.push(username);
     const login=await checked({action:'staff_password_login',username,password},
       'Login '+role);
     ensure(login.role===role&&typeof login.auth_token==='string',
@@ -145,21 +149,38 @@ export async function acceptStagingStaff({
   ensure(Number(delivered.cod_amount)===expectedTotal,
     'Rider cash amount does not match test invoice');
 
-  // Retain the immutable order history but disable all temporary role users.
-  // If a process crashes between steps, these records may remain: inspect them
-  // manually; NEVER re-run the full --commit sequence without reviewing state.
-  let disabled=0;
-  for(const [,username] of roles){
-    const response=await post({action:'staff_account_set_active',...asAdmin,
-      username,active:false});
-    if(resultOk(response))disabled++;
-  }
-  return {mode:'commit',isolated_staging:true,hardened_staff_auth:true,
+  result={mode:'commit',isolated_staging:true,hardened_staff_auth:true,
     order_id:orderId,final_status:delivered.status,payment_status:delivered.payment_status,
     cod_collected:delivered.cod_collected,cod_amount:Number(delivered.cod_amount),
     role_permissions_verified:true,stages_checked:7,cash_unconfirmed_denied:true,
-    temporary_roles_created:roles.length,temporary_roles_disabled:disabled,
+    temporary_roles_created:created.length,
     caveat:'Cash acknowledgement is not an independent rider deposit/approval ledger.'};
+  } catch(error) {
+    stageError=error;
+  } finally {
+    // Always try to deactivate created accounts even if a stage fails.
+    // Only the test accounts created by this invocation are affected.
+    for(const username of [...created].reverse()){
+      try{
+        const response=await post({action:'staff_account_set_active',...asAdmin,
+          username,active:false});
+        if(resultOk(response))disabled++;
+      }catch(_){ /* A cleanup failure is reported below, never hidden. */ }
+    }
+    try{await post({action:'staff_password_logout',...asAdmin});}
+    catch(_){ /* Session naturally expires and is never printed. */ }
+  }
+  if(stageError){
+    if(disabled!==created.length)
+      throw new Error('STAGING PARTIAL FAILURE: order may have changed; '+
+        (created.length-disabled)+' temporary staff account(s) may still be active. '+
+        'Inspect the private staging Sheet before any retry.');
+    throw stageError;
+  }
+  ensure(disabled===created.length,
+    'STAGING CLEANUP INCOMPLETE: some test staff accounts remain active. '+
+    'Inspect the private staging Sheet before retrying.');
+  return {...result,temporary_roles_disabled:disabled};
 }
 const direct=process.argv[1]&&pathToFileURL(resolve(process.argv[1])).href===import.meta.url;
 if(direct){
