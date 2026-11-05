@@ -121,3 +121,26 @@ test('invalid URL and wrong order ID are blocked without network calls',async()=
     orderId:'ord_NOT_A_VALID_UUID',expectedTotal:360,fetcher:f.fetcher}));
   assert.equal(f.calls.length,0);
 });
+
+test('a failed intermediate stage still deactivates all newly created staff accounts',async()=>{
+  const f=fixture();
+  const guarded=async(url,options)=>{
+    if(options.method==='POST'){
+      const input=JSON.parse(options.body);
+      if(input.action==='staff_mutate'&&input.operation==='mark_ready'){
+        return new Response(JSON.stringify({ok:false,code:'simulated_stage_failure'}),{
+          status:200,headers:{'Content-Type':'application/json'}
+        });
+      }
+    }
+    return f.fetcher(url,options);
+  };
+  await assert.rejects(()=>acceptStagingStaff({
+    url:execUrl,sheetId,orderId,expectedTotal:360,commit:true,
+    adminPassword:'SecureStagingOwnerPassword!2026',fetcher:guarded
+  }),/mark_ready failed/);
+  const all=f.calls.filter(x=>x.action==='staff_account_set_active');
+  assert.equal(all.length,5,'all five created accounts must be disabled on failure');
+  assert.deepEqual(f.sequence,['confirmed','preparing'],
+    'real stages can be partially committed; must not pretend rollback');
+});
