@@ -24,5 +24,7 @@ test('existing staging updater validates expected clasp project ID and hardened 
   assert.match(upgrade,/staging_auth_hardened:true/);
   assert.match(upgrade,/setupAuroraStagingOwnerOnce/);
   assert.match(upgrade,/UPDATE-ONLY-STAGING/);
-  assert.doesNotMatch(upgrade,/clasp[^\n]*(?:create|clone|deploy|undeploy|redeploy)/i);
+  const claspCommands=upgrade.split('\n').map(line=>line.trim()).filter(line=>/^& \$clasp\.Source\s+/.test(line));
+  assert.deepEqual(claspCommands,['& $clasp.Source push'],
+    'The script may ONLY push into the already-verified staging clasp project');
 });
