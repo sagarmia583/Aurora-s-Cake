@@ -46,7 +46,7 @@ export function createStagingCode(bundle,sheetId){
   code=code.replace(get,"function doGet(e) {\n  auroraStagingGuard_();\n  try {");
   code=code.replace(post,"function doPost(e) {\n  auroraStagingGuard_();\n  try {");
   code=code.replace(health,health+"environment:'staging',staging_sheet_fingerprint:'"+
-    sheetFingerprint(sheetId)+"',");
+    sheetFingerprint(sheetId)+"',staging_auth_hardened:true,");
   code=code.replace(/var AURORA_RECEIPT_VIEW_BASE_='https:\/\/script\.google\.com\/macros\/s\/[^']+\/exec';/,
     "var AURORA_RECEIPT_VIEW_BASE_='';");
   code=code.replaceAll("if(typeof auroraNotifyOrderStage_==='function')",
