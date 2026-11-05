@@ -35,24 +35,35 @@ function futureDhakaDate(){
   return get('year')+'-'+get('month')+'-'+get('day');
 }
 function selection(data){
+  // Apps Script Code.gs returns the public schema using 'zones', 'slots',
+  // and each product's nested 'variants'. Older test fixtures may have the
+  // raw Sheet tab names instead. Accept both without ever editing the Sheet.
   const products=rows(data.products).filter(p=>active(p.is_active));
   const variants=rows(data.product_variants).filter(v=>active(v.is_active));
   const flavors=rows(data.flavors).filter(f=>active(f.is_active));
-  const zone=rows(data.delivery_zones).find(v=>active(v.is_active));
-  const slot=rows(data.delivery_slots).find(v=>active(v.is_active)&&String(v.slot_label||''));
-  ensure(zone&&slot,'No active staging delivery zone/time slot');
+  const zones=rows(data.zones??data.delivery_zones).filter(z=>active(z.is_active));
+  const slots=rows(data.slots??data.delivery_slots).filter(s=>active(s.is_active)&&String(s.slot_label||'').trim());
+  ensure(zones.length>0,'No active staging delivery zone in the public Apps Script catalog');
+  ensure(slots.length>0,'No active staging delivery time slot in the public Apps Script catalog');
+  ensure(active(data.settings?.accepting_orders)&&active(data.settings?.delivery_enabled),
+    'Staging shop is not accepting COD delivery orders');
   for(const product of products){
-    const variant=variants.find(v=>String(v.product_id)===String(product.id));
+    const variantsForProduct=Array.isArray(product.variants)
+      ? rows(product.variants).filter(v=>active(v.is_active))
+      : variants.filter(v=>String(v.product_id)===String(product.id));
+    const variant=variantsForProduct.find(v=>String(v.product_id)===String(product.id));
     if(!variant)continue;
     const allowed=idList(product.allowed_flavor_ids);
-    const optional=allowed.length===0||allowed.includes('*')||allowed.includes('all');
-    const flavor=flavors.find(f=>allowed.includes(String(f.id)));
-    if(!optional&&!flavor)continue;
+    const allowsAll=allowed.some(x=>x.toLowerCase()==='*'||x.toLowerCase()==='all');
+    const selected=flavors.find(f=>allowed.includes(String(f.id)))||
+      (allowsAll?flavors[0]:undefined);
+    if(allowed.length>0&&!allowsAll&&!selected)continue;
+    const zone=zones[0],slot=slots[0];
     return {product_id:String(product.id),variant_id:String(variant.id),
-      flavor_id:flavor?String(flavor.id):'',delivery_zone_id:String(zone.id),
+      flavor_id:selected?String(selected.id):'',delivery_zone_id:String(zone.id),
       delivery_slot:String(slot.slot_label)};
   }
-  throw new Error('No valid active cake/variant/flavor combination in staging catalogue');
+  throw new Error('No valid active cake/variant/flavor combination in staging public catalog');
 }
 async function jsonRequest(url,options,fetcher){
   const response=await fetcher(String(url),{
