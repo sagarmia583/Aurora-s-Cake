@@ -36,7 +36,7 @@ const safeImage = (value?: string) => value && /^(https?:\/\/|\/[^/])/i.test(val
 /** Use locally hosted cake photos from the existing Sheet gallery when
  * an external CDN rejects hotlinking. Never repeat a failed image request.
  */
-function StorefrontProductPhoto({ product }: { product: Product }) {
+export function StorefrontProductPhoto({ product }: { product: Product }) {
   const candidates = useMemo(() => [...new Set([
     safeImage(product.image_url), ...(product.gallery_images || []).map(safeImage)
   ].filter((value): value is string => Boolean(value)))], [product.image_url, product.gallery_images]);
