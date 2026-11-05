@@ -33,6 +33,35 @@ const ordered = <T extends { is_active: boolean; sort_order: number }>(rows: T[]
 const safeLink = (value?: string) => value && /^(https?:\/\/|mailto:|tel:|#)/i.test(value.trim()) ? value.trim() : '';
 const safeImage = (value?: string) => value && /^(https?:\/\/|\/[^/])/i.test(value.trim()) ? value.trim() : '';
 
+/** Use locally hosted cake photos from the existing Sheet gallery when
+ * an external CDN rejects hotlinking. Never repeat a failed image request.
+ */
+export function StorefrontProductPhoto({ product }: { product: Product }) {
+  const candidates = useMemo(() => {
+    const primary=safeImage(product.image_url);
+    const gallery=(product.gallery_images||[]).map(safeImage);
+    let lowResolution=false;
+    try {
+      const url=new URL(primary||'', 'https://aurorascake.netlify.app');
+      const size=Number(url.searchParams.get('s'));
+      lowResolution=/^encrypted-tbn[0-9]*\.gstatic\.com$/i.test(url.hostname) &&
+        Number.isFinite(size) && size>0 && size<200;
+    }catch { /* Invalid/unavailable primary goes through normal fallback. */ }
+    // Existing Sheet product thumbnails often have s=10: prefer local full
+    // gallery photos instead of displaying a blurry ten-pixel square.
+    return [...new Set((lowResolution?[...gallery,primary]:[primary,...gallery])
+      .filter((value):value is string=>Boolean(value)))];
+  }, [product.image_url,product.gallery_images]);
+  const [index,setIndex] = useState(0);
+  useEffect(() => { setIndex(0); }, [product.id, product.image_url, product.gallery_images]);
+  return candidates[index]
+    ? <img src={candidates[index]} alt={product.name} loading="lazy"
+        width="800" height="800" onError={() => setIndex(current => current + 1)} />
+    : <span className="flex w-full h-full min-h-44 sm:min-h-56 items-center justify-center gap-2 bg-emerald-50 text-emerald-900/80 text-xs font-bold px-4 text-center">
+        <CakeSlice size={22} aria-hidden="true" /> {product.name}
+      </span>;
+}
+
 function startingPrice(product: Product) {
   const prices = product.variants.filter(v => v.is_active).map(v => v.sale_price ?? v.price);
   return prices.length ? Math.min(...prices) : product.sale_price ?? product.base_price;
@@ -402,7 +431,7 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
         const stats = getProductDisplayStats(product);
         return <article className="ac-product" key={product.id}>
           <button className="ac-product-image-button" onClick={() => onSelectProduct(product)} aria-label={`Choose ${product.name}`}>
-            {safeImage(product.image_url) && <img src={safeImage(product.image_url)} alt={product.name} loading="lazy" width="800" height="800" />}
+            <StorefrontProductPhoto product={product} />
             <div className="ac-badge-stack">
               {isProductNew(product) && <span className="ac-new-tag">✨ নতুন</span>}
               {product.is_featured && text('catalog_featured_badge') && <span className="ac-product-tag">{text('catalog_featured_badge')}</span>}
