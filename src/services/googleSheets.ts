@@ -21,6 +21,7 @@ const SETTINGS_FIELDS = [
   'custom_cake_promo_tag','custom_cake_promo_title','custom_cake_promo_desc','custom_cake_promo_btn','footer_about_text',
   'facebook_url','instagram_url','youtube_url','tiktok_url','website_url','whatsapp_url','maps_url',
   'brand_tagline','facebook_handle','logo_alt','mobile_subtitle','locale',
+  'complimentary_kit_title','complimentary_kit_items',
 ] as const;
 const own = (object: Row, key: string) => Object.prototype.hasOwnProperty.call(object, key);
 const object = (value: unknown, path: string): Row => {
@@ -148,7 +149,9 @@ export function normalizePublicSiteData(input: unknown, defaults: PublicSiteData
     if (!own(settingsSource, key)) return;
     if (/password|secret|token|api_key|anon_key|supabase/i.test(key)) return;
     const value = settingsSource[key];
-    settings[key] = ['accepting_orders','delivery_enabled'].includes(key) ? bool(value, false)
+    settings[key] = key === 'complimentary_kit_items'
+      ? list(value, 'settings.complimentary_kit_items').filter(item => item.length <= 80).slice(0, 20)
+      : ['accepting_orders','delivery_enabled'].includes(key) ? bool(value, false)
       : /(?:url)$/.test(key) ? normalizePublicUrl(value, `settings.${key}`, /logo|image/.test(key))
       : text(value);
   });

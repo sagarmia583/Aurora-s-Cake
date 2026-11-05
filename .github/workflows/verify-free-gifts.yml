@@ -1,0 +1,49 @@
+name: Verify free gifts and mobile offer ticker
+
+on:
+  pull_request:
+    paths:
+      - "src/components/CustomerStorefront.tsx"
+      - "src/services/googleSheets.ts"
+      - "src/utils/freeGifts.ts"
+      - "src/index.css"
+      - "tests/free-gifts-and-mobile-offers.test.tsx"
+      - ".github/workflows/verify-free-gifts.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/components/CustomerStorefront.tsx"
+      - "src/services/googleSheets.ts"
+      - "src/utils/freeGifts.ts"
+      - "src/index.css"
+      - "tests/free-gifts-and-mobile-offers.test.tsx"
+      - ".github/workflows/verify-free-gifts.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  storefront:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Google Sheets freebies and iPhone marquee regression tests
+        run: npx tsx --test tests/free-gifts-and-mobile-offers.test.tsx
+      - name: Confirm backend public settings allowlist
+        run: |
+          node --input-type=module -e "
+            import {readFileSync} from 'node:fs';
+            const server=readFileSync('apps-script/Code.gs','utf8');
+            if (!/PUBLIC_SETTINGS_KEYS[^;]+complimentary_kit_items/.test(server)) process.exit(1);
+            console.log('Backend already exposes the free-gifts settings key');
+          "
+      - name: TypeScript
+        run: npm run lint
+      - name: Build web storefront
+        run: npm run build
