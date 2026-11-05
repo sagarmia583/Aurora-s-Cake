@@ -54,8 +54,12 @@ export function createStagingCode(bundle,sheetId){
 
   // Never let an unauthenticated first login claim the super-admin account.
   const firstLogin=/    if\(kind==='staff' && accounts\.rows\.length===0 && name==='admin'\)\{[\s\S]*?\n    \}\n    if\(!person\|\|/;
-  if(!firstLogin.test(code))throw new Error('Implicit admin bootstrap source changed; fail closed.');
-  code=code.replace(firstLogin,"    if(!person||");
+  if(firstLogin.test(code)){
+    code=code.replace(firstLogin,"    if(!person||");
+  }else if(!code.includes('function setupAuroraFirstStaffOwnerOnce()')||
+      code.includes("if(kind==='staff' && accounts.rows.length===0 && name==='admin')")){
+    throw new Error('First-login security is not proven; refusing staging generation.');
+  }
   const ownerSetup=[
     "",
     "/** Staging only: editor-authorized, one-time first admin setup. */",
