@@ -2,12 +2,12 @@
 **Date:** 2026-11-05 · **Approved intended architecture:** Netlify + Google Apps Script + Google Sheets ONLY.
 
 ## Scope and evidence
-Inspected the real GitHub repository, the live Google Sheet structure and limited non-sensitive product settings, GitHub Actions, the Netlify Functions source, the React storefront, checkout flow and staff/mobile snapshot code. Existing CI uses simulated fixtures, not a real deployed Netlify or Apps Script environment. The public Netlify site could not be directly read with available website access, so **no claim is made that production is currently running this branch**.
+Inspected the real GitHub repository, the live Google Sheet structure and limited non-sensitive product settings, GitHub Actions, the Netlify Functions source, the React storefront, checkout flow and staff/mobile snapshot code. Existing CI uses simulated fixtures, not a real deployed Netlify or Apps Script environment. A GitHub Actions read-only probe accessed the live public website and direct Apps Script backend, but the Netlify Function endpoints still returned 404. **Production is not running the new PR #37 backend functions**, and no real COD write test was performed.
 
 ## Verified implementation findings
 | Priority | Finding | Result | Key proof or file |
 |---|---|---|---|
-| P0 | The original Google Sheet has an `anyone / reader` link permission despite private order/customer/staff/session tabs. | **OPEN — OWNER ACTION**: Set Share > General access > Restricted and verify public website remains functional via an Apps Script that executes as the authorized owner. | Google Drive metadata; source file ID intentionally not copied into this report |
+| P0 | Original Google Sheet was shared with `anyone / reader`, potentially exposing customer and staff records. | **OWNER CONFIRMED RESTRICTED**: Owner screenshot shows Restricted; secondary Drive access now receives 403. Direct Apps Script still serves 15 public products. Owner should verify ACL from their account. | User-provided Drive screenshot and GitHub Actions read-only GET probe |
 | P0 | Netlify `/api/operations` could forward `customer_shared_order` to a hard-coded production Apps Script when the server-side env var was absent, even in a staging preview. | **FIXED IN PR #37**: all private POST actions require the explicitly configured server script; missing configuration returns 503 before fetch. | `netlify/functions/operations.mjs`, `tests/netlify-post-relay.test.ts` |
 | P0 | Netlify's unauthenticated public relay trusted any extra tables/fields returned by a misconfigured upstream, risking accidental disclosure of private order/auth data. | **FIXED IN PR #37**: reject unknown top-level tables and recursively deny sensitive fields; response fails closed with HTTP 502. | `netlify/functions/public.mjs`, `tests/netlify-sheets-only.test.ts` |
 | P1 | Health endpoint could report HTTP 200 `ok:true` with an outdated Apps Script release or unknown write-state. | **FIXED IN PR #37**: HTTP 503 for non-Sheets runtime, stale release or unknown write-state; CI tests assert behavior. | `netlify/functions/backend-health.mjs` |
@@ -21,7 +21,7 @@ Inspected the real GitHub repository, the live Google Sheet structure and limite
 | P2 | iPhone ticker could remain paused after tapping an offer because of sticky mobile CSS hover/focus. | **MERGED IN MAIN** via PR #39: touch pointers continue animation, with reduced-motion support. | `src/index.css`, dedicated tests |
 
 ## Important unresolved operational acceptance
-1. **Private spreadsheet permission**: remove the `anyone / reader` role on the *original* production workbook and verify by re-reading Drive metadata. Do not expose private order/accounting tabs to anonymous readers.
+1. **Private spreadsheet permission**: owner changed the original production workbook to **Restricted** and publicly accessible Apps Script still returns the catalog. Final verification of the actual Drive ACL must be completed in the owner's account; the secondary connector's 403 is expected.
 2. **Apps Script staging deployment**: requires an authorized separate Apps Script project and a new isolated `/exec` URL. The sanitized staging Sheet and safe generation/testing scripts exist, but no real Web App deployment has been verified.
 3. **Real COD end-to-end**: submit synthetic order in that isolated staging project, replay the same UUID, verify one `orders` row and expected `order_items` rows, verify staff/kitchen/rider/COD actions. Do not write trial orders to the production Sheet.
 4. **Financial completeness**: Inventory Stock Accounting, Refund/Return Ledger, Historical Production Cost Snapshot, Independent Cash Approval and physical POS print integration are not yet fully integrated or live-accepted for this Sheets-only architecture. An old unmerged PR contains prototypes; do not merge it blindly.
@@ -30,4 +30,8 @@ Inspected the real GitHub repository, the live Google Sheet structure and limite
 7. **Real hardware/browser testing**: iPhone Safari/Chrome, delivery rider phone, printer output, deep-link reload, customer login expiry and high-traffic polling still require live acceptance.
 
 ## Release rule
-Do **not** merge the substantial PR #37 or push its Apps Script code to the original production project until the P0 sharing issue, isolated staging COD acceptance, Netlify backend alignment and rollback drill pass. Keep the live database and old deployments intact. Any green unit tests are evidence for **code behavior under fixtures only**, not proof of live database correctness.
+Do **not** merge substantial PR #37 or push its Apps Script code to production until the owner verifies the Restricted ACL, isolated staging COD acceptance, Netlify backend alignment and rollback drill pass. Keep the live database and old deployments intact. Any green unit tests are evidence for **code behavior under fixtures only**, not proof of live database correctness.
+
+
+## Post-restriction live read-only verification (2026-11-05)
+A dedicated GitHub Actions job performed only unauthenticated GETs. Homepage returned **200**; direct Apps Script returned **200** for health and public catalog with **15 products**, meaning the restricted Sheet did not block its existing owner-executed public read. Netlify `/api/public` and `/api/backend-health` both returned **404**, so the new Netlify relay is not deployed. The automated check inspects schema keys without printing any catalog response body. Production order writes and finance remain untested. The sanitized staging Sheet was shared as **Editor only** to the production owner, while the complete backup remains private in the original connected Drive account.

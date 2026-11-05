@@ -27,7 +27,7 @@ Drive metadata for the **original production workbook** reports an `anyone / rea
 10. Check backup restore procedure using a **new** rehearsal copy, never overwrite the real production Sheet. Preserve the previous Apps Script deployment and Netlify deploy for rollback.
 
 ## Acceptance criteria before production merge
-- [ ] Original spreadsheet's anyone-reader sharing permission removed and verified.
+- [x] Owner confirmed **Restricted** in Google Drive UI; secondary connected Drive account now receives 403. A public read-only GET check confirmed Apps Script can still access 15 product records. Final ACL metadata should be checked by the owner's Google account.
 - [x] Private backup metadata and native tab structure confirmed.
 - [x] Separate private staging copy metadata and key headers confirmed.
 - [x] A new owner-private sanitized staging copy was created; 22 sensitive tabs have their data rows cleared, with the original backup untouched.
@@ -38,7 +38,17 @@ Drive metadata for the **original production workbook** reports an `anyone / rea
 - [ ] Live site permission, backups, rollback and release signatures verified.
 - [ ] Review PR #37 with green CI; only then approve a controlled production release.
 
-**Scope of this checklist:** preparation and read-only structural verification only. No production orders, settings, permissions, Apps Script deployment, Netlify deployment or sensitive source data were modified.
+**Scope of assistant-run work:** backup, staging preparation, read-only verification and sharing the **sanitized staging copy only** with the production Sheet owner. No production orders, settings, Apps Script deployment, Netlify deployment or sensitive source data were modified by these checks. The owner changed the original production file's sharing to Restricted.
 
 ## Isolated acceptance preparation
 The dedicated sanitized staging Sheet is separate from the older private snapshot containing production account data. A fail-closed Apps Script build generator and a staging-only HTTP COD runner have been added. Deployment still requires a NEW Apps Script project, owner OAuth authorization and a new /exec URL; until that happens, no real COD acceptance is claimed. See docs/ISOLATED_STAGING_COD_DEPLOYMENT_2026-11-04.md.
+
+
+## Verified production privacy change / live public path (2026-11-05)
+- The original owner sent a screenshot of **General access: Restricted**.
+- The previously connected secondary Drive account now receives **403 Permission Denied** to the original Sheet, consistent with the intended restriction. This does not by itself prove every Google Drive permission has been removed; review it from the owner's account.
+- A GitHub-hosted *unauthenticated, read-only* check successfully reached the production homepage **200** and the existing direct Apps Script public health **200** and public catalog **200** (15 cakes). The catalog field-name privacy guard did not detect sensitive order, session or account fields.
+- The live Netlify `/api/public` and `/api/backend-health` URLs currently return **404**. That indicates the newer PR #37 Netlify Functions are not yet active; do **not** claim they have been deployed. Existing web content currently comes from the older direct Apps Script route.
+- The **sanitized** staging copy is still not public: it has owner access and one **Editor** permission for the production Sheet owner's account. The separate full backup remains owner-only to its original Drive account.
+- Staging deployment remains blocked on creating and authorizing a **new** Apps Script Web App. A protected local Windows PowerShell helper is available at `scripts/bootstrap-private-cod-staging.ps1`. It cannot authenticate to Google without the account owner's interactive OAuth action.
+- The read-only workflow `Probe live Netlify after Sheet restriction (GET only)` runs in CI without POSTs; do not treat this as successful COD acceptance.
