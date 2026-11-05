@@ -31,9 +31,9 @@ Drive metadata for the **original production workbook** reports an `anyone / rea
 - [x] Private backup metadata and native tab structure confirmed.
 - [x] Separate private staging copy metadata and key headers confirmed.
 - [x] A new owner-private sanitized staging copy was created; 22 sensitive tabs have their data rows cleared, with the original backup untouched.
-- [ ] Distinct staging Apps Script deployment verified to target staging only.
+- [x] Distinct staging Apps Script deployment verified by the expected sanitized Sheet fingerprint.
 - [ ] Separate Netlify preview configured with staging `/exec`; read-only health and catalog pass.
-- [ ] Staging COD, gift, order idempotency and staff permissions pass.
+- [ ] Staging COD/gift/idempotency verified with one real test and direct Sheet readback; **staff permission/fulfillment acceptance remains pending**.
 - [ ] Inventory/Refund/Costing/Cash Approval **Google Sheets-only** integration and audit tests pass.
 - [ ] Live site permission, backups, rollback and release signatures verified.
 - [ ] Review PR #37 with green CI; only then approve a controlled production release.
@@ -52,3 +52,6 @@ The dedicated sanitized staging Sheet is separate from the older private snapsho
 - The **sanitized** staging copy is still not public: it has owner access and one **Editor** permission for the production Sheet owner's account. The separate full backup remains owner-only to its original Drive account.
 - Staging deployment remains blocked on creating and authorizing a **new** Apps Script Web App. A protected local Windows PowerShell helper is available at `scripts/bootstrap-private-cod-staging.ps1`. It cannot authenticate to Google without the account owner's interactive OAuth action.
 - The read-only workflow `Probe live Netlify after Sheet restriction (GET only)` runs in CI without POSTs; do not treat this as successful COD acceptance.
+
+## Staging COD acceptance — 2026-11-05
+Verified via private Sheet readback exactly one order row and one linked item. Total BDT 360 (cake BDT 300 + delivery BDT 60), pending COD. Duplicate request was idempotent, conflicting request rejected, and private gift/tracking data round-tripped. Production remains unchanged; staff/Rider/POS/finance are not accepted yet.
