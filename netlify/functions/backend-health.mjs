@@ -19,10 +19,12 @@ export default async function health(request,{scriptUrl=process.env.AURORA_SCRIP
    if(state?.ok!==true||state.service!=='aurora_public_content')return json(502,{ok:false,code:'backend_invalid_response'});
    const version=typeof state.release==='string'?state.release:'unknown';
    if(state.database_backend!=='google_sheets')return json(503,{ok:false,code:'unexpected_database_backend'});
+   if(version!==EXPECTED_RELEASE)return json(503,{ok:false,code:'outdated_apps_script',
+     expected_release:EXPECTED_RELEASE,installed_release:version,database_backend:'google_sheets'});
+   if(typeof state.writes_frozen!=='boolean')return json(503,{ok:false,code:'unknown_write_state'});
    return json(200,{ok:true,provider:'google_sheets',expected_release:EXPECTED_RELEASE,
-     installed_release:version,up_to_date:version===EXPECTED_RELEASE,
-     database_backend:state.database_backend==='google_sheets'?'google_sheets':'unexpected',
-     writes_frozen:typeof state.writes_frozen==='boolean'?state.writes_frozen:null});
+     installed_release:version,up_to_date:true,
+     database_backend:'google_sheets',writes_frozen:state.writes_frozen});
  }catch{return json(504,{ok:false,code:'backend_timeout'});}
 }
 export const config={path:'/api/backend-health'};

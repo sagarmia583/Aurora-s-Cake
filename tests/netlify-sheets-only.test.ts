@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import publicCatalog from '../netlify/functions/public.mjs';
 import health from '../netlify/functions/backend-health.mjs';
+import operations from '../netlify/functions/operations.mjs';
 import {createSheetOrderAttempt,SheetOrderSubmissionError} from '../src/services/googleSheetOrders';
 
 const scriptUrl='https://script.google.com/macros/s/fixture-123/exec';
@@ -63,4 +64,51 @@ test('live gift order payload preserves recipient, price privacy, idempotent ret
   const changed=createSheetOrderAttempt(endpoint,{...draft,recipient_phone:'01734567890'},first);
   assert.notEqual(changed.request_id,first.request_id);
   assert.throws(()=>createSheetOrderAttempt(endpoint,{...draft,recipient_phone:'bad'}),SheetOrderSubmissionError);
+});
+
+test('Netlify operations never silently use production when backend env is absent',async()=>{
+  let calls=0;
+  for(const action of ['customer_shared_order','staff_orders','create_order']){
+    const response=await operations(new Request(host+'/api/operations',{
+      method:'POST',headers:{Origin:host},body:JSON.stringify({action})
+    }),{scriptUrl:'',fetcher:async()=>{calls++;throw new Error('must not fetch');}});
+    assert.equal(response.status,503);
+    assert.equal((await response.json()).code,'proxy_error');
+  }
+  assert.equal(calls,0);
+});
+
+test('Netlify public catalogue refuses private order data even in 200 upstream responses',async()=>{
+  const fetcher=async()=>{
+    return {ok:true,url:'https://script.googleusercontent.com/relay',text:async()=>JSON.stringify({
+      ok:true,schema_version:1,data:{
+        products:[{id:'cake1',name:'Cake'}],settings:{shop_name:'Aurora'},
+        orders:[{id:'ord_private',customer_phone:'private'}]
+      }
+    })} as Response;
+  };
+  const response=await publicCatalog(request('/api/public'),{scriptUrl,fetcher});
+  assert.equal(response.status,502);
+  assert.equal((await response.json()).code,'public_catalog_invalid');
+
+  const embedded=async()=>({ok:true,url:'https://script.googleusercontent.com/relay',text:async()=>JSON.stringify({
+    ok:true,schema_version:1,data:{
+      settings:{shop_name:'Aurora'},products:[{id:'p',receipt_json:'private'}]
+    }
+  })} as Response);
+  const response2=await publicCatalog(request('/api/public'),{scriptUrl,fetcher:embedded});
+  assert.equal(response2.status,502);
+});
+
+test('health reports non-green for stale deployed Apps Script or unknown write availability',async()=>{
+  const responseFor=(h:any)=>health(request('/api/backend-health'),{scriptUrl,
+    fetcher:async()=>({ok:true,url:'https://script.googleusercontent.com/relay',
+      json:async()=>({ok:true,service:'aurora_public_content',database_backend:'google_sheets',...h})
+    } as Response)});
+  const outdated=await responseFor({release:'older-than-code',writes_frozen:false});
+  assert.equal(outdated.status,503);
+  assert.equal((await outdated.json()).code,'outdated_apps_script');
+  const unknown=await responseFor({release:'aurora-2026-11-03-staff-order-alerts-r5'});
+  assert.equal(unknown.status,503);
+  assert.equal((await unknown.json()).code,'unknown_write_state');
 });
