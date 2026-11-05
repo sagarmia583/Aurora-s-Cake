@@ -31,7 +31,7 @@ jobs:
       - name: Confirm Apps Script single-file bundle matches modules
         run: node scripts/build-apps-script.mjs --check
       - name: Test staging Apps Script isolation and COD acceptance harness
-        run: node --test tests/staging-cod-acceptance.test.mjs tests/bootstrap-private-staging.test.mjs
+        run: node --test tests/staging-cod-acceptance.test.mjs tests/staging-staff-acceptance.test.mjs tests/bootstrap-private-staging.test.mjs
       - name: TypeScript
         run: npm run lint
       - name: Build with Netlify environment
