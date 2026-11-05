@@ -70,9 +70,14 @@ export async function loadBackendDatabaseStatus(options: {
   else options.signal?.addEventListener('abort', abort, { once: true });
   try {
     if (controller.signal.aborted) return unknownBackendDatabaseStatus();
+    // Google Sheets-only Netlify deployments must not ping a retired SQL
+    // endpoint on every customer page view. Legacy local diagnostics remain
+    // available for undeployed old test fixtures.
+    const sheetsOnly=(import.meta as ImportMeta & { env?: Record<string, unknown> })
+      .env?.VITE_SUPABASE_ENABLED==='false';
     const results = await Promise.allSettled([
       fetchStatus('/api/backend-health', options.fetcher || fetch, controller.signal),
-      fetchStatus('/api/supabase-health', options.fetcher || fetch, controller.signal),
+      ...(sheetsOnly?[]:[fetchStatus('/api/supabase-health',options.fetcher || fetch,controller.signal)]),
     ]);
     if (controller.signal.aborted) return unknownBackendDatabaseStatus();
     return parseBackendDatabaseStatus(

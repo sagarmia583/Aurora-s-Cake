@@ -280,6 +280,14 @@ export function usesSameOriginBakeryApi(): boolean {
   return configured || cloudflareHost || import.meta.env?.DEV === true;
 }
 
+/** On a production Netlify build the Apps Script endpoint is configured
+ * server-side. Device storage must not silently switch it to another Sheet.
+ */
+export function isPinnedProductionSheetEndpoint(): boolean {
+  const env=(import.meta as ImportMeta & { env?: Record<string, unknown> }).env;
+  return env?.PROD===true && env?.VITE_SHEETS_POST_PROXY==='/api/operations';
+}
+
 export function resolveSheetsPostEndpoint(endpoint: string): string {
   const direct=validateGoogleSheetsEndpoint(endpoint).href;
   return usesSameOriginBakeryApi()?'/api/operations':direct;

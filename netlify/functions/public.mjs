@@ -9,7 +9,7 @@ const PUBLIC_TABLES = new Set([
   'hero_slides','highlights','faqs','links','banners','zones','slots',
   'coupons','reviews'
 ]);
-const PRIVATE_FIELDS = /^(?:orders?|order_items|customer_accounts|staff_accounts|auth_sessions|receipt_json|customer_access_token|customer_google_sub|password(?:_hash|_salt)?|auth_token|token_hash|session_token|private_key|secret_key|api_key|cash_deposits|accounting_entries|refund_ledger)$/i;
+const PRIVATE_FIELDS = /^(?:orders?|order_items|customer_accounts|staff_accounts|auth_sessions|receipt_json|customer_access_token|customer_google_sub|customer_phone|delivery_address|recipient_phone|sender_phone|account_id|password(?:_hash|_salt)?|auth_token|token_hash|session_token|private_key|secret_key|api_key|cash_deposits|accounting_entries|refund_ledger)$/i;
 /** Refuse private schema drift rather than passing unexpected server JSON to
  * unauthenticated visitors. The authoritative Apps Script should allowlist too.
  */

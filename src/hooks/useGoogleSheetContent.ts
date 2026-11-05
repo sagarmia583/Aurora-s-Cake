@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PublicSiteData } from '../types/siteContent';
 import { DEFAULT_PUBLIC_SITE_DATA } from '../content/defaultSiteData';
 import { isFirebaseCatalogPreviewRequested, loadFirebaseCatalogPreview } from '../services/firebasePrimaryCatalog';
-import { DEFAULT_SHEETS_ENDPOINT, loadGoogleSheetData, normalizePublicSiteData, validateGoogleSheetsEndpoint } from '../services/googleSheets';
+import { DEFAULT_SHEETS_ENDPOINT, isPinnedProductionSheetEndpoint, loadGoogleSheetData, normalizePublicSiteData, validateGoogleSheetsEndpoint } from '../services/googleSheets';
 
 const CACHE_KEY = 'aurora_public_sheet_snapshot_v2';
 // A disconnected shop must not offer bundled demonstration products for sale.
@@ -23,6 +23,9 @@ export interface SheetContentStatus {
   error?: string;
 }
 function savedEndpoint() {
+  // Never let another device's old localStorage setting choose the backend
+  // on a production Netlify site. The owner configures the Netlify environment.
+  if(isPinnedProductionSheetEndpoint())return DEFAULT_SHEETS_ENDPOINT;
   try { return localStorage.getItem(ENDPOINT_KEY) || DEFAULT_SHEETS_ENDPOINT; } catch { return DEFAULT_SHEETS_ENDPOINT; }
 }
 function bootstrap() {
@@ -33,7 +36,11 @@ function bootstrap() {
   try {
     const cache = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
     if (cache?.endpoint === endpoint && typeof cache?.savedAt === 'string') {
-      return { endpoint, data: normalizePublicSiteData(cache.data), status: { state: 'loading', source: 'saved_snapshot', lastSyncedAt: cache.savedAt } as SheetContentStatus };
+      const preview=normalizePublicSiteData(cache.data);
+      // Old/local cached data remains visible but cannot initiate new COD
+      // orders or profile changes until a fresh server snapshot is confirmed.
+      const data={...preview,order_submission_enabled:false,customer_order_profile_sync_enabled:false};
+      return { endpoint, data, status: { state: 'loading', source: 'saved_snapshot', lastSyncedAt: cache.savedAt } as SheetContentStatus };
     }
   } catch { /* Invalid snapshots are never trusted. */ }
   return { endpoint, data: EMPTY_SHEET_DATA, status: { state: 'loading', source: 'bundled_preview' } as SheetContentStatus };
@@ -105,6 +112,8 @@ export function useGoogleSheetContent() {
   }, [refresh]);
   const updateEndpoint = (value: string) => {
     const next = validateGoogleSheetsEndpoint(value.trim()).href;
+    if(isPinnedProductionSheetEndpoint() && next!==DEFAULT_SHEETS_ENDPOINT)
+      throw new Error('Production backend is managed by Netlify. Change the server configuration, not this browser.');
     if (next === endpoint) { void refresh(); return; }
     activeRequest.current?.abort();
     try { localStorage.setItem(ENDPOINT_KEY, next); } catch { /* Use this session when storage is blocked. */ }
