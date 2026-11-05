@@ -99,3 +99,32 @@ node scripts/accept-staging-cod.mjs --url "<NEW_STAGING_EXEC_URL>" --sheet-id "<
 After its staging fingerprint passes, explicitly request one synthetic COD test
 with `--commit` and inspect the isolated staging Sheet for a single order.
 No authentication tokens, script IDs or staging Sheet IDs are placed in GitHub.
+
+
+## Repair for "No active staging delivery zone/time slot" (2026-11-05)
+This error was caused by an **acceptance-runner field-name mismatch**, NOT by
+missing delivery data in the Sheet. The private staging Sheet's
+`delivery_zones` and `delivery_slots` tabs each contain 5 active records.
+The deployed Apps Script returns them as `data.zones` and `data.slots`,
+and embeds variants inside each `product.variants`. The old test runner
+incorrectly expected `data.delivery_zones`, `data.delivery_slots`, and
+top-level `data.product_variants`. The current runner handles both shapes.
+
+If working from a previously downloaded GitHub ZIP (not a Git clone), update
+just the local runner from the reviewed branch in PowerShell:
+
+~~~powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/sagarmia583/Aurora-s-Cake/fix/netlify-google-sheets-only-20261104/scripts/accept-staging-cod.mjs" -OutFile ".\\scripts\\accept-staging-cod.mjs"
+~~~
+
+Then repeat **without** `--commit`:
+
+~~~powershell
+node .\\scripts\\accept-staging-cod.mjs --url "<NEW_STAGING_EXEC_URL>" --sheet-id "<SANITIZED_STAGING_SHEET_ID>"
+~~~
+
+Only after `"mode":"preflight"` and `"isolated_staging":true` are shown,
+explicitly run the same command with `--commit` for a single synthetic COD
+order and verify the isolated staging `orders` and `order_items` tabs.
+Do not edit the production Google Sheet, or re-push/redeploy Apps Script for
+this runner-only fix.
