@@ -35,3 +35,12 @@ test('storefront card supports a missing primary URL using existing gallery imme
   assert.equal(renderer.root.findByType('img').props.src,'/images/vanilla-cake.jpg');
   await act(async()=>renderer.unmount());
 });
+
+test('tiny external Google thumbnail defers to the existing full-size local cake image',async()=>{
+  let renderer!:ReactTestRenderer;
+  await act(async()=>{renderer=create(React.createElement(StorefrontProductPhoto,{
+    product:{...product,image_url:'https://encrypted-tbn0.gstatic.com/images?q=fixture&s=10'}
+  }));});
+  assert.equal(renderer.root.findByType('img').props.src,'/images/vanilla-cake.jpg');
+  await act(async()=>renderer.unmount());
+});
