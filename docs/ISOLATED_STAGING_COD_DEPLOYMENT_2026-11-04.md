@@ -55,13 +55,13 @@ The runner prints only a test order reference and total, not bearer credentials.
 - [x] Owner-private backup exists and is unchanged.
 - [x] Isolated private COD testing Sheet with 37 original tabs, cleared private data rows and preserved catalogue exists.
 - [x] Fail-closed staging Code.gs generator and staging HTTP acceptance runner added to PR #37.
-- [ ] New Apps Script project created and a *staging* /exec URL verified.
-- [ ] GET health shows environment=staging, Sheets-only and matching Sheet fingerprint.
-- [ ] Real gift/COD staging order saved and private status recovered.
-- [ ] Exact UUID retry returns same order and conflicting retry is rejected.
-- [ ] One order + one item verified independently in private Sheet.
+- [x] New Apps Script project created; staging /exec URL verified against the private sanitized Sheet fingerprint.
+- [x] GET health confirmed environment=staging, Sheets-only, matching Sheet fingerprint and unfrozen writes.
+- [x] Real synthetic gift/COD order persisted and private tracking succeeded (2026-11-05).
+- [x] Exact UUID retry returned the original order; conflicting retry was rejected.
+- [x] Read all ID rows: exactly ONE matching `orders` row and ONE linked `order_items` row; no orphans/other orders.
 - [ ] Staff roles, fulfillment, rider cash collection, refund and POS acceptance separately tested.
-- [ ] Production original Google Sheet access changed from link-reader to Restricted.
+- [x] Owner showed Restricted in Google Drive UI; final owner-account ACL review remains advisable.
 - [ ] Netlify staging preview checked separately with staging-only /exec URL.
 
 No production Sheet, Netlify site or live Apps Script deployment was modified. Do not merge PR #37 to production before these checks pass.
@@ -128,3 +128,11 @@ explicitly run the same command with `--commit` for a single synthetic COD
 order and verify the isolated staging `orders` and `order_items` tabs.
 Do not edit the production Google Sheet, or re-push/redeploy Apps Script for
 this runner-only fix.
+
+
+## Real isolated COD acceptance evidence — 2026-11-05
+- Owner ran the production-independent staging `--commit` acceptance runner after successful GET-only preflight. The returned result had `saved:true`, `identical_retry:true`, `collision_rejected:true` and `private_tracking:true`.
+- Assistant independently read the **private staging** Google Sheet's complete order-ID and item-reference columns (not just first rows) through the authorized Drive connection. Exactly **1 order** and **1 associated item** were present, with no duplicate order IDs and no orphan items.
+- Test order ID: `ord_8e42ea25-120e-4e48-a0f3-9ed18ecf7e9f`; `status=pending`, `payment_method=cod`, `payment_status=pending`, `total_amount=360` BDT; Vanilla Half Pound item `subtotal=300`, delivery `60` BDT.
+- The saved private receipt JSON parsed successfully and includes gift recipient/sender fields, `is_gift:true` and `hide_price_on_box:true`. No customer capability or private phone/address details were copied into the PR.
+- This proves one isolated Apps Script COD flow only. Real production checkout, rider cash collection, staff fulfillment, refunds and POS printing remain separate unverified acceptance tests.
