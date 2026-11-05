@@ -33,7 +33,7 @@ test('Netlify public catalog is read-only, validates source host and never retur
 test('Netlify health checks Google Sheets release without returning Script Properties',async()=>{
   const fetcher=async()=>({ok:true,url:'https://script.googleusercontent.com/relay',
     json:async()=>({ok:true,service:'aurora_public_content',release:'aurora-2026-11-03-staff-order-alerts-r5',
-      database_backend:'google_sheets',SECRET:'must-not-leak'})} as Response);
+      database_backend:'google_sheets',writes_frozen:false,SECRET:'must-not-leak'})} as Response);
   const response=await health(request('/api/backend-health'),{scriptUrl,fetcher});
   assert.equal(response.status,200);
   const body=await response.json();
