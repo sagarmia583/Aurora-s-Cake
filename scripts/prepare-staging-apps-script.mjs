@@ -51,6 +51,41 @@ export function createStagingCode(bundle,sheetId){
     "var AURORA_RECEIPT_VIEW_BASE_='';");
   code=code.replaceAll("if(typeof auroraNotifyOrderStage_==='function')",
     "if(false && typeof auroraNotifyOrderStage_==='function')");
+
+  // Never let an unauthenticated first login claim the super-admin account.
+  const firstLogin=/    if\(kind==='staff' && accounts\.rows\.length===0 && name==='admin'\)\{[\s\S]*?\n    \}\n    if\(!person\|\|/;
+  if(!firstLogin.test(code))throw new Error('Implicit admin bootstrap source changed; fail closed.');
+  code=code.replace(firstLogin,"    if(!person||");
+  const ownerSetup=[
+    "",
+    "/** Staging only: editor-authorized, one-time first admin setup. */",
+    "function setupAuroraStagingOwnerOnce(){",
+    "  auroraStagingGuard_();",
+    "  var owner=auroraRequireInteractiveSetup_();",
+    "  var props=PropertiesService.getScriptProperties();",
+    "  var password=String(props.getProperty('AURORA_STAGING_OWNER_PASSWORD')||'');",
+    "  if(password.length<16||password.length>128||password.trim()!==password||",
+    "    !/[A-Z]/.test(password)||!/[a-z]/.test(password)||",
+    "    !/[0-9]/.test(password)||!/[^A-Za-z0-9]/.test(password))",
+    "      throw new Error('Set a 16+ character strong staging admin password in Script Properties first.');",
+    "  var lock=LockService.getScriptLock();",
+    "  if(!lock.tryLock(10000))throw new Error('Staging admin setup is busy');",
+    "  try{",
+    "    var staff=auroraPrivateTable_(auroraSpreadsheet_(),'staff_accounts');",
+    "    if(staff.rows.length!==0)throw new Error('Staff accounts already exist. Refusing setup.');",
+    "    var salt=auroraAccountToken_(),now=new Date().toISOString();",
+    "    auroraAppendPrivate_(staff,{id:'staff_'+Utilities.getUuid(),",
+    "      username:'admin',name:'Staging Owner',role:'super_admin',",
+    "      password_salt:salt,password_hash:auroraAccountHash_(password,salt),",
+    "      failed_attempts:0,locked_until:0,active:true,",
+    "      created_at:now,updated_at:now});",
+    "    props.deleteProperty('AURORA_STAGING_OWNER_PASSWORD');",
+    "    return {ok:true,configured:true,username:'admin',owner:owner,secret_deleted:true};",
+    "  }finally{lock.releaseLock();}",
+    "}"
+  ].join('\n');
+  code += ownerSetup + '\n';
+
   if(code.includes(original))throw new Error('REFUSED: production Sheet ID still exists in staging bundle');
   if(!code.includes("environment:'staging'"))throw new Error('Staging marker missing');
   return code;
