@@ -8,6 +8,7 @@ on:
       - "src/utils/freeGifts.ts"
       - "src/index.css"
       - "tests/free-gifts-and-mobile-offers.test.tsx"
+      - "tests/storefront-product-photo-fallback.test.tsx"
       - ".github/workflows/verify-free-gifts.yml"
   push:
     branches: [main]
@@ -34,7 +35,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Google Sheets freebies and iPhone marquee regression tests
-        run: npx tsx --test tests/free-gifts-and-mobile-offers.test.tsx
+        run: npx tsx --test tests/free-gifts-and-mobile-offers.test.tsx tests/storefront-product-photo-fallback.test.tsx
       - name: Confirm backend public settings allowlist
         run: |
           node --input-type=module -e "
