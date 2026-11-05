@@ -37,9 +37,21 @@ const safeImage = (value?: string) => value && /^(https?:\/\/|\/[^/])/i.test(val
  * an external CDN rejects hotlinking. Never repeat a failed image request.
  */
 export function StorefrontProductPhoto({ product }: { product: Product }) {
-  const candidates = useMemo(() => [...new Set([
-    safeImage(product.image_url), ...(product.gallery_images || []).map(safeImage)
-  ].filter((value): value is string => Boolean(value)))], [product.image_url, product.gallery_images]);
+  const candidates = useMemo(() => {
+    const primary=safeImage(product.image_url);
+    const gallery=(product.gallery_images||[]).map(safeImage);
+    let lowResolution=false;
+    try {
+      const url=new URL(primary||'', 'https://aurorascake.netlify.app');
+      const size=Number(url.searchParams.get('s'));
+      lowResolution=/^encrypted-tbn[0-9]*\.gstatic\.com$/i.test(url.hostname) &&
+        Number.isFinite(size) && size>0 && size<200;
+    }catch { /* Invalid/unavailable primary goes through normal fallback. */ }
+    // Existing Sheet product thumbnails often have s=10: prefer local full
+    // gallery photos instead of displaying a blurry ten-pixel square.
+    return [...new Set((lowResolution?[...gallery,primary]:[primary,...gallery])
+      .filter((value):value is string=>Boolean(value)))];
+  }, [product.image_url,product.gallery_images]);
   const [index,setIndex] = useState(0);
   useEffect(() => { setIndex(0); }, [product.id, product.image_url, product.gallery_images]);
   return candidates[index]
