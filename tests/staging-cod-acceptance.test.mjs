@@ -22,11 +22,13 @@ const url='https://script.google.com/macros/s/AKfycbStagingFixture_222/exec';
 const health={ok:true,database_backend:'google_sheets',environment:'staging',
   staging_sheet_fingerprint:sheetFingerprint(id),writes_frozen:false,release:'r5'};
 const catalog={ok:true,schema_version:1,data:{
-  products:[{id:'p1',name:'Fixture Cake',is_active:true,allowed_flavor_ids:'f1'}],
-  product_variants:[{id:'v1',product_id:'p1',is_active:true,price:100}],
+  // Mirrors Apps Script's real public schema, not raw spreadsheet tabs.
+  settings:{accepting_orders:true,delivery_enabled:true},
+  products:[{id:'p1',name:'Fixture Cake',is_active:true,
+    allowed_flavor_ids:['f1'],variants:[{id:'v1',product_id:'p1',is_active:true,price:100}]}],
   flavors:[{id:'f1',name:'Vanilla',is_active:true}],
-  delivery_zones:[{id:'z1',is_active:true,delivery_fee:0}],
-  delivery_slots:[{id:'s1',slot_label:'10 AM - 12 PM',is_active:true}]
+  zones:[{id:'z1',is_active:true,delivery_fee:0}],
+  slots:[{id:'s1',slot_label:'10 AM - 12 PM',is_active:true}]
 }};
 function fixture({h=health,p=catalog}={}){
   const calls=[];let first=null;let order=null;
@@ -88,4 +90,40 @@ test('wrong host and protocol are blocked before fetching anything',async()=>{
     }));
   }
   assert.equal(f.calls.length,0);
+});
+
+test('preflight handles native Apps Script zones, slots and nested variants',async()=>{
+  const f=fixture();
+  const result=await runStagingCodAcceptance({url,sheetId:id,fetcher:f.fetcher});
+  assert.equal(result.product_id,'p1');
+  assert.equal(result.variant_id,'v1');
+  assert.equal(result.delivery_slot,'10 AM - 12 PM');
+  assert.deepEqual(f.calls.map(x=>x.opts.method),['GET','GET']);
+});
+test('preflight refuses checkout when staging settings disable delivery',async()=>{
+  const f=fixture({p:{...catalog,data:{...catalog.data,
+    settings:{accepting_orders:true,delivery_enabled:false}}}});
+  await assert.rejects(()=>runStagingCodAcceptance({
+    url,sheetId:id,commit:true,fetcher:f.fetcher
+  }),/not accepting COD delivery orders/);
+  assert.equal(f.calls.filter(x=>x.opts.method==='POST').length,0);
+});
+test('preflight does not mistake an inactive delivery slot for a valid choice',async()=>{
+  const f=fixture({p:{...catalog,data:{...catalog.data,
+    slots:[{id:'s1',slot_label:'10 AM - 12 PM',is_active:false}]}}});
+  await assert.rejects(()=>runStagingCodAcceptance({
+    url,sheetId:id,commit:true,fetcher:f.fetcher
+  }),/No active staging delivery time slot/);
+  assert.equal(f.calls.filter(x=>x.opts.method==='POST').length,0);
+});
+test('old raw-tab public test fixtures also remain supported',async()=>{
+  const raw={...catalog,data:{...catalog.data,
+    products:[{id:'p1',name:'Fixture Cake',is_active:true,allowed_flavor_ids:'f1'}],
+    product_variants:[{id:'v1',product_id:'p1',is_active:true,price:100}],
+    delivery_zones:catalog.data.zones,delivery_slots:catalog.data.slots,
+    zones:undefined,slots:undefined}};
+  const f=fixture({p:raw});
+  const result=await runStagingCodAcceptance({url,sheetId:id,fetcher:f.fetcher});
+  assert.equal(result.variant_id,'v1');
+  assert.deepEqual(f.calls.map(x=>x.opts.method),['GET','GET']);
 });
