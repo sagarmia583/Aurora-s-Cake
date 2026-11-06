@@ -144,7 +144,10 @@ function auroraDoPost_(e) {
     if (input && (input.action === 'sync_item_costings' || input.action === 'get_item_costings' || input.action === 'staff_item_costings')) return auroraResponse_(auroraCostingPost_(input));
     if (input && input.action === 'staff_customer_lookup') return auroraResponse_(auroraStaffCustomerLookup_(input));
     if (input && input.action === 'customer_contact_submit') return auroraResponse_(auroraGuestContactSubmit_(input));
-    if (input && input.action === 'customer_phone_history') return auroraResponse_(auroraCustomerPhoneOrders_(input));
+    // Phone ownership is unverified; this legacy route must never enumerate
+    // existing customers' receipts, names or delivery addresses.
+    if (input && input.action === 'customer_phone_history')
+      auroraReject_('forbidden','Phone-only order history is disabled. Use your linked account or original receipt.');
     if (input && input.action === 'customer_receipt_recover') return auroraResponse_(auroraCustomerReceiptRecover_(input));
     if (input && input.action === 'get_order_status') return auroraResponse_(auroraCustomerOrderStatus_(input));
     if (input && input.action === 'customer_review_submit') return auroraResponse_(auroraCustomerReview_(input));
