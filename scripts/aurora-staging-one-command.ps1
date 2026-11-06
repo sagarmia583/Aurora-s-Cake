@@ -135,6 +135,9 @@ function Create-OneTimeMarker {
 Write-Host ''
 Write-Host 'AURORA STAGING: isolated Google Sheets only; production is NOT targeted.'
 Assert-StagingTarget
+if($Mode -ne 'Check' -and (Test-Path -LiteralPath $marker)){
+  throw 'STOP: a staged workflow was already attempted in this project. Read the private Sheet before resetting or repeating the test.'
+}
 $node=Get-Executable 'node.exe'
 
 if($Mode -eq 'All'){
