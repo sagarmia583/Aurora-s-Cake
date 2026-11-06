@@ -409,10 +409,11 @@ function auroraCustomerOrderStatus_(input) {
   if (!hasCapability && !hasPhoneOwner && input.id_token && order.customer_google_sub) {
     hasGoogleOwner = auroraCustomerIdentity_(input).sub === order.customer_google_sub;
   }
-  // Legacy orders predate customer capabilities and may still support
-  // limited phone/reference lookup, but NEVER return an OTP on that basis.
-  if (!hasCapability && !hasPhoneOwner && !hasGoogleOwner && order.customer_access_token) {
-    auroraReject_('forbidden','A valid receipt access key or linked Google login is required.');
+  // Even legacy order IDs and customer phone numbers are not ownership
+  // proof. The shop can issue a new receipt capability after independent
+  // verification through staff_legacy_receipt.
+  if (!hasCapability && !hasPhoneOwner && !hasGoogleOwner) {
+    auroraReject_('forbidden','A valid receipt access key or linked login is required.');
   }
   var result={ok:true,order_id:order.id,status:order.status,updated_at:order.updated_at,
     history:Array.isArray(order.history) ? order.history.slice(-20) : [],rider_name:order.rider_name||'',
