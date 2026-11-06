@@ -81,3 +81,25 @@ The latest staff acceptance runner now attempts to deactivate every temporary st
 Once the Staging Web App has hardened_staff_auth in its health result and the one-time owner exists, run the read-only staging staff preflight first. The full authenticated test only follows after the owner explicitly authorizes -Commit.
 
 Independent cash deposit approval, refunds, inventory movements and production-cost snapshots remain separate unimplemented or unaccepted workflows and cannot be certified by this single delivery test.
+
+## Admin login recovery after invalid_credentials (2026-11-06)
+The first Staging Staff -Commit stopped before creating roles because the admin login returned invalid_credentials. Private Sheet readback confirmed exactly one ACTIVE admin/super_admin with failed_attempts=1, locked_until=0, zero auth sessions and the original BDT 360 COD order PENDING. The first terminal attempt was only a rejected confirmation containing extra leading whitespace.
+
+Do not guess passwords repeatedly (five failures can lock the account for 15 minutes). The updated staging generator adds an owner-only editor function resetAuroraStagingOwnerPasswordOnce. It is NOT routed through doPost or doGet, refuses production Sheet bindings and duplicate/inactive/non-super-admin accounts, rotates the password salt/hash, resets failed attempts, revokes staff sessions, and removes its temporary Script Property.
+
+From the project root, download the updated file from GitHub and regenerate the *existing isolated staging project only*:
+
+~~~powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/sagarmia583/Aurora-s-Cake/fix/netlify-google-sheets-only-20261104/scripts/prepare-staging-apps-script.mjs" -OutFile ".\scripts\prepare-staging-apps-script.mjs"
+node .\scripts\prepare-staging-apps-script.mjs --sheet-id "<ISOLATED_STAGING_SHEET_ID>"
+cd .aurora-staging-apps-script
+clasp.cmd push
+~~~
+
+Confirm that .clasp.json links only to the previously created STAGING project before approving push. The deployed /exec version does not need another deployment for this editor-only reset: the login reads the password hash from the same isolated staff_accounts Sheet row.
+
+In the STAGING Apps Script editor open Project Settings > Script properties. Add the property AURORA_STAGING_OWNER_RESET_PASSWORD with a brand-new, unique, strong password (16+ characters, uppercase/lowercase, digit and symbol; no leading/trailing whitespace). Save. Return to the editor, select resetAuroraStagingOwnerPasswordOnce, then Run exactly once. Expected return: ok:true, reset:true, secret_deleted:true. Confirm the reset property is gone. Do NOT copy the password into chat or terminal commands.
+
+Afterward return to the project root with cd .. and run GET-only Staff preflight. Only after a successful health check run the one-time authorized -Commit acceptance command, using the NEW password in the hidden PowerShell prompt. Never repeat a partially failed -Commit without checking the isolated Sheet.
+
+The wrapper now accepts harmless surrounding whitespace in RUN-STAGING-STAFF but still requires that exact confirmation.
