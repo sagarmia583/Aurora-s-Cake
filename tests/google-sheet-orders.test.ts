@@ -1308,3 +1308,15 @@ test('kitchen and finance never receive gift contact details through queue or st
   const persisted=JSON.parse(String(h.records('orders')[0].receipt_json));
   assert.equal(persisted.recipient_phone,'01700112233','contact data remains in the private source of truth');
 });
+
+test('legacy public phone-history route never reveals orders, recipient names or addresses',()=>{
+  const h=harness({singleFile:true});
+  const created=h.post(request({customer_name:'Private Customer',delivery_address:'Private Tangail Address'}));
+  assert.equal(created.persisted,true);
+  const exposed=h.post({action:'customer_phone_history',phone:created.order.customer_phone});
+  assert.equal(exposed.code,'forbidden');
+  assert.equal(exposed.orders,undefined);
+  assert.equal(exposed.profile,undefined);
+  assert.doesNotMatch(JSON.stringify(exposed),/Private Customer|Private Tangail Address/);
+  assert.equal(h.records('orders').length,1,'legacy lookup must not change stored orders');
+});
