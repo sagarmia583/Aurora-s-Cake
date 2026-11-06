@@ -26,7 +26,7 @@ if($Commit){
   Write-Host 'records simulated cash acknowledgement and disables test staff accounts.'
   Write-Host 'It does NOT create an independent cash deposit or physical payment.'
   $answer=Read-Host 'Type RUN-STAGING-STAFF to authorize this one-time test'
-  if($answer -cne 'RUN-STAGING-STAFF'){throw 'Cancelled without writing.'}
+  if($answer.Trim() -cne 'RUN-STAGING-STAFF'){throw 'Cancelled without writing.'}
   $secure=Read-Host 'Staging admin password (hidden)' -AsSecureString
   $ptr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
   try {$env:AURORA_STAGING_ADMIN_PASSWORD=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)}
