@@ -1275,3 +1275,36 @@ test('delivery assignment rejects partial names, inactive accounts and forged ri
   assert.equal(h.post({action:'staff_mutate',auth_token:rider.auth_token,
     operation:'pick_up',order_id:order.id}).ok,true);
 });
+
+test('kitchen and finance never receive gift contact details through queue or stage mutation',()=>{
+  const h=harness({singleFile:true});
+  const created=h.post(request({is_gift:true,recipient_name:'Cake Recipient',
+    recipient_phone:'01700112233',sender_name:'Gift Sender',sender_phone:'01800112233',
+    gift_card_message:'Happy day'}));
+  assert.equal(created.persisted,true);
+  const orderId=created.order.id;
+  assert.equal(h.post({action:'staff_mutate',id_token:ADMIN_TOKEN,
+    operation:'confirm',order_id:orderId}).ok,true);
+  h.context.PropertiesService={getScriptProperties:()=>({getProperty:(key:string)=>
+    key==='AURORA_GOOGLE_CLIENT_ID'?'test-client.apps.googleusercontent.com':
+    key==='AURORA_STAFF_USERS'?JSON.stringify({
+      'owner@example.com':{role:'kitchen_manager',name:'Chef'},
+      'rider@example.com':{role:'accountant',name:'Accountant'}
+    }):null})};
+  const kitchen=h.post({action:'staff_orders',id_token:ADMIN_TOKEN}).orders[0];
+  const changed=h.post({action:'staff_mutate',id_token:ADMIN_TOKEN,
+    operation:'start_baking',order_id:orderId}).order;
+  const finance=h.post({action:'staff_orders',id_token:RIDER_TOKEN}).orders[0];
+  for(const view of [kitchen,changed,finance]){
+    assert.ok(view);
+    for(const field of ['customer_phone','delivery_address','recipient_phone','sender_phone',
+      'customer_email','customer_account_id','customer_access_token','customer_google_sub','delivery_otp']){
+      assert.equal(view[field],undefined,field+' unexpectedly visible to limited staff');
+    }
+  }
+  assert.equal(kitchen.gift_card_message,'Happy day');
+  assert.equal(changed.status,'preparing');
+  assert.equal(finance.items,undefined);
+  const persisted=JSON.parse(String(h.records('orders')[0].receipt_json));
+  assert.equal(persisted.recipient_phone,'01700112233','contact data remains in the private source of truth');
+});
