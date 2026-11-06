@@ -324,7 +324,7 @@ function auroraOperationsPost_(input) {
     };
     if((actor.role==='super_admin'||actor.role==='admin')&&action==='start_delivery'){
       allowedSourceStatuses.start_delivery.push('ready');
-      if(order.status==='ready'&&!order.rider_id){order.rider_id=actor.username||actor.email;order.rider_name=actor.name;}
+      // A manager is not automatically a rider; a registered rider must be assigned first.
     }
     if (!targetStatus[action] || !allowedSourceStatuses[action] || allowedSourceStatuses[action].indexOf(order.status) === -1) {
       auroraReject_('invalid_transition','Order is not at the required stage.');
@@ -333,6 +333,8 @@ function auroraOperationsPost_(input) {
       var isManagerOrAdmin = actor.role === 'super_admin' || actor.role === 'admin' || actor.role === 'delivery_manager';
       var hasAdminOverride = isManagerOrAdmin && (actor.role==='super_admin'||actor.role==='admin'||input.admin_override === true || input.admin_override === 'true');
       var assignedRider = String(order.rider_id || '').toLowerCase().trim();
+      if (action === 'start_delivery' && !assignedRider)
+        auroraReject_('rider_required','Assign an active registered rider before dispatching this order.');
       var actorEmail = String(actor.email || '').toLowerCase().trim();
       var actorUser = String(actor.username || '').toLowerCase().trim();
 

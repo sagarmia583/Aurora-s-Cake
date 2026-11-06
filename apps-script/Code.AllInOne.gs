@@ -2232,7 +2232,7 @@ function auroraOperationsPost_(input) {
     };
     if((actor.role==='super_admin'||actor.role==='admin')&&action==='start_delivery'){
       allowedSourceStatuses.start_delivery.push('ready');
-      if(order.status==='ready'&&!order.rider_id){order.rider_id=actor.username||actor.email;order.rider_name=actor.name;}
+      // A manager is not automatically a rider; a registered rider must be assigned first.
     }
     if (!targetStatus[action] || !allowedSourceStatuses[action] || allowedSourceStatuses[action].indexOf(order.status) === -1) {
       auroraReject_('invalid_transition','Order is not at the required stage.');
@@ -2241,6 +2241,8 @@ function auroraOperationsPost_(input) {
       var isManagerOrAdmin = actor.role === 'super_admin' || actor.role === 'admin' || actor.role === 'delivery_manager';
       var hasAdminOverride = isManagerOrAdmin && (actor.role==='super_admin'||actor.role==='admin'||input.admin_override === true || input.admin_override === 'true');
       var assignedRider = String(order.rider_id || '').toLowerCase().trim();
+      if (action === 'start_delivery' && !assignedRider)
+        auroraReject_('rider_required','Assign an active registered rider before dispatching this order.');
       var actorEmail = String(actor.email || '').toLowerCase().trim();
       var actorUser = String(actor.username || '').toLowerCase().trim();
 
@@ -4611,14 +4613,24 @@ function auroraSharedLogo_(){return AURORA_SHARED_LOGO_;}
 
 /* ==== BEGIN apps-script/OrderLinks.gs ==== */
 /** Customer view links use a separate, revocable bearer key, never a phone-only lookup. */
-var AURORA_RECEIPT_VIEW_BASE_='https://script.google.com/macros/s/AKfycbw38J4AzlYkAhNtyDAp_CP34fUk9Epae6xz46AQFbF9ye1VsZjxTXmzbJgs52WEoWETMw/exec';
+/**
+ * Bind customer receipt links to this deployed Apps Script environment.
+ * Never redirect staging customers to a hard-coded production deployment.
+ */
+function auroraReceiptViewBase_(){
+  var url='';
+  try{url=ScriptApp.getService().getUrl();}catch(_){}
+  if(typeof url!=='string'||!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(url))
+    auroraReject_('receipt_link_unavailable','Deploy this Apps Script web app before issuing customer receipt links.');
+  return url;
+}
 var AURORA_RECEIPT_LINK_LIFETIME_MS_=30*24*60*60*1000;
 function auroraReceiptLinkActive_(order){
   var issued=Date.parse(String(order.customer_share_created_at||''));
   return !!order.customer_share_token&&Number.isFinite(issued)&&Date.now()-issued<AURORA_RECEIPT_LINK_LIFETIME_MS_;
 }
 function auroraReceiptViewUrl_(order){
-  return AURORA_RECEIPT_VIEW_BASE_+'?action=receipt&ref='+encodeURIComponent(order.id)+'&access='+encodeURIComponent(order.customer_share_token);
+  return auroraReceiptViewBase_()+'?action=receipt&ref='+encodeURIComponent(order.id)+'&access='+encodeURIComponent(order.customer_share_token);
 }
 function auroraStaffOrderLink_(input){
   var actor=auroraStaffAuthenticate_(input);
@@ -4646,9 +4658,10 @@ function auroraStaffOrderLink_(input){
   }finally{lock.releaseLock();}
 }
 function auroraStaffShareSafe_(order,actor){
-  if(auroraReceiptLinkActive_(order)&&['super_admin','admin','order_manager','delivery_manager'].indexOf(actor.role)!==-1)
-    order.customer_share_url=auroraReceiptViewUrl_(order);
-  else delete order.customer_share_url;
+  if(auroraReceiptLinkActive_(order)&&['super_admin','admin','order_manager','delivery_manager'].indexOf(actor.role)!==-1){
+    try{order.customer_share_url=auroraReceiptViewUrl_(order);}
+    catch(_){delete order.customer_share_url;}
+  }else delete order.customer_share_url;
   delete order.customer_share_token;delete order.customer_share_created_at;
   return order;
 }
