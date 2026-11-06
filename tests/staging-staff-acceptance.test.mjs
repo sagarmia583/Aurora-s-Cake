@@ -144,3 +144,60 @@ test('a failed intermediate stage still deactivates all newly created staff acco
   assert.deepEqual(f.sequence,['confirmed','preparing'],
     'real stages can be partially committed; must not pretend rollback');
 });
+
+
+test('staging password reset runs only as editor owner, resets failed attempts and revokes sessions',async()=>{
+  const {runInNewContext}=await import('node:vm');
+  const generated=createStagingCode(bundle,sheetId);
+  const marker='function resetAuroraStagingOwnerPasswordOnce(){';
+  assert.equal(generated.split(marker).length,2,'reset function must occur exactly once');
+  const isolatedFunction=generated.slice(generated.indexOf(marker));
+  assert.match(isolatedFunction,/auroraStagingGuard_\(\)/);
+  assert.match(isolatedFunction,/auroraRequireInteractiveSetup_\(\)/);
+  assert.match(isolatedFunction,/AURORA_STAGING_OWNER_RESET_PASSWORD/);
+  assert.match(isolatedFunction,/props.deleteProperty\('AURORA_STAGING_OWNER_RESET_PASSWORD'\)/);
+  const props=new Map(),saved=[],revoked=[];
+  const person={id:'staff-isolated-test',username:'admin',role:'super_admin',
+    active:true,password_salt:'old',password_hash:'oldhash',
+    failed_attempts:1,locked_until:0};
+  const people=[person],lock={tryLock:()=>true,releaseLock:()=>{}};
+  let editorAuthorized=false,guarded=0;
+  const context={
+    auroraStagingGuard_:()=>{guarded++;},
+    auroraRequireInteractiveSetup_:()=>{if(!editorAuthorized)throw Error('Not an interactive owner');return 'staging-owner@example.test';},
+    PropertiesService:{getScriptProperties:()=>({
+      getProperty:key=>props.get(key)||null,
+      deleteProperty:key=>props.delete(key)
+    })},
+    LockService:{getScriptLock:()=>lock},
+    auroraPrivateTable_:()=>({rows:people}),
+    auroraSpreadsheet_:()=>({}),
+    auroraAccountToken_:()=>('new_random_salt'),
+    auroraAccountHash_:(secret,salt)=>'hashed('+secret.length+','+salt+')',
+    auroraAccountSave_:(_,p)=>saved.push({...p}),
+    auroraAccountRevokeAll_:(kind,id)=>revoked.push([kind,id]),
+    Date
+  };
+  runInNewContext(isolatedFunction,context);
+  props.set('AURORA_STAGING_OWNER_RESET_PASSWORD','NewIsolatedStagingOwnerPassword2026!');
+  assert.throws(()=>context.resetAuroraStagingOwnerPasswordOnce(),/interactive owner/);
+  assert.equal(saved.length,0);
+  editorAuthorized=true;
+  const previousHash=person.password_hash;
+  const result=context.resetAuroraStagingOwnerPasswordOnce();
+  assert.equal(result.ok,true);
+  assert.equal(result.reset,true);
+  assert.equal(result.secret_deleted,true);
+  assert.equal(guarded,2);
+  assert.equal(person.failed_attempts,0);
+  assert.equal(person.locked_until,0);
+  assert.notEqual(person.password_hash,previousHash);
+  assert.equal(saved.length,1);
+  assert.deepEqual(revoked,[['staff','staff-isolated-test']]);
+  assert.equal(props.has('AURORA_STAGING_OWNER_RESET_PASSWORD'),false);
+  assert.throws(()=>context.resetAuroraStagingOwnerPasswordOnce(),/new unique/);
+  props.set('AURORA_STAGING_OWNER_RESET_PASSWORD','AnotherNewOwnerPassword2026!Safe');
+  people.push({...person,id:'duplicate-admin'});
+  assert.throws(()=>context.resetAuroraStagingOwnerPasswordOnce(),/Exactly one active staging super_admin/);
+  assert.equal(saved.length,1,'duplicate admin must not be mutated');
+});
