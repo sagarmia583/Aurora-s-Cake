@@ -90,6 +90,45 @@ export function createStagingCode(bundle,sheetId){
   ].join('\n');
   code += ownerSetup + '\n';
 
+  // A one-time, editor-only reset for a staging owner who mistyped or lost
+  // their setup password. This never creates a new staff account and cannot
+  // operate on the original production Sheet.
+  const ownerReset=[
+    "",
+    "/** STAGING ONLY: manually run from Apps Script editor. Never a web route. */",
+    "function resetAuroraStagingOwnerPasswordOnce(){",
+    "  auroraStagingGuard_();",
+    "  var owner=auroraRequireInteractiveSetup_();",
+    "  var props=PropertiesService.getScriptProperties();",
+    "  var password=String(props.getProperty('AURORA_STAGING_OWNER_RESET_PASSWORD')||'');",
+    "  if(password.length<16||password.length>128||password.trim()!==password||",
+    "    !/[A-Z]/.test(password)||!/[a-z]/.test(password)||",
+    "    !/[0-9]/.test(password)||!/[^A-Za-z0-9]/.test(password))",
+    "      throw new Error('Set a new unique 16+ character staging reset password in Script Properties.');",
+    "  var lock=LockService.getScriptLock();",
+    "  if(!lock.tryLock(10000))throw new Error('Staging owner reset is busy');",
+    "  try{",
+    "    var staff=auroraPrivateTable_(auroraSpreadsheet_(),'staff_accounts');",
+    "    var matches=staff.rows.filter(function(p){return String(p.username).toLowerCase()==='admin';});",
+    "    if(matches.length!==1||String(matches[0].role)!=='super_admin'||",
+    "      !(matches[0].active===true||String(matches[0].active).toLowerCase()==='true'))",
+    "      throw new Error('Exactly one active staging super_admin named admin is required; no changes made.');",
+    "    var person=matches[0],salt=auroraAccountToken_();",
+    "    person.password_salt=salt;",
+    "    person.password_hash=auroraAccountHash_(password,salt);",
+    "    person.failed_attempts=0;",
+    "    person.locked_until=0;",
+    "    person.updated_at=new Date().toISOString();",
+    "    auroraAccountSave_(staff,person);",
+    "    auroraAccountRevokeAll_('staff',person.id);",
+    "    props.deleteProperty('AURORA_STAGING_OWNER_RESET_PASSWORD');",
+    "    return {ok:true,reset:true,username:'admin',role:'super_admin',owner:owner,secret_deleted:true};",
+    "  }finally{lock.releaseLock();}",
+    "}"
+  ].join('\n');
+  code += ownerReset + '\n';
+
+
   if(code.includes(original))throw new Error('REFUSED: production Sheet ID still exists in staging bundle');
   if(!code.includes("environment:'staging'"))throw new Error('Staging marker missing');
   return code;
