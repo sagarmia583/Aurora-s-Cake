@@ -2081,6 +2081,30 @@ function auroraFastOrderList_(table){
   var index=table.headers.indexOf('receipt_json')+1;
   return table.sheet.getRange(2,index,last-1,1).getValues().map(function(values){return {receipt_json:values[0]};});
 }
+function auroraStaffSafeOrder_(order,actor){
+  // Apply the SAME data-minimization policy to queue results and mutation
+  // responses; otherwise a kitchen stage write reveals private contacts.
+  if(actor.role==='super_admin'&&!order.customer_access_token&&order.status==='out_for_delivery')
+    order.legacy_receipt_missing=true;
+  delete order.customer_access_token;
+  if(typeof auroraStaffShareSafe_==='function')auroraStaffShareSafe_(order,actor);
+  delete order.customer_google_sub;
+  delete order.customer_account_id;
+  if(actor.role==='kitchen_manager'||actor.role==='accountant'){
+    delete order.customer_phone;
+    delete order.delivery_address;
+    delete order.recipient_phone;
+    delete order.sender_phone;
+    delete order.customer_email;
+    delete order.recipient_email;
+    delete order.sender_email;
+  }
+  if(actor.role==='accountant')delete order.items;
+  delete order.delivery_otp;
+  delete order.otp_failed_attempts;
+  delete order.otp_locked_until;
+  return order;
+}
 function auroraOperationsOrders_(actor, table) {
   var list = [], complete = true, invalidReceipts = 0;
   table.rows.forEach(function(row) {
@@ -2090,25 +2114,7 @@ function auroraOperationsOrders_(actor, table) {
     if (!order || !order.id) { complete = false; invalidReceipts++; return; }
     if (actor.role === 'delivery_man' && String(order.rider_id || '').toLowerCase() !== actor.email) return;
     if (actor.role === 'kitchen_manager' && ['pending','cancelled','delivered'].indexOf(order.status) !== -1) return;
-    // Staff never receives the delivery OTP or the customer's bearer capability.
-    if(actor.role==='super_admin'&&!order.customer_access_token&&order.status==='out_for_delivery')
-      order.legacy_receipt_missing=true;
-    delete order.customer_access_token;
-    if(typeof auroraStaffShareSafe_==='function')auroraStaffShareSafe_(order,actor);
-    delete order.customer_google_sub;
-    if (actor.role === 'kitchen_manager') {
-      delete order.customer_phone;
-      delete order.delivery_address;
-    }
-    if (actor.role === 'accountant') {
-      delete order.customer_phone;
-      delete order.delivery_address;
-      delete order.items;
-    }
-    delete order.delivery_otp;
-    delete order.otp_failed_attempts;
-    delete order.otp_locked_until;
-    list.push(order);
+    list.push(auroraStaffSafeOrder_(order,actor));
   });
   list.sort(function(a,b){return String(b.created_at||'').localeCompare(String(a.created_at||''));});
   var recentHistory = 0;
@@ -2275,13 +2281,7 @@ function auroraOperationsPost_(input) {
     order.history.push({id:'staff_'+Utilities.getUuid(),status:order.status,
       notes:action==='cancel'&&input.reason?'Cancelled: '+auroraOrderText_(input.reason,'Cancellation reason',1,500):'Updated by authorized staff',actor_name:actor.name,created_at:order.updated_at});
     auroraPrivateSaveReceipt_(table,rowNumber,order);
-    var safeOrder = JSON.parse(JSON.stringify(order));
-    delete safeOrder.customer_access_token;
-    if(typeof auroraStaffShareSafe_==='function')auroraStaffShareSafe_(safeOrder,actor);
-    delete safeOrder.customer_google_sub;
-    delete safeOrder.delivery_otp;
-    delete safeOrder.otp_failed_attempts;
-    delete safeOrder.otp_locked_until;
+    var safeOrder=auroraStaffSafeOrder_(JSON.parse(JSON.stringify(order)),actor);
     return {ok:true,order:safeOrder,stage_changed:priorStage!==order.status||priorRider!==String(order.rider_id||'').trim().toLowerCase()};
   } finally {lock.releaseLock();}
 }
