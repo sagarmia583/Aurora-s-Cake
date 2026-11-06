@@ -78,6 +78,52 @@ function Get-Executable([string]$name) {
   if(!$cmd){throw ('Required program is missing: '+$name)}
   return $cmd.Source
 }
+function Resolve-Clasp {
+  # Prefer an existing Google clasp command, including npm's Windows global
+  # install directory when it has not been added to this shell's PATH.
+  $candidate=Get-Command 'clasp.cmd' -ErrorAction SilentlyContinue
+  if($candidate){return $candidate.Source}
+  $npm=Get-Command 'npm.cmd' -ErrorAction SilentlyContinue
+  if(!$npm){throw 'npm.cmd is missing. Install Node.js 22+ and reopen PowerShell before continuing.'}
+  $prefixLines=@(& $npm.Source config get prefix)
+  if($LASTEXITCODE -ne 0 -or $prefixLines.Count -lt 1){
+    throw 'Cannot discover the npm global executable directory. Nothing installed.'
+  }
+  $prefix=([string]$prefixLines[-1]).Trim()
+  if(!$prefix -or !(Test-Path -LiteralPath $prefix)){
+    throw 'Invalid npm global directory. Nothing installed.'
+  }
+  $claspPath=Join-Path $prefix 'clasp.cmd'
+  if(Test-Path -LiteralPath $claspPath){
+    $env:PATH=$prefix+';'+$env:PATH
+    return $claspPath
+  }
+  $version=[string](& node.exe '--version')
+  if($LASTEXITCODE -ne 0 -or $version -notmatch '^v([0-9]+)\.'){
+    throw 'Cannot determine Node.js version. No package was installed.'
+  }
+  if([int]$Matches[1] -lt 22){
+    throw ('Node.js '+$version+' detected. Current Google clasp requires Node.js 22 or newer. Upgrade Node.js and reopen PowerShell first.')
+  }
+  Write-Host 'Google Apps Script CLI (@google/clasp) is not installed.'
+  Write-Host 'It can be installed globally with npm to manage your existing STAGING script.'
+  Write-Host 'Source: https://github.com/google/clasp'
+  Require-Confirmation 'Type INSTALL-CLASP to install the official @google/clasp CLI' 'INSTALL-CLASP'
+  & $npm.Source install --global '@google/clasp'
+  if($LASTEXITCODE -ne 0){throw 'npm could not install @google/clasp. No Apps Script code uploaded.'}
+  $prefixLines=@(& $npm.Source config get prefix)
+  if($LASTEXITCODE -ne 0 -or $prefixLines.Count -lt 1){
+    throw 'Installed clasp but cannot find npm global directory.'
+  }
+  $prefix=([string]$prefixLines[-1]).Trim()
+  $claspPath=Join-Path $prefix 'clasp.cmd'
+  if(!(Test-Path -LiteralPath $claspPath)){
+    throw 'clasp install did not provide clasp.cmd. Reopen PowerShell or inspect npm installation.'
+  }
+  $env:PATH=$prefix+';'+$env:PATH
+  return $claspPath
+}
+
 function Save-ReviewedFile([string]$relative, [string]$backupRoot) {
   $destination=Join-Path $repoRoot $relative
   $parent=Split-Path -Parent $destination
@@ -171,7 +217,7 @@ if($Mode -ne 'Check' -and (Test-Path -LiteralPath $marker)){
 $node=Get-Executable 'node.exe'
 
 if($Mode -eq 'All'){
-  $clasp=Get-Executable 'clasp.cmd'
+  $clasp=Resolve-Clasp
   $backup=Join-Path $repoRoot ('.aurora-staging-local-backup-'+(Get-Date -Format 'yyyyMMdd-HHmmss'))
   Write-Host 'Step 1: backing up locally and downloading all compatible reviewed sources...'
   foreach($relative in @(
