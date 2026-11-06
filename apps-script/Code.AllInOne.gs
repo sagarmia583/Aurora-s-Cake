@@ -2231,41 +2231,29 @@ function auroraOperationsPost_(input) {
       var actorEmail = String(actor.email || '').toLowerCase().trim();
       var actorUser = String(actor.username || '').toLowerCase().trim();
 
-      if (!hasAdminOverride) {
-        if (assignedRider && assignedRider !== 'rider-1' && assignedRider !== actorEmail && assignedRider !== actorUser) {
-          auroraReject_('forbidden','This delivery is assigned to a different rider.');
-        }
-      }
-      if (actor.role === 'delivery_man' && (!order.rider_id || order.rider_id === 'rider-1')) {
-        order.rider_id = actor.username || actor.email;
-        order.rider_name = actor.name || order.rider_id;
+      if (!hasAdminOverride && (!assignedRider ||
+          (assignedRider !== actorEmail && assignedRider !== actorUser))) {
+        auroraReject_('forbidden','This delivery must be assigned to your rider account.');
       }
     }
     if (action === 'assign') {
-      var rawRider = input.rider_email || input.rider_id || input.rider_username || input.rider_name || '';
-      var riderEmail = String(rawRider).trim().toLowerCase();
-      if (!riderEmail || riderEmail.length < 2) {
-        auroraReject_('invalid_rider','Select a registered delivery rider.');
-      }
-      var rider = actor.people ? actor.people[riderEmail] : null;
-      if (!rider) {
-        var allowed = auroraAccountProfiles_().filter(function(person) {
-          var u = String(person.username || '').toLowerCase();
-          var n = String(person.name || '').toLowerCase();
-          return (u === riderEmail || n === riderEmail || u.indexOf(riderEmail) !== -1 || riderEmail.indexOf(u) !== -1) &&
-                 (person.role === 'delivery_man' || person.role === 'delivery_manager');
+      var riderEmail = String(input.rider_email || input.rider_id || input.rider_username || '').trim().toLowerCase();
+      if(!riderEmail || riderEmail.length>200)auroraReject_('invalid_rider','Select a registered delivery rider.');
+      var registered = actor.people && Object.prototype.hasOwnProperty.call(actor.people,riderEmail)
+        ? actor.people[riderEmail] : null;
+      var rider = registered && registered.role==='delivery_man'
+        ? {name:String(registered.name||riderEmail).slice(0,100)} : null;
+      if(!rider){
+        var allowed = auroraAccountProfiles_().filter(function(person){
+          return person.active===true && person.role==='delivery_man' &&
+            String(person.username||'').toLowerCase()===riderEmail;
         })[0];
-        if (allowed) rider = { role: 'delivery_man', name: allowed.name };
+        if(allowed)rider={name:allowed.name};
       }
-      if (!rider) {
-        if (actor.role === 'super_admin' || actor.role === 'admin' || actor.role === 'delivery_manager') {
-          rider = { role: 'delivery_man', name: String(input.rider_name || rawRider).slice(0, 100) };
-        } else {
-          auroraReject_('invalid_rider','Select a registered delivery rider.');
-        }
-      }
-      order.rider_id = String(input.rider_id || riderEmail).trim();
-      order.rider_name = String(input.rider_name || rider.name || rawRider).slice(0, 100);
+      if(!rider)auroraReject_('invalid_rider','Select an active, registered delivery rider.');
+      // Canonical roster identity, not a request-supplied rider label or ID.
+      order.rider_id=riderEmail;
+      order.rider_name=rider.name;
     }
     // Delivery OTP is disabled. Clear legacy codes and lockouts on every transition.
     order.delivery_otp='';order.otp_failed_attempts=0;order.otp_locked_until=0;
@@ -2527,6 +2515,9 @@ function auroraAccountCreateStaff_(actor,input) {
   var role=String(input.role||'');
   if(['super_admin','admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'].indexOf(role)<0)
     auroraReject_('invalid_role','Choose an allowed employee role.');
+  // Admin cannot promote an account to administrator-level privileges.
+  if(actor.role!=='super_admin'&&(role==='super_admin'||role==='admin'))
+    auroraReject_('forbidden','Only Super Admin can create administrator accounts.');
   var name=auroraOrderText_(input.name,'Staff name',2,100),password=auroraAccountStaffPassword_(input.password);
   var lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))auroraReject_('busy','Please retry staff setup.');
@@ -2562,7 +2553,16 @@ function auroraAccountStaffPost_(input) {
       var t=auroraPrivateTable_(auroraSpreadsheet_(),'staff_accounts');
       var person=t.rows.filter(function(row){return String(row.username)===username;})[0];
       if(!person)auroraReject_('not_found','Staff user was not found.');
-      if(input.action==='staff_account_set_active')person.active=input.active===true;
+      if(actor.role!=='super_admin'&&(person.role==='super_admin'||person.role==='admin'))
+        auroraReject_('forbidden','Only Super Admin can manage administrator accounts.');
+      if(input.action==='staff_account_set_active'){
+        if(typeof input.active!=='boolean')auroraReject_('invalid_request','Staff active status must be true or false.');
+        if(!input.active&&person.role==='super_admin'&&!t.rows.some(function(row){
+          return row.id!==person.id&&row.role==='super_admin'&&
+            (row.active===true||String(row.active).toLowerCase()==='true');
+        }))auroraReject_('last_owner','The last active Super Admin cannot be disabled.');
+        person.active=input.active;
+      }
       else{
         var password=auroraAccountStaffPassword_(input.password),salt=auroraAccountToken_();
         person.password_salt=salt;person.password_hash=auroraAccountHash_(password,salt);
