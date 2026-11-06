@@ -74,13 +74,13 @@ function Save-ReviewedFile([string]$relative, [string]$backupRoot) {
   }
 }
 function Invoke-StaffRunner([string]$kind, [string]$nodePath) {
-  $args=@(
+  $cliArgs=@(
     $runner,'--url',$stagingUrl,'--sheet-id',$stagingSheetId,
     '--order-id',$orderId,'--expect-total','360'
   )
-  if($kind -eq 'login'){$args+='--login-only'}
-  if($kind -eq 'commit'){$args+='--commit'}
-  & $nodePath @args
+  if($kind -eq 'login'){$cliArgs+='--login-only'}
+  if($kind -eq 'commit'){$cliArgs+='--commit'}
+  & $nodePath @cliArgs
   if($LASTEXITCODE -ne 0){
     if($kind -eq 'commit'){
       throw 'STAFF TEST STOPPED. Stages may have changed. DO NOT run the test again; inspect the private staging Sheet first.'
