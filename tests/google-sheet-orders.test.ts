@@ -907,7 +907,7 @@ test('legacy receipt recovery requires owner verification; no delivery OTP is ex
   delete original.customer_access_token;
   h.tables.orders[1][ORDER_HEADERS.indexOf('receipt_json')]=JSON.stringify(original);
   const customer={action:'get_order_status',order_id:order.id,customer_phone:order.customer_phone};
-  assert.equal(h.post(customer).delivery_otp,undefined);
+  assert.equal(h.post(customer).code,'forbidden','legacy order IDs and phone numbers are not proof');
   assert.equal(h.post({action:'staff_session',id_token:RIDER_TOKEN}).staff_profiles,undefined);
   const orderList=h.post({action:'staff_orders',id_token:ADMIN_TOKEN}).orders;
   assert.equal(orderList[0].legacy_receipt_missing,true);
