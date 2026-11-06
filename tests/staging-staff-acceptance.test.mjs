@@ -249,3 +249,22 @@ test('consolidated Windows wizard checks only existing staging project, uses hid
   assert.doesNotMatch(wizard,/& \$clasp '(?:deploy|clone|create|run)'/);
   assert.doesNotMatch(wizard,/New-Item.*[Cc]reate.*(?:Apps Script|[Ss]preadsheet)/);
 });
+
+
+test('fresh ZIP wizard creates only an explicit existing staging clasp link',()=>{
+  const wizard=readFileSync(new URL('../scripts/aurora-staging-one-command.ps1',import.meta.url),'utf8');
+  const start=wizard.indexOf('function Initialize-ExistingStagingLink {');
+  const end=wizard.indexOf('function Assert-StagingTarget {');
+  assert.ok(start>=0&&end>start,'staging link function must precede target assertion');
+  const link=wizard.slice(start,end);
+  assert.match(link,/if\(Test-Path -LiteralPath \$claspConfig\)\{return\}/);
+  assert.match(link,/if\(\$Mode -ne 'All'\)/);
+  assert.match(link,/\$typed\.Trim\(\) -cne \$scriptId/);
+  assert.match(link,/WriteAllText\(\$claspConfig,\$json,\$utf8\)/);
+  assert.match(link,/scriptId=\$scriptId;rootDir='\.'/);
+  assert.match(link,/UTF8Encoding\(\$false\)/);
+  assert.ok(wizard.includes('Initialize-ExistingStagingLink\nAssert-StagingTarget'));
+  assert.doesNotMatch(link,/& \$clasp\s+(?:create|clone|deploy)/i);
+  assert.doesNotMatch(link,/New-Item.*(?:[Ss]preadsheet|[Dd]atabase|Apps Script project)/);
+  assert.match(wizard,/Assert-StagingTarget\nif\(\$Mode -ne 'Check'/);
+});
