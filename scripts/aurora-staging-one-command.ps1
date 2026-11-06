@@ -32,6 +32,35 @@ $editorUrl='https://script.google.com/d/'+$scriptId+'/edit'
 $runner=Join-Path $repoRoot 'scripts\accept-staging-staff.mjs'
 $marker=Join-Path $repoRoot '.aurora-staging-staff-acceptance-attempted.txt'
 
+function Initialize-ExistingStagingLink {
+  # An extracted GitHub ZIP never includes the private local .clasp.json.
+  # Bind ONLY the known previously created staging Apps Script project.
+  if(Test-Path -LiteralPath $claspConfig){return}
+  if($Mode -ne 'All'){
+    throw 'STOP: no local staging .clasp.json. Run the default All mode first.'
+  }
+  Write-Host ''
+  Write-Host 'New GitHub ZIP detected: the existing staging Apps Script link is missing.'
+  Write-Host ('Existing STAGING Apps Script editor: '+$editorUrl)
+  Write-Host ('Expected existing STAGING Script ID: '+$scriptId)
+  Write-Host 'This will NOT create an Apps Script project or change a spreadsheet.'
+  $typed=Read-Host 'Copy the existing STAGING Script ID above to confirm the link'
+  if(!$typed -or $typed.Trim() -cne $scriptId){
+    throw 'STOP: staging project ID not confirmed. No Apps Script link created.'
+  }
+  if(!(Test-Path -LiteralPath $stagingRoot)){
+    New-Item -ItemType Directory -Force -Path $stagingRoot | Out-Null
+  }
+  if(Test-Path -LiteralPath $claspConfig){
+    throw 'STOP: staging configuration was concurrently created. Inspect it manually.'
+  }
+  # Write no-BOM UTF-8 so Node/clasp can parse the JSON reliably on WinPS 5.1.
+  $json=(@{scriptId=$scriptId;rootDir='.'} | ConvertTo-Json -Compress)
+  $utf8=New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($claspConfig,$json,$utf8)
+  Write-Host 'Linked this ZIP to the EXISTING staging project only.'
+}
+
 function Assert-StagingTarget {
   if(!(Test-Path -LiteralPath $claspConfig)){
     throw 'STOP: existing isolated staging .clasp.json is missing. No project will be created.'
@@ -134,6 +163,7 @@ function Create-OneTimeMarker {
 
 Write-Host ''
 Write-Host 'AURORA STAGING: isolated Google Sheets only; production is NOT targeted.'
+Initialize-ExistingStagingLink
 Assert-StagingTarget
 if($Mode -ne 'Check' -and (Test-Path -LiteralPath $marker)){
   throw 'STOP: a staged workflow was already attempted in this project. Read the private Sheet before resetting or repeating the test.'
