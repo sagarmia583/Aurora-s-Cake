@@ -330,41 +330,29 @@ function auroraOperationsPost_(input) {
       var actorEmail = String(actor.email || '').toLowerCase().trim();
       var actorUser = String(actor.username || '').toLowerCase().trim();
 
-      if (!hasAdminOverride) {
-        if (assignedRider && assignedRider !== 'rider-1' && assignedRider !== actorEmail && assignedRider !== actorUser) {
-          auroraReject_('forbidden','This delivery is assigned to a different rider.');
-        }
-      }
-      if (actor.role === 'delivery_man' && (!order.rider_id || order.rider_id === 'rider-1')) {
-        order.rider_id = actor.username || actor.email;
-        order.rider_name = actor.name || order.rider_id;
+      if (!hasAdminOverride && (!assignedRider ||
+          (assignedRider !== actorEmail && assignedRider !== actorUser))) {
+        auroraReject_('forbidden','This delivery must be assigned to your rider account.');
       }
     }
     if (action === 'assign') {
-      var rawRider = input.rider_email || input.rider_id || input.rider_username || input.rider_name || '';
-      var riderEmail = String(rawRider).trim().toLowerCase();
-      if (!riderEmail || riderEmail.length < 2) {
-        auroraReject_('invalid_rider','Select a registered delivery rider.');
-      }
-      var rider = actor.people ? actor.people[riderEmail] : null;
-      if (!rider) {
-        var allowed = auroraAccountProfiles_().filter(function(person) {
-          var u = String(person.username || '').toLowerCase();
-          var n = String(person.name || '').toLowerCase();
-          return (u === riderEmail || n === riderEmail || u.indexOf(riderEmail) !== -1 || riderEmail.indexOf(u) !== -1) &&
-                 (person.role === 'delivery_man' || person.role === 'delivery_manager');
+      var riderEmail = String(input.rider_email || input.rider_id || input.rider_username || '').trim().toLowerCase();
+      if(!riderEmail || riderEmail.length>200)auroraReject_('invalid_rider','Select a registered delivery rider.');
+      var registered = actor.people && Object.prototype.hasOwnProperty.call(actor.people,riderEmail)
+        ? actor.people[riderEmail] : null;
+      var rider = registered && registered.role==='delivery_man'
+        ? {name:String(registered.name||riderEmail).slice(0,100)} : null;
+      if(!rider){
+        var allowed = auroraAccountProfiles_().filter(function(person){
+          return person.active===true && person.role==='delivery_man' &&
+            String(person.username||'').toLowerCase()===riderEmail;
         })[0];
-        if (allowed) rider = { role: 'delivery_man', name: allowed.name };
+        if(allowed)rider={name:allowed.name};
       }
-      if (!rider) {
-        if (actor.role === 'super_admin' || actor.role === 'admin' || actor.role === 'delivery_manager') {
-          rider = { role: 'delivery_man', name: String(input.rider_name || rawRider).slice(0, 100) };
-        } else {
-          auroraReject_('invalid_rider','Select a registered delivery rider.');
-        }
-      }
-      order.rider_id = String(input.rider_id || riderEmail).trim();
-      order.rider_name = String(input.rider_name || rider.name || rawRider).slice(0, 100);
+      if(!rider)auroraReject_('invalid_rider','Select an active, registered delivery rider.');
+      // Canonical roster identity, not a request-supplied rider label or ID.
+      order.rider_id=riderEmail;
+      order.rider_name=rider.name;
     }
     // Delivery OTP is disabled. Clear legacy codes and lockouts on every transition.
     order.delivery_otp='';order.otp_failed_attempts=0;order.otp_locked_until=0;
