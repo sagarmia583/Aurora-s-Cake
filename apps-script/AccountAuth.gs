@@ -12,13 +12,13 @@ function auroraAccountDigest_(text) {
 }
 function auroraAccountToken_(){return String(Utilities.getUuid())+String(Utilities.getUuid());}
 function auroraAccountPassword_(password){
-  if(typeof password!=='string'||password.length<4||password.length>128||password.trim()!==password)
-    auroraReject_('invalid_password','Use a password of 4–128 characters, without leading or trailing spaces.');
+  if(typeof password!=='string'||password.length<8||password.length>128||password.trim()!==password)
+    auroraReject_('invalid_password','Use a password of 8–128 characters, without leading or trailing spaces.');
   return password;
 }
 function auroraAccountStaffPassword_(password){
-  if(typeof password!=='string'||password.length<4||password.length>128||password.trim()!==password)
-    auroraReject_('invalid_password','Use a staff password of 4–128 characters, without leading or trailing spaces.');
+  if(typeof password!=='string'||password.length<8||password.length>128||password.trim()!==password)
+    auroraReject_('invalid_password','Use a staff password of 8–128 characters, without leading or trailing spaces.');
   return password;
 }
 function auroraAccountHash_(password,salt) {
@@ -52,7 +52,7 @@ function auroraAccountStart_(kind,id) {
   var t=auroraPrivateTable_(auroraSpreadsheet_(),'auth_sessions'),now=Date.now();
   var value=auroraAccountToken_(),row={
     token_hash:auroraAccountDigest_(value),account_type:kind,account_id:id,
-    created_at:new Date(now).toISOString(),expires_at:new Date(now+100*365*24*3600000).toISOString(),revoked:false
+    created_at:new Date(now).toISOString(),expires_at:new Date(now+(kind==='staff'?12*3600000:30*24*3600000)).toISOString(),revoked:false
   };
   auroraAppendPrivate_(t,row);
   return value;
@@ -63,6 +63,13 @@ function auroraAccountAuthenticate_(kind,value){
   var session=t.rows.filter(function(row){return row.token_hash===h&&row.account_type===kind;})[0];
   if(!session||session.revoked===true||String(session.revoked).toLowerCase()==='true')
     auroraReject_('unauthorized','Sign in again to access your account.');
+  // Old rows may carry an extremely long expiry. Enforce a maximum lifetime
+  // from issuance; never trust the previously saved expiry alone.
+  var now=Date.now(),created=Date.parse(String(session.created_at||'')),expires=Date.parse(String(session.expires_at||''));
+  var maximum=kind==='staff'?12*3600000:30*24*3600000;
+  if(!Number.isFinite(created)||!Number.isFinite(expires)||created>now+5*60000||
+      expires<=now||created+maximum<=now)
+    auroraReject_('session_expired','Your session has expired. Sign in again.');
   var accounts=auroraPrivateTable_(auroraSpreadsheet_(),kind==='staff'?'staff_accounts':'customer_accounts');
   var account=auroraAccountValue_(accounts,session.account_id);
   if(!account||!(account.active===true||String(account.active).toLowerCase()==='true'))
@@ -109,14 +116,7 @@ function auroraAccountLogin_(kind,identifier,password){
     if(typeof auroraSupabaseRefresh_==='function')auroraSupabaseRefresh_();
     var accounts=auroraPrivateTable_(auroraSpreadsheet_(),isCustomer?'customer_accounts':'staff_accounts');
     var person=accounts.rows.filter(function(row){return String(row[key]).toLowerCase()===name;})[0];
-    if(kind==='staff' && accounts.rows.length===0 && name==='admin'){
-      var salt=auroraAccountToken_();
-      var defaultPerson={id:'staff_'+Utilities.getUuid(),username:'admin',name:'Shop Administrator',
-        role:'super_admin',password_salt:salt,password_hash:auroraAccountHash_(password,salt),
-        failed_attempts:0,locked_until:0,active:true,created_at:new Date().toISOString(),updated_at:new Date().toISOString()};
-      auroraAppendPrivate_(accounts,defaultPerson);
-      person=defaultPerson;
-    }
+
     if(!person||!(person.active===true||String(person.active).toLowerCase()==='true'))
       auroraReject_('invalid_credentials','Invalid login details.');
     auroraAccountVerifyPassword_(accounts,person,password);
@@ -124,6 +124,37 @@ function auroraAccountLogin_(kind,identifier,password){
     var token=auroraAccountStart_(kind,person.id);
     if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
     return {person:person,token:token};
+  }finally{lock.releaseLock();}
+}
+/**
+ * OWNER-ONLY FIRST ADMIN BOOTSTRAP (not a web route).
+ * To initialize on a new private Sheet, the owner creates Script Property
+ * AURORA_FIRST_OWNER_PASSWORD (a strong 16+ character temporary password)
+ * and runs THIS function manually in the Apps Script editor. The property
+ * is removed immediately after successfully hashing and storing the account.
+ * An unauthenticated login must never establish a super admin.
+ */
+function setupAuroraFirstStaffOwnerOnce(){
+  var owner=auroraRequireInteractiveSetup_();
+  if(typeof auroraStagingGuard_==='function')auroraStagingGuard_();
+  var props=PropertiesService.getScriptProperties();
+  var password=String(props.getProperty('AURORA_FIRST_OWNER_PASSWORD')||'');
+  if(password.length<16||password.length>128||password.trim()!==password||
+     !/[A-Z]/.test(password)||!/[a-z]/.test(password)||
+     !/[0-9]/.test(password)||!/[^A-Za-z0-9]/.test(password))
+    throw new Error('Set a temporary owner password with 16+ characters, mixed case, a number and a symbol in Script Properties.');
+  var lock=LockService.getScriptLock();
+  if(!lock.tryLock(10000))throw new Error('Owner account setup is busy.');
+  try{
+    var table=auroraPrivateTable_(auroraSpreadsheet_(),'staff_accounts');
+    if(table.rows.length!==0)throw new Error('Staff accounts already exist; refusing to overwrite or create a second owner.');
+    var salt=auroraAccountToken_(),now=new Date().toISOString();
+    auroraAppendPrivate_(table,{id:'staff_'+Utilities.getUuid(),username:'admin',
+      name:'Shop Owner',role:'super_admin',password_salt:salt,
+      password_hash:auroraAccountHash_(password,salt),
+      failed_attempts:0,locked_until:0,active:true,created_at:now,updated_at:now});
+    props.deleteProperty('AURORA_FIRST_OWNER_PASSWORD');
+    return {ok:true,configured:true,username:'admin',role:'super_admin',owner:owner,temporary_password_deleted:true};
   }finally{lock.releaseLock();}
 }
 function auroraAccountPhone_(value){

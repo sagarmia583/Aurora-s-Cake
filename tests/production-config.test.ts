@@ -1,26 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { scriptUrl } from '../cloudflare/shared.js';
 
-test('production Worker keeps a valid runtime backend binding matching the public storefront deployment', () => {
- const config=readFileSync(new URL('../wrangler.toml',import.meta.url),'utf8');
- const vars=config.split('[vars]')[1]?.split('\n[')[0] || '';
- const endpoint=vars.match(/^AURORA_SCRIPT_POST_URL\s*=\s*"([^"]+)"/m)?.[1];
- assert.ok(endpoint,'Public runtime backend URL must be declared for GitHub Worker builds.');
- const parsed=scriptUrl({AURORA_SCRIPT_POST_URL:endpoint});
- assert.ok(parsed,'Runtime binding must pass the same approved Apps Script URL validator as production.');
- const frontend=readFileSync(new URL('../src/services/googleSheets.ts',import.meta.url),'utf8');
- assert.ok(frontend.includes(endpoint),'Public fallback and server relay must target the same approved deployment.');
- assert.match(config,/^keep_vars\s*=\s*true/m);
+test('Netlify deploy uses Google Sheets as its only operational backend',()=>{
+ const netlify=readFileSync(new URL('../netlify.toml',import.meta.url),'utf8');
+ assert.match(netlify,/publish\s*=\s*"dist"/);
+ assert.match(netlify,/functions\s*=\s*"netlify\/functions"/);
+ assert.match(netlify,/VITE_SHEETS_POST_PROXY\s*=\s*"\/api\/operations"/);
+ assert.match(netlify,/VITE_FIREBASE_ENABLED\s*=\s*"false"/);
+ assert.match(netlify,/VITE_SUPABASE_ENABLED\s*=\s*"false"/);
+ const relay=readFileSync(new URL('../netlify\/functions\/operations.mjs',import.meta.url),'utf8');
+ assert.ok(relay.includes("target.hostname!=='script.google.com'"));
+ const api=readFileSync(new URL('../netlify/functions/public.mjs',import.meta.url),'utf8');
+ assert.ok(api.includes("endpoint")===false || api.includes("public"));
 });
 
-test('health proxies identify the Apps Script release actually supplied for deployment',()=>{
- const backend=readFileSync(new URL('../apps-script/Code.gs',import.meta.url),'utf8');
- const release=backend.match(/var AURORA_BACKEND_RELEASE\s*=\s*'([^']+)'/)?.[1];
+test('Netlify and historical proxies compare against the current Apps Script release',()=>{
+ const source=readFileSync(new URL('../apps-script/Code.gs',import.meta.url),'utf8');
+ const release=source.match(/var AURORA_BACKEND_RELEASE\s*=\s*'([^']+)'/)?.[1];
  assert.ok(release);
- for(const file of ['api/backend-health.js','functions/api/backend-health.js']){
-  const proxy=readFileSync(new URL('../'+file,import.meta.url),'utf8');
-  assert.equal(proxy.match(/const EXPECTED_RELEASE\s*=\s*'([^']+)'/)?.[1],release);
+ for(const path of ['netlify/functions/backend-health.mjs','functions/api/backend-health.js']){
+   const source=readFileSync(new URL('../'+path,import.meta.url),'utf8');
+   assert.equal(source.match(/(?:export\s+)?const EXPECTED_RELEASE\s*=\s*'([^']+)'/)?.[1],release);
  }
+ const oldProxy=readFileSync(new URL('../api/backend-health.js',import.meta.url),'utf8');
+ assert.match(oldProxy,/import\s*\{\s*EXPECTED_RELEASE\s*\}/);
 });

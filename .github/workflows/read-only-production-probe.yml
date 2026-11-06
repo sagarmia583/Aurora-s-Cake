@@ -1,0 +1,23 @@
+name: Probe live Netlify after Sheet restriction (GET only)
+
+on:
+  push:
+    branches: [fix/netlify-google-sheets-only-20261104]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  read-only-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Unit tests prohibit data writes and check redaction
+        run: node --test tests/probe-live-site-readonly.test.mjs
+      - name: Check public website and Apps Script with GET only
+        run: node scripts/probe-live-site-readonly.mjs

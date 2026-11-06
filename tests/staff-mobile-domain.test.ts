@@ -1,3 +1,4 @@
+import {mergeOrderSnapshot} from '../apps/staff-mobile/src/native/model';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {canOperate,isOrder,validateStaffOperationsUrl,STAFF_PRODUCTION_OPERATIONS_URL,nextOperation,visibleOrders,type StaffOrder,type StaffSession} from '../apps/staff-mobile/src/domain';
@@ -12,14 +13,14 @@ const sample=(status:StaffOrder['status'], rider_id='rider01'):StaffOrder=>({
 test('mobile COD stage transitions require correct staff role and assigned rider',()=>{
   assert.equal(canOperate('kitchen_manager','start_baking'),true);
   assert.equal(canOperate('kitchen_manager','deliver'),false);
-  assert.equal(canOperate('admin','deliver'),false);
+  assert.equal(canOperate('admin','deliver'),true); // verified admin can act as self-delivery override
   assert.equal(canOperate('delivery_man','deliver'),true);
   assert.equal(nextOperation(sample('assigned'),rider),'pick_up');
   assert.equal(nextOperation(sample('picked_up'),rider),'start_delivery');
   assert.equal(nextOperation(sample('out_for_delivery'),rider),'deliver');
   assert.equal(nextOperation(sample('out_for_delivery'),otherRider),null);
   assert.equal(nextOperation(sample('delivered'),rider),null);
-  assert.equal(nextOperation(sample('ready'),owner),'assign');
+  assert.equal(nextOperation(sample('ready'),owner),'start_delivery'); // admin can self-deliver
 });
 test('mobile list isolates rider assignments and displays their actionable steps',()=>{
   const orders=[sample('assigned'),sample('out_for_delivery','rider02'),sample('picked_up')];
@@ -61,4 +62,16 @@ test('native staff credentials cannot be sent to lookalike hosts, other tenants,
     STAFF_PRODUCTION_OPERATIONS_URL+'/',
     'https://aurora-s-cake.sagarmia583.workers.dev/api/public',
   ]) assert.throws(()=>validateStaffOperationsUrl(endpoint),Error,endpoint);
+});
+
+
+test('partial Google Sheets snapshot preserves older active orders and adds new valid orders',()=>{
+  const previous=[sample('preparing'),{...sample('pending','rider02'),id:'ord_987654321',order_number:'AC-302'}];
+  const latest=[{...sample('ready'),updated_at:'2026-10-25T11:00:00Z'}];
+  const partial=mergeOrderSnapshot(previous,latest,false);
+  assert.equal(partial.length,2);
+  assert.equal(partial.find(o=>o.id==='ord_123456789')?.status,'ready');
+  assert.equal(partial.some(o=>o.rider_id==='rider02'),true);
+  const complete=mergeOrderSnapshot(previous,latest,true);
+  assert.equal(complete.length,1);
 });

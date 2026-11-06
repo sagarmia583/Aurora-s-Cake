@@ -59,15 +59,20 @@ test('customer links use the website and keep the original private key in the fr
   assert.equal(websiteOrderTrackingLink(legacy.replace('script.google.com', 'example.com'), id), '');
 });
 
-test('the tracking read can use the pinned receipt service without enabling other actions', async () => {
-  const options = {scriptUrl: '', fetcher: (async (url, request) => {
+test('tracking reads fail closed when Netlify has no backend, and work with its configured script', async () => {
+  let calls=0;
+  const fetcher=(async (url, request) => {
+    calls++;
     assert.equal(url, configured);
     assert.equal(JSON.parse(String(request?.body)).action, 'customer_shared_order');
     return {ok:true,url:configured,text:async()=>JSON.stringify({ok:false,code:'forbidden'})} as Response;
-  }) as typeof fetch};
-  const response = await relay(make('customer_shared_order'), options);
-  assert.equal(response.status, 200);
-  assert.equal(response.headers.get('Cache-Control'), 'no-store');
-  assert.equal((await response.json()).code, 'forbidden');
-  assert.equal((await relay(make('staff_orders'), options)).status, 503);
+  }) as typeof fetch;
+  assert.equal((await relay(make('customer_shared_order'),{scriptUrl:'',fetcher})).status,503);
+  assert.equal((await relay(make('staff_orders'),{scriptUrl:'',fetcher})).status,503);
+  assert.equal(calls,0,'no authenticated request may accidentally reach production');
+  const response = await relay(make('customer_shared_order'),{scriptUrl:configured,fetcher});
+  assert.equal(response.status,200);
+  assert.equal(response.headers.get('Cache-Control'),'no-store');
+  assert.equal((await response.json()).code,'forbidden');
+  assert.equal(calls,1);
 });

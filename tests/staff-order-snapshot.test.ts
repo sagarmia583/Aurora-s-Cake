@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { clearStaffOrdersSnapshot, loadStaffOrdersSnapshot, reconcileStaffOrders, saveStaffOrdersSnapshot, validateStaffOrderList } from '../src/services/staffOrderSnapshot';
-import { getStaffOrders } from '../src/services/sheetStaffApi';
+import { clearStaffOrdersSnapshot, loadStaffOrdersSnapshot, reconcileStaffOrders, reconcileStaffOrderSnapshot, saveStaffOrdersSnapshot, validateStaffOrderList } from '../src/services/staffOrderSnapshot';
+import { getStaffOrders, getStaffOrderSnapshot } from '../src/services/sheetStaffApi';
 import type { StaffOrder } from '../src/services/sheetStaffApi';
 import type { WorkspaceStorage } from '../src/services/staffWorkspaceSession';
 
@@ -59,5 +59,38 @@ test('staff API refuses an incomplete server response even if one valid order is
     assert.equal((await getStaffOrders(remoteEndpoint,fakeToken)).length,1);
     globalThis.fetch=(async()=>new Response(JSON.stringify({ok:true,orders:[],snapshot_complete:true}),{status:200})) as typeof fetch;
     assert.deepEqual(await getStaffOrders(remoteEndpoint,fakeToken),[]);
+  }finally{globalThis.fetch=original;}
+});
+
+test('web staff safely merges partial Sheets snapshots, new orders and stage changes',()=>{
+  const previous=[sample('old','pending','2026-10-26T08:00:00Z'),
+    sample('changed','pending','2026-10-26T08:00:00Z')];
+  const incoming=[sample('new','pending','2026-10-26T09:00:00Z'),
+    sample('changed','confirmed','2026-10-26T09:00:00Z')];
+  const partial=reconcileStaffOrderSnapshot(previous,incoming,false);
+  assert.deepEqual(partial.map(x=>x.id),['new','changed','old']);
+  assert.equal(partial.find(x=>x.id==='changed')?.status,'confirmed');
+  assert.deepEqual(reconcileStaffOrderSnapshot(previous,[],false),previous,
+    'an empty partial reply must retain previously validated orders');
+  assert.deepEqual(reconcileStaffOrderSnapshot(previous,[],true),[],
+    'complete empty reply may remove orders');
+  assert.throws(()=>reconcileStaffOrderSnapshot(previous,
+    [{...incoming[0],customer_access_token:'secret'}],false));
+});
+test('web staff API safely accepts partial valid orders with counted corrupt rows',async()=>{
+  const original=globalThis.fetch,input=[sample('new','pending')];
+  try {
+    globalThis.fetch=(async()=>new Response(JSON.stringify({
+      ok:true,orders:input,snapshot_complete:false,invalid_receipts:1
+    }),{status:200})) as typeof fetch;
+    const partial=await getStaffOrderSnapshot(remoteEndpoint,fakeToken);
+    assert.equal(partial.complete,false);
+    assert.equal(partial.invalidReceipts,1);
+    assert.deepEqual(partial.orders,input);
+    await assert.rejects(()=>getStaffOrders(remoteEndpoint,fakeToken),/Incomplete/);
+    globalThis.fetch=(async()=>new Response(JSON.stringify({
+      ok:true,orders:input,snapshot_complete:false
+    }),{status:200})) as typeof fetch;
+    await assert.rejects(()=>getStaffOrderSnapshot(remoteEndpoint,fakeToken),/Incomplete/);
   }finally{globalThis.fetch=original;}
 });

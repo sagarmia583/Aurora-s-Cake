@@ -1,0 +1,37 @@
+name: Synchronize secure Apps Script one-file bundle
+
+on:
+  push:
+    branches: [fix/netlify-google-sheets-only-20261104]
+    paths:
+      - apps-script/AccountAuth.gs
+      - scripts/build-apps-script.mjs
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Regenerate from all reviewed modular Apps Script sources
+        run: node scripts/build-apps-script.mjs
+      - name: Commit rebuilt bundle only to this existing audit branch
+        shell: bash
+        run: |
+          if ! git diff --quiet -- apps-script/Code.AllInOne.gs; then
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git config user.name "github-actions[bot]"
+            git add apps-script/Code.AllInOne.gs
+            git commit -m "Regenerate Apps Script bundle with secure owner-only staff bootstrap"
+            git push origin "HEAD:$GITHUB_REF_NAME"
+          else
+            echo "Apps Script bundle already matches its modules"
+          fi

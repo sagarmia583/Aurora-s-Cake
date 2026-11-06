@@ -339,6 +339,26 @@ function auroraOrderRequest_(input) {
     coupon_code:auroraOptionalText_(input.coupon_code,'Coupon code',60).toUpperCase(),
     order_note:auroraOptionalText_(input.order_note,'Order note',1000),payment_method:'cod',expected_total:input.expected_total
   };
+  if(input.is_gift!==undefined && typeof input.is_gift!=='boolean')
+    auroraReject_('invalid_request','Invalid gift selection.');
+  if(input.is_gift===true){
+    var recipient=auroraOrderText_(input.recipient_name,'Gift recipient name',2,100);
+    var recipientPhone=auroraOrderText_(input.recipient_phone,'Gift recipient phone',11,30);
+    if(!/^01[3-9]\d{8}$/.test(recipientPhone))
+      auroraReject_('invalid_phone','Enter a valid recipient mobile number.');
+    var senderPhone=auroraOptionalText_(input.sender_phone,'Gift sender phone',30);
+    if(senderPhone && !/^01[3-9]\d{8}$/.test(senderPhone))
+      auroraReject_('invalid_phone','Enter a valid gift sender mobile number.');
+    if(input.hide_price_on_box!==undefined && typeof input.hide_price_on_box!=='boolean')
+      auroraReject_('invalid_request','Invalid gift receipt option.');
+    normalized.is_gift=true;
+    normalized.recipient_name=recipient;
+    normalized.recipient_phone=recipientPhone;
+    normalized.sender_name=auroraOptionalText_(input.sender_name,'Gift sender name',100)||normalized.customer_name;
+    normalized.sender_phone=senderPhone;
+    normalized.hide_price_on_box=input.hide_price_on_box!==false;
+    normalized.gift_card_message=auroraOptionalText_(input.gift_card_message,'Gift message',140);
+  }
   if (input.checkout_proof !== undefined) {
     var proof=auroraOrderText_(input.checkout_proof,'Checkout security proof',72,72).toLowerCase();
     if(!/^(?:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}){2}$/.test(proof)) {
@@ -480,7 +500,7 @@ function auroraBuildOrder_(book,request,orders) {
   if (subtotal > 10000000 || total > 10000000) auroraReject_('order_too_large','The order amount exceeds the supported limit.');
   if (request.expected_total !== undefined && Math.abs(request.expected_total - total) > 0.0100000001) auroraReject_('price_changed','Prices or delivery charges changed. Refresh your bag and review the total before placing the order.');
   var now = new Date().toISOString();
-  return {
+  var receipt = {
     persistence:'google_sheets',id:orderId,order_number:'AC-' + today.replace(/-/g,'') + '-' + request.request_id.replace(/-/g,'').toUpperCase(),
     customer_name:request.customer_name,customer_phone:request.customer_phone,delivery_address:request.delivery_address,
     delivery_zone:{id:String(zone.id),name:String(zone.name || ''),delivery_fee:deliveryFee,estimated_time:String(zone.estimated_time || ''),is_active:true},
@@ -489,6 +509,18 @@ function auroraBuildOrder_(book,request,orders) {
     delivery_otp:'',customer_access_token:auroraNewCustomerCapability_(),cod_amount:total,cod_collected:false,created_at:now,updated_at:now,items:items,
     history:[{id:'history_' + request.request_id,status:'pending',notes:'Order received in Google Sheets',created_at:now,actor_name:'Customer'}]
   };
+  // Keep gift preferences in the private canonical receipt_json, without
+  // adding fragile columns to existing customer/order Sheets.
+  if(request.is_gift===true){
+    receipt.is_gift=true;
+    receipt.recipient_name=request.recipient_name;
+    receipt.recipient_phone=request.recipient_phone;
+    receipt.sender_name=request.sender_name;
+    receipt.sender_phone=request.sender_phone;
+    receipt.hide_price_on_box=request.hide_price_on_box;
+    receipt.gift_card_message=request.gift_card_message;
+  }
+  return receipt;
 }
 function auroraPrivateTable_(book,name) {
   var required = PRIVATE_ORDER_SCHEMAS[name];
@@ -2050,12 +2082,12 @@ function auroraFastOrderList_(table){
   return table.sheet.getRange(2,index,last-1,1).getValues().map(function(values){return {receipt_json:values[0]};});
 }
 function auroraOperationsOrders_(actor, table) {
-  var list = [], complete = true;
+  var list = [], complete = true, invalidReceipts = 0;
   table.rows.forEach(function(row) {
     var order;
     try { order = JSON.parse(String(row.receipt_json || '')); }
-    catch (_) { complete = false; return; }
-    if (!order || !order.id) { complete = false; return; }
+    catch (_) { complete = false; invalidReceipts++; return; }
+    if (!order || !order.id) { complete = false; invalidReceipts++; return; }
     if (actor.role === 'delivery_man' && String(order.rider_id || '').toLowerCase() !== actor.email) return;
     if (actor.role === 'kitchen_manager' && ['pending','cancelled','delivered'].indexOf(order.status) !== -1) return;
     // Staff never receives the delivery OTP or the customer's bearer capability.
@@ -2083,7 +2115,7 @@ function auroraOperationsOrders_(actor, table) {
   return {orders:list.filter(function(order) {
     if (order.status !== 'delivered' && order.status !== 'cancelled') return true;
     return recentHistory++ < 100;
-  }),complete:complete};
+  }),complete:complete,invalid_receipts:invalidReceipts};
 }
 function auroraOperationsPost_(input) {
   var actor = auroraStaffAuthenticate_(input);
@@ -2153,7 +2185,7 @@ function auroraOperationsPost_(input) {
   var book = auroraSpreadsheet_(), table = auroraFastOrderTable_(book);
   if (input.action === 'staff_orders') {
     var snapshot=auroraOperationsOrders_(actor,{rows:auroraFastOrderList_(table)});
-    return {ok:true,snapshot_complete:snapshot.complete,snapshot_at:new Date().toISOString(),
+    return {ok:true,snapshot_complete:snapshot.complete,invalid_receipts:snapshot.invalid_receipts,snapshot_at:new Date().toISOString(),
       orders:snapshot.orders,role:actor.role};
   }
   if (input.action !== 'staff_mutate') auroraReject_('invalid_action','Unknown staff action.');
@@ -2337,13 +2369,13 @@ function auroraAccountDigest_(text) {
 }
 function auroraAccountToken_(){return String(Utilities.getUuid())+String(Utilities.getUuid());}
 function auroraAccountPassword_(password){
-  if(typeof password!=='string'||password.length<4||password.length>128||password.trim()!==password)
-    auroraReject_('invalid_password','Use a password of 4–128 characters, without leading or trailing spaces.');
+  if(typeof password!=='string'||password.length<8||password.length>128||password.trim()!==password)
+    auroraReject_('invalid_password','Use a password of 8–128 characters, without leading or trailing spaces.');
   return password;
 }
 function auroraAccountStaffPassword_(password){
-  if(typeof password!=='string'||password.length<4||password.length>128||password.trim()!==password)
-    auroraReject_('invalid_password','Use a staff password of 4–128 characters, without leading or trailing spaces.');
+  if(typeof password!=='string'||password.length<8||password.length>128||password.trim()!==password)
+    auroraReject_('invalid_password','Use a staff password of 8–128 characters, without leading or trailing spaces.');
   return password;
 }
 function auroraAccountHash_(password,salt) {
@@ -2377,7 +2409,7 @@ function auroraAccountStart_(kind,id) {
   var t=auroraPrivateTable_(auroraSpreadsheet_(),'auth_sessions'),now=Date.now();
   var value=auroraAccountToken_(),row={
     token_hash:auroraAccountDigest_(value),account_type:kind,account_id:id,
-    created_at:new Date(now).toISOString(),expires_at:new Date(now+100*365*24*3600000).toISOString(),revoked:false
+    created_at:new Date(now).toISOString(),expires_at:new Date(now+(kind==='staff'?12*3600000:30*24*3600000)).toISOString(),revoked:false
   };
   auroraAppendPrivate_(t,row);
   return value;
@@ -2388,6 +2420,13 @@ function auroraAccountAuthenticate_(kind,value){
   var session=t.rows.filter(function(row){return row.token_hash===h&&row.account_type===kind;})[0];
   if(!session||session.revoked===true||String(session.revoked).toLowerCase()==='true')
     auroraReject_('unauthorized','Sign in again to access your account.');
+  // Old rows may carry an extremely long expiry. Enforce a maximum lifetime
+  // from issuance; never trust the previously saved expiry alone.
+  var now=Date.now(),created=Date.parse(String(session.created_at||'')),expires=Date.parse(String(session.expires_at||''));
+  var maximum=kind==='staff'?12*3600000:30*24*3600000;
+  if(!Number.isFinite(created)||!Number.isFinite(expires)||created>now+5*60000||
+      expires<=now||created+maximum<=now)
+    auroraReject_('session_expired','Your session has expired. Sign in again.');
   var accounts=auroraPrivateTable_(auroraSpreadsheet_(),kind==='staff'?'staff_accounts':'customer_accounts');
   var account=auroraAccountValue_(accounts,session.account_id);
   if(!account||!(account.active===true||String(account.active).toLowerCase()==='true'))
@@ -2434,14 +2473,7 @@ function auroraAccountLogin_(kind,identifier,password){
     if(typeof auroraSupabaseRefresh_==='function')auroraSupabaseRefresh_();
     var accounts=auroraPrivateTable_(auroraSpreadsheet_(),isCustomer?'customer_accounts':'staff_accounts');
     var person=accounts.rows.filter(function(row){return String(row[key]).toLowerCase()===name;})[0];
-    if(kind==='staff' && accounts.rows.length===0 && name==='admin'){
-      var salt=auroraAccountToken_();
-      var defaultPerson={id:'staff_'+Utilities.getUuid(),username:'admin',name:'Shop Administrator',
-        role:'super_admin',password_salt:salt,password_hash:auroraAccountHash_(password,salt),
-        failed_attempts:0,locked_until:0,active:true,created_at:new Date().toISOString(),updated_at:new Date().toISOString()};
-      auroraAppendPrivate_(accounts,defaultPerson);
-      person=defaultPerson;
-    }
+
     if(!person||!(person.active===true||String(person.active).toLowerCase()==='true'))
       auroraReject_('invalid_credentials','Invalid login details.');
     auroraAccountVerifyPassword_(accounts,person,password);
@@ -2449,6 +2481,37 @@ function auroraAccountLogin_(kind,identifier,password){
     var token=auroraAccountStart_(kind,person.id);
     if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
     return {person:person,token:token};
+  }finally{lock.releaseLock();}
+}
+/**
+ * OWNER-ONLY FIRST ADMIN BOOTSTRAP (not a web route).
+ * To initialize on a new private Sheet, the owner creates Script Property
+ * AURORA_FIRST_OWNER_PASSWORD (a strong 16+ character temporary password)
+ * and runs THIS function manually in the Apps Script editor. The property
+ * is removed immediately after successfully hashing and storing the account.
+ * An unauthenticated login must never establish a super admin.
+ */
+function setupAuroraFirstStaffOwnerOnce(){
+  var owner=auroraRequireInteractiveSetup_();
+  if(typeof auroraStagingGuard_==='function')auroraStagingGuard_();
+  var props=PropertiesService.getScriptProperties();
+  var password=String(props.getProperty('AURORA_FIRST_OWNER_PASSWORD')||'');
+  if(password.length<16||password.length>128||password.trim()!==password||
+     !/[A-Z]/.test(password)||!/[a-z]/.test(password)||
+     !/[0-9]/.test(password)||!/[^A-Za-z0-9]/.test(password))
+    throw new Error('Set a temporary owner password with 16+ characters, mixed case, a number and a symbol in Script Properties.');
+  var lock=LockService.getScriptLock();
+  if(!lock.tryLock(10000))throw new Error('Owner account setup is busy.');
+  try{
+    var table=auroraPrivateTable_(auroraSpreadsheet_(),'staff_accounts');
+    if(table.rows.length!==0)throw new Error('Staff accounts already exist; refusing to overwrite or create a second owner.');
+    var salt=auroraAccountToken_(),now=new Date().toISOString();
+    auroraAppendPrivate_(table,{id:'staff_'+Utilities.getUuid(),username:'admin',
+      name:'Shop Owner',role:'super_admin',password_salt:salt,
+      password_hash:auroraAccountHash_(password,salt),
+      failed_attempts:0,locked_until:0,active:true,created_at:now,updated_at:now});
+    props.deleteProperty('AURORA_FIRST_OWNER_PASSWORD');
+    return {ok:true,configured:true,username:'admin',role:'super_admin',owner:owner,temporary_password_deleted:true};
   }finally{lock.releaseLock();}
 }
 function auroraAccountPhone_(value){
@@ -4608,7 +4671,7 @@ function auroraCustomerSharedOrder_(input){
   if(!row)invalid();var order=auroraFastReceipt_(table,row);
   if(order.id!==id||!auroraReceiptLinkActive_(order)||String(order.customer_share_token)!==key)invalid();
   var safe={persistence:'google_sheets',delivery_otp:''};
-  ['id','order_number','customer_name','customer_phone','delivery_address','delivery_zone','delivery_date','delivery_slot','status','subtotal','discount_amount','delivery_fee','total_amount','coupon_code','order_note','payment_method','payment_status','cod_amount','cod_collected','rider_name','created_at','updated_at'].forEach(function(field){safe[field]=order[field];});
+  ['id','order_number','customer_name','customer_phone','is_gift','recipient_name','recipient_phone','sender_name','sender_phone','hide_price_on_box','gift_card_message','delivery_address','delivery_zone','delivery_date','delivery_slot','status','subtotal','discount_amount','delivery_fee','total_amount','coupon_code','order_note','payment_method','payment_status','cod_amount','cod_collected','rider_name','created_at','updated_at'].forEach(function(field){safe[field]=order[field];});
   safe.order_number=auroraFormatOrderNumber_(order.order_number);
   safe.items=(order.items||[]).map(function(item){var result={};['id','order_id','product_id','product_name','variant_name','flavor_id','flavor_name','writing_message','unit_price','quantity','subtotal'].forEach(function(field){result[field]=item[field];});
     result.addons=(item.addons||[]).map(function(addon){var value={};['addon_id','addon_name','unit_price','quantity','subtotal'].forEach(function(field){value[field]=addon[field];});return value;});return result;});

@@ -36,6 +36,7 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean;supabase?:
     coupons:[['id','code','discount_type','discount_value','min_order_amount','max_discount_amount','is_active'],['c1','SAVE10','percentage',10,100,120,true]],
   };
   if(!options.withoutPrivate){tables.orders=[ORDER_HEADERS];tables.order_items=[ITEM_HEADERS];tables.custom_cake_requests=[CUSTOM_HEADERS];tables.staff_accounts=[STAFF_HEADERS];tables.customer_accounts=[CUSTOMER_HEADERS];tables.auth_sessions=[SESSION_HEADERS];tables.customer_master=[MASTER_HEADERS];tables.customer_contact_requests=[CONTACT_HEADERS];}
+  const debugErrors:string[]=[];
   const reads:string[]=[];const writes:string[]=[];const rangeReads:{name:string,row:number,col:number,height:number,width:number}[]=[];
   const throttles=new Map<string,string>();
   let failNextItemWrite=false;let failAfterOrderWrite=false;let acquired=0;
@@ -65,7 +66,7 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean;supabase?:
   });
   const book={getSheetByName:(name:string)=>{reads.push(name);return name in tables?sheet(name):null;},insertSheet:(name:string)=>{tables[name]=[];return sheet(name);}};
   const context:Record<string,any>={
-    console:{log:()=>{},error:()=>{}},Date,JSON,Object,Array,String,Math,
+    console:{log:()=>{},error:(...parts:unknown[])=>debugErrors.push(parts.map(String).join(' ')),warn:()=>{}},Date,JSON,Object,Array,String,Math,
     Session:{getActiveUser:()=>({getEmail:()=> 'owner@example.com'}),getEffectiveUser:()=>({getEmail:()=> 'owner@example.com'})},
     SpreadsheetApp:{openById:()=>book,getActiveSpreadsheet:()=>book},
     PropertiesService:{getScriptProperties:()=>({getProperty:(key:string)=>key==='AURORA_GOOGLE_CLIENT_ID'?'test-client.apps.googleusercontent.com':key==='AURORA_STAFF_USERS'?STAFF_CONFIG:options.supabase&&key==='AURORA_DATABASE_BACKEND'?'supabase':options.supabase&&key==='AURORA_SUPABASE_SERVICE_KEY'?'sb_secret_'+ 'private-test-fixture'.repeat(3):null})},
@@ -96,6 +97,7 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean;supabase?:
     vm.runInContext(fs.readFileSync(new URL('../apps-script/Code.AllInOne.gs',import.meta.url),'utf8'),context);
   } else {
   vm.runInContext(fs.readFileSync(new URL('../apps-script/Code.gs',import.meta.url),'utf8'),context);
+  vm.runInContext(fs.readFileSync(new URL('../apps-script/OrderNumbers.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/StaffOperations.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/AccountAuth.gs',import.meta.url),'utf8'),context);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/CustomerMaster.gs',import.meta.url),'utf8'),context);
@@ -108,7 +110,7 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean;supabase?:
   const get=(action:string)=>JSON.parse(context.doGet({parameter:{action}}).content);
   const records=(name:string)=>tables[name].slice(1).map(row=>Object.fromEntries(tables[name][0].map((key,index)=>[String(key),row[index]])));
   const change=(name:string,key:string,value:unknown)=>{const col=tables[name][0].indexOf(key);tables[name][1][col]=value;};
-  return {tables,reads,writes,rangeReads,context,post,get,records,change,failItems:()=>{failNextItemWrite=true;},failOrderAck:()=>{failAfterOrderWrite=true;},conflictCommit:()=>{conflictCommit=true;},loseCommitAck:()=>{lostCommitAck=true;},lockCount:()=>acquired};
+  return {tables,reads,writes,rangeReads,debugErrors,context,post,get,records,change,failItems:()=>{failNextItemWrite=true;},failOrderAck:()=>{failAfterOrderWrite=true;},conflictCommit:()=>{conflictCommit=true;},loseCommitAck:()=>{lostCommitAck=true;},lockCount:()=>acquired};
 }
 
 test('active private Supabase adapter commits checkout once, survives lost acknowledgement and preserves receipt compatibility',()=>{
@@ -139,14 +141,14 @@ test('active adapter preserves cross-device phone login, lockout counters, owner
   assert.equal(h.post({action:'customer_phone_orders',auth_token:signup.auth_token}).orders[0].id,order.id);
   assert.equal(h.records('customer_accounts')[0].owner_extra,'keep-this');
 });
-test('active adapter preserves authorized staff transitions and durably counts invalid delivery OTPs',()=>{
+test('active adapter preserves authorized staff transitions and COD cash verification',()=>{
   const h=harness({supabase:true});const order=h.post(request()).order;
   const update=(operation:string,id_token=ADMIN_TOKEN,extra:Record<string,unknown>={})=>h.post({action:'staff_mutate',id_token,operation,order_id:order.id,...extra});
   for(const op of ['confirm','start_baking','mark_ready'])assert.equal(update(op).ok,true);
   assert.equal(update('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);assert.equal(update('pick_up',RIDER_TOKEN).ok,true);assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
-  assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:'wrong',cash_collected:true}).code,'invalid_otp');
-  let receipt=JSON.parse(String(h.records('orders')[0].receipt_json));assert.equal(receipt.otp_failed_attempts,1);
-  assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:receipt.delivery_otp,cash_collected:true}).ok,true);
+  assert.equal(update('deliver',RIDER_TOKEN,{cash_collected:false}).code,'cash_unconfirmed');
+  let receipt=JSON.parse(String(h.records('orders')[0].receipt_json));assert.equal(receipt.delivery_otp,'');
+  assert.equal(update('deliver',RIDER_TOKEN,{cash_collected:true}).ok,true);
   receipt=JSON.parse(String(h.records('orders')[0].receipt_json));assert.equal(receipt.status,'delivered');assert.equal(receipt.payment_status,'paid');assert.equal(receipt.delivery_otp,'');assert.equal(h.lockCount(),0);
 });
 
@@ -154,7 +156,7 @@ test('private COD submission recomputes Sheet sale price, add-ons per quantity, 
   const h=harness();
   const input=request({subtotal:1,total_amount:1,payment_status:'paid',cart_items:[{...(request().cart_items[0]),unit_price:1,total_price:1}]});
   const response=h.post(input);
-  assert.equal(response.success,true);assert.equal(response.persisted,true);
+  assert.equal(response.success,true,JSON.stringify({response,errors:h.debugErrors}));assert.equal(response.persisted,true);
   const order=response.order;
   assert.equal(order.persistence,'google_sheets');assert.equal(order.subtotal,1700);assert.equal(order.discount_amount,120);assert.equal(order.total_amount,1680);
   assert.equal(order.items[0].unit_price,800);assert.equal(order.items[0].addons[0].subtotal,100);assert.equal(order.items[0].quantity,2);
@@ -295,7 +297,7 @@ test('verified staff manage the same private receipt; riders see assigned orders
   assert.equal(h.records('orders').length,1);
   assert.equal(h.records('order_items').length,1);
 });
-test('delivery OTP rate limit and order transition checks are persisted server-side',()=>{
+test('delivery requires a valid status transition and confirmed COD cash',()=>{
   const h=harness(),created=h.post(request());
   const orderId=created.order.id;
   const update=(operation:string,id_token:string,extra:Record<string,unknown>={})=>h.post({action:'staff_mutate',id_token,operation,order_id:orderId,...extra});
@@ -305,9 +307,9 @@ test('delivery OTP rate limit and order transition checks are persisted server-s
   assert.equal(update('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
   assert.equal(update('pick_up',RIDER_TOKEN).ok,true);
   assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
-  for(let i=0;i<5;i++) assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:'0000',cash_collected:true}).code,'invalid_otp');
-  assert.equal(update('deliver',RIDER_TOKEN,{delivery_otp:created.order.delivery_otp,cash_collected:true}).code,'otp_locked');
+  assert.equal(update('deliver',RIDER_TOKEN,{cash_collected:false}).code,'cash_unconfirmed');
   assert.equal(h.post({action:'get_order_status',order_id:orderId,customer_phone:request().customer_phone,customer_access_token:created.order.customer_access_token}).status,'out_for_delivery');
+  assert.equal(update('deliver',RIDER_TOKEN,{cash_collected:true}).ok,true);
 });
 test('customer status requires both unpredictable order reference and matching phone',()=>{
   const h=harness(),created=h.post(request());
@@ -367,7 +369,7 @@ test('free Google recovery shows delivery OTP only after the linked order is out
   assert.equal(orders[0].status,'out_for_delivery');
 });
 
-test('linked customer gets delivery OTP only after dispatch with their own valid Google token',()=>{
+test('linked customer can follow dispatch without receiving a delivery OTP',()=>{
   const h=harness();const order=h.post(request()).order;
   const status=(token?:string)=>h.post({action:'get_order_status',order_id:order.id,customer_phone:order.customer_phone,...(token?{id_token:token}:{} )});
   assert.equal(h.post({action:'customer_claim_order',id_token:ADMIN_TOKEN,order_id:order.id,customer_phone:order.customer_phone,customer_access_token:order.customer_access_token}).ok,true);
@@ -379,8 +381,8 @@ test('linked customer gets delivery OTP only after dispatch with their own valid
   assert.equal(update('start_delivery',RIDER_TOKEN).ok,true);
   assert.equal(status().delivery_otp,undefined);
   assert.equal(status(INTRUDER_TOKEN).code,'forbidden');
-  assert.equal(status(ADMIN_TOKEN).delivery_otp,JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp);
-  assert.equal(h.post({action:'get_order_status',order_id:order.id,customer_phone:order.customer_phone,customer_access_token:order.customer_access_token}).delivery_otp,JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp);
+  assert.equal(status(ADMIN_TOKEN).delivery_otp,undefined);
+  assert.equal(h.post({action:'get_order_status',order_id:order.id,customer_phone:order.customer_phone,customer_access_token:order.customer_access_token}).delivery_otp,undefined);
 });
 
 test('only verified admins can edit live catalogue; arbitrary fields and other roles are rejected',()=>{
@@ -506,7 +508,7 @@ test('valid Google identity is briefly cached but changed staff allowlist is enf
   assert.equal(h.post({action:'staff_session',id_token:ADMIN_TOKEN}).code,'forbidden');
   assert.equal(fetchCalls,1);
 });
-test('a delivery OTP is issued only at dispatch and destroyed after confirmed COD delivery',()=>{
+test('delivery OTP stays disabled and full COD cash confirmation is required',()=>{
   const h=harness(),created=h.post(request());
   const change=(operation:string,id_token:string,extra:Record<string,unknown>={})=>h.post({
     action:'staff_mutate',id_token,operation,order_id:created.order.id,...extra});
@@ -517,9 +519,9 @@ test('a delivery OTP is issued only at dispatch and destroyed after confirmed CO
   assert.equal(change('pick_up',RIDER_TOKEN).ok,true);
   assert.equal(server().delivery_otp,'');
   assert.equal(change('start_delivery',RIDER_TOKEN).ok,true);
-  const code=server().delivery_otp;
-  assert.match(code,/^\d{4}$/);
-  assert.equal(change('deliver',RIDER_TOKEN,{delivery_otp:code,cash_collected:true}).ok,true);
+  assert.equal(server().delivery_otp,'');
+  assert.equal(change('deliver',RIDER_TOKEN,{cash_collected:false}).code,'cash_unconfirmed');
+  assert.equal(change('deliver',RIDER_TOKEN,{cash_collected:true}).ok,true);
   assert.equal(server().delivery_otp,'');
   assert.equal(h.post({action:'get_order_status',order_id:created.order.id,customer_phone:created.order.customer_phone,
     customer_access_token:created.order.customer_access_token}).delivery_otp,undefined);
@@ -633,10 +635,9 @@ test('verified super admin creates username/password rider; only the assigned ri
   assert.equal(adminChange('assign',{rider_email:'rider02'}).ok,true);
   assert.equal(change('pick_up',signed.auth_token).ok,true);
   assert.equal(change('start_delivery',signed.auth_token).ok,true);
-  assert.equal(change('deliver',signed.auth_token,{delivery_otp:'0000',cash_collected:true}).code,'invalid_otp');
-  const code=JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp;
-  assert.match(code,/^\d{4}$/);
-  assert.equal(change('deliver',signed.auth_token,{delivery_otp:code,cash_collected:true}).ok,true);
+  assert.equal(change('deliver',signed.auth_token,{cash_collected:false}).code,'cash_unconfirmed');
+  assert.equal(JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp,'');
+  assert.equal(change('deliver',signed.auth_token,{cash_collected:true}).ok,true);
   assert.equal(h.post({action:'staff_password_logout',auth_token:signed.auth_token}).ok,true);
   assert.equal(h.post({action:'staff_orders',auth_token:signed.auth_token}).code,'unauthorized');
 });
@@ -851,7 +852,7 @@ test('fast customer status reads only id/header/receipt columns, not the whole p
   assert.equal(touched.filter(item=>item.height>1).every(item=>item.width===1),true,
     'Status polling should not read entire multi-column order sheets');
 });
-test('phone account linked to receipt receives dispatch OTP; an unlinked customer is denied',()=>{
+test('phone account sees assigned delivery status without OTP; unlinked customer is denied',()=>{
   const h=harness({singleFile:true});
   const first=h.post(request()).order;
   const owner=h.post({action:'customer_phone_signup',name:'Recipient',phone:'01700112283',password:'TestSecretPassOne2026!'});
@@ -868,11 +869,10 @@ test('phone account linked to receipt receives dispatch OTP; an unlinked custome
   assert.equal(transition('assign',ADMIN_TOKEN,{rider_email:'rider@example.com'}).ok,true);
   assert.equal(transition('pick_up',RIDER_TOKEN).ok,true);
   assert.equal(transition('start_delivery',RIDER_TOKEN).ok,true);
-  const code=String(JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp);
-  assert.match(code,/^\d{4}$/);
-  assert.equal(status(owner.auth_token).delivery_otp,code);
+  assert.equal(JSON.parse(String(h.records('orders')[0].receipt_json)).delivery_otp,'');
+  assert.equal(status(owner.auth_token).delivery_otp,undefined);
   assert.equal(status(other.auth_token).code,'forbidden');
-  assert.equal(transition('deliver',RIDER_TOKEN,{delivery_otp:code,cash_collected:true}).ok,true);
+  assert.equal(transition('deliver',RIDER_TOKEN,{cash_collected:true}).ok,true);
   assert.equal(status(owner.auth_token).delivery_otp,undefined);
   assert.equal(status(owner.auth_token).status,'delivered');
 });
@@ -893,7 +893,7 @@ test('customer phone account history only scans receipt JSON rather than the wid
   assert.ok(orderDataReads.every(r=>r.width===1),'Account refresh must read receipt JSON only');
 });
 
-test('legacy dispatch OTP requires owner-verified one-time receipt recovery; phone number alone never reveals OTP',()=>{
+test('legacy receipt recovery requires owner verification; no delivery OTP is exposed',()=>{
   const h=harness({singleFile:true}),order=h.post(request()).order;
   const staff=(action:string,id_token:string,other:Record<string,unknown>={})=>
     h.post({action:'staff_mutate',id_token,operation:action,order_id:order.id,...other});
@@ -902,8 +902,7 @@ test('legacy dispatch OTP requires owner-verified one-time receipt recovery; pho
   assert.equal(staff('pick_up',RIDER_TOKEN).ok,true);
   assert.equal(staff('start_delivery',RIDER_TOKEN).ok,true);
   const original=JSON.parse(String(h.records('orders')[0].receipt_json));
-  const otp=String(original.delivery_otp);
-  assert.match(otp,/^\d{4}$/);
+  assert.equal(original.delivery_otp,'');
   // Simulate an authentic order from the original, pre-capability checkout.
   delete original.customer_access_token;
   h.tables.orders[1][ORDER_HEADERS.indexOf('receipt_json')]=JSON.stringify(original);
@@ -923,7 +922,7 @@ test('legacy dispatch OTP requires owner-verified one-time receipt recovery; pho
   assert.equal(issued.delivery_otp,undefined);
   assert.equal(h.post({...cmd,id_token:ADMIN_TOKEN}).code,'already_secured');
   assert.equal(h.post({...customer,customer_access_token:'wrong'}).code,'forbidden');
-  assert.equal(h.post({...customer,customer_access_token:issued.customer_access_token}).delivery_otp,otp);
+  assert.equal(h.post({...customer,customer_access_token:issued.customer_access_token}).delivery_otp,undefined);
   assert.equal(h.records('orders').length,1);
   assert.equal(h.records('order_items').length,1);
 });
@@ -946,7 +945,7 @@ test('private order lookup uses native exact-cell TextFinder when supported',()=
 });
 
 
-test('full COD acceptance: guest checkout, verified owner, password kitchen, assigned rider, phone customer OTP and paid delivery',()=>{
+test('full COD acceptance: guest checkout, verified owner, kitchen, assigned rider and verified cash delivery',()=>{
   const h=harness({singleFile:true});
   const signedUp=h.post({action:'customer_phone_signup',name:'Test Customer',phone:'01700000000',password:'StrongPrivateCustomerPass!'});
   assert.equal(signedUp.ok,true,JSON.stringify(signedUp));
@@ -995,18 +994,16 @@ test('full COD acceptance: guest checkout, verified owner, password kitchen, ass
   assert.equal(Object.hasOwn(dispatched.order,'customer_access_token'),false);
   const customerAtDispatch=getCustomer();
   assert.equal(customerAtDispatch.status,'out_for_delivery');
-  assert.match(customerAtDispatch.delivery_otp,/^\d{4}$/);
+  assert.equal(customerAtDispatch.delivery_otp,undefined);
   assert.equal(h.post({action:'staff_orders',id_token:RIDER_TOKEN}).orders[0].delivery_otp,undefined);
-  assert.equal(owner('deliver',{delivery_otp:customerAtDispatch.delivery_otp,cash_collected:true}).code,'forbidden');
-  assert.equal(rider('deliver',{delivery_otp:'0000',cash_collected:true}).code,'invalid_otp');
-  assert.equal(rider('deliver',{delivery_otp:customerAtDispatch.delivery_otp,cash_collected:false}).code,'cash_unconfirmed');
-  assert.equal(rider('deliver',{delivery_otp:customerAtDispatch.delivery_otp,cash_collected:true}).order.status,'delivered');
+  assert.equal(rider('deliver',{cash_collected:false}).code,'cash_unconfirmed');
+  assert.equal(rider('deliver',{cash_collected:true}).order.status,'delivered');
   const finished=getCustomer();
   assert.equal(finished.status,'delivered');
   assert.equal(finished.payment_status,'paid');
   assert.equal(finished.cod_collected,true);
   assert.equal(Object.hasOwn(finished,'delivery_otp'),false);
-  assert.equal(rider('deliver',{delivery_otp:customerAtDispatch.delivery_otp,cash_collected:true}).code,'invalid_transition');
+  assert.equal(rider('deliver',{cash_collected:true}).code,'invalid_transition');
   assert.equal(h.records('orders').length,1);
   assert.equal(h.records('order_items').length,1);
   const data=JSON.parse(String(h.records('orders')[0].receipt_json));
@@ -1142,4 +1139,84 @@ test('password-free receipt recovery needs both original long key and phone; OTP
   assert.equal(recovered.order.delivery_otp,'');
   assert.equal(recovered.order.customer_access_token,created.customer_access_token);
   assert.equal('password_hash' in recovered.order,false);
+});
+
+test('Google Sheets staff feed reports a corrupt receipt but still returns valid new orders',()=>{
+  const h=harness({singleFile:true});
+  const first=h.post(request());assert.equal(first.persisted,true);
+  const columns=h.tables.orders[0],bad=h.tables.orders[1].slice();
+  bad[columns.indexOf('id')]='ord_corrupt_fixture';
+  bad[columns.indexOf('receipt_json')]='{malformed-json';
+  bad[columns.indexOf('request_id')]='b1111111-2222-4333-8444-555555555555';
+  h.tables.orders.push(bad);
+  const second=h.post(request({
+    request_id:'c1111111-2222-4333-8444-555555555555',
+    checkout_proof:'cccccccc-1111-4111-8111-111111111111dddddddd-2222-4222-8222-222222222222'
+  }));
+  assert.equal(second.persisted,true,JSON.stringify(second));
+  const snapshot=h.post({action:'staff_orders',id_token:ADMIN_TOKEN});
+  assert.equal(snapshot.ok,true);
+  assert.equal(snapshot.snapshot_complete,false);
+  assert.equal(snapshot.invalid_receipts,1);
+  assert.equal(snapshot.orders.length,2);
+  assert.equal(snapshot.orders.some((o:{id:string})=>o.id===first.order.id),true);
+  assert.equal(snapshot.orders.some((o:{id:string})=>o.id===second.order.id),true);
+  assert.equal(h.records('orders').length,3,'broken rows must not be deleted automatically');
+});
+test('Google Sheets staff feed returns more than 100 active orders without truncation',()=>{
+  const h=harness({singleFile:true});
+  const first=h.post(request());assert.equal(first.persisted,true);
+  const columns=h.tables.orders[0],base=h.tables.orders[1];
+  for(let i=0;i<125;i++){
+    const row=base.slice(),order={...first.order,
+      id:'ord_'+randomUUID(),order_number:'AUR-TEST-'+String(i+1).padStart(3,'0'),
+      request_id:randomUUID(),created_at:new Date(1762000000000+i*1000).toISOString(),
+      updated_at:new Date(1762000000000+i*1000).toISOString()};
+    row[columns.indexOf('id')]=order.id;
+    row[columns.indexOf('order_number')]=order.order_number;
+    row[columns.indexOf('request_id')]=order.request_id;
+    row[columns.indexOf('request_hash')]='fixture-'+i;
+    row[columns.indexOf('created_at')]=order.created_at;
+    row[columns.indexOf('updated_at')]=order.updated_at;
+    row[columns.indexOf('receipt_json')]=JSON.stringify(order);
+    h.tables.orders.push(row);
+  }
+  const snapshot=h.post({action:'staff_orders',id_token:ADMIN_TOKEN});
+  assert.equal(snapshot.ok,true);
+  assert.equal(snapshot.snapshot_complete,true);
+  assert.equal(snapshot.orders.filter((o:{status:string})=>o.status==='pending').length,126);
+});
+
+test('empty staff Sheet rejects unauthenticated self-assigned first admin account',()=>{
+  const h=harness({singleFile:true});
+  const result=h.post({action:'staff_password_login',username:'admin',password:'AttackerTestPass2026!'});
+  assert.equal(result.code,'invalid_credentials');
+  assert.equal(h.records('staff_accounts').length,0);
+});
+test('one-time editor-only owner bootstraps a hashed admin and deletes temporary Script Property',()=>{
+  const h=harness({singleFile:true});
+  const props=new Map<string,string>();
+  h.context.PropertiesService={getScriptProperties:()=>({
+    getProperty:(key:string)=>props.get(key)||null,
+    setProperty:(key:string,val:string)=>{props.set(key,val);},
+    deleteProperty:(key:string)=>{props.delete(key);}
+  })};
+  assert.throws(()=>h.context.setupAuroraFirstStaffOwnerOnce(),/temporary owner password/);
+  const secret='SecureTemporaryOwner2026!Password';
+  props.set('AURORA_FIRST_OWNER_PASSWORD',secret);
+  h.context.Session={getActiveUser:()=>({getEmail:()=>'different@example.com'}),
+    getEffectiveUser:()=>({getEmail:()=>'owner@example.com'})};
+  assert.throws(()=>h.context.setupAuroraFirstStaffOwnerOnce(),/directly in the Apps Script editor/);
+  assert.equal(h.records('staff_accounts').length,0);
+  h.context.Session={getActiveUser:()=>({getEmail:()=>'owner@example.com'}),
+    getEffectiveUser:()=>({getEmail:()=>'owner@example.com'})};
+  const setup=h.context.setupAuroraFirstStaffOwnerOnce();
+  assert.equal(setup.configured,true);
+  assert.equal(setup.temporary_password_deleted,true);
+  assert.equal(props.has('AURORA_FIRST_OWNER_PASSWORD'),false);
+  assert.equal(h.records('staff_accounts').length,1);
+  assert.equal(h.post({action:'staff_password_login',username:'admin',password:secret}).role,'super_admin');
+  assert.equal(h.post({action:'setupAuroraFirstStaffOwnerOnce'}).code,'invalid_action');
+  props.set('AURORA_FIRST_OWNER_PASSWORD',secret);
+  assert.throws(()=>h.context.setupAuroraFirstStaffOwnerOnce(),/already exist/);
 });

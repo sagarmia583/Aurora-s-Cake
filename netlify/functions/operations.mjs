@@ -6,7 +6,6 @@
  * Netlify Functions consume Free plan credits; usage is NOT unlimited.
  */
 const SCRIPT_RE=/^\/macros\/s\/[A-Za-z0-9_-]+\/exec$/;
-const PUBLIC_RECEIPT_SCRIPT='https://script.google.com/macros/s/AKfycbw38J4AzlYkAhNtyDAp_CP34fUk9Epae6xz46AQFbF9ye1VsZjxTXmzbJgs52WEoWETMw/exec';
 export default async function operations(request, { scriptUrl = process.env.AURORA_SCRIPT_POST_URL, fetcher = globalThis.fetch } = {}) {
   const response=(status,message)=>new Response(JSON.stringify({ok:false,success:false,code:'proxy_error',error:message}),{
     status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}
@@ -32,8 +31,9 @@ export default async function operations(request, { scriptUrl = process.env.AURO
   if(raw.length>50000&&payload.action!=='staff_image_upload')
     return response(413,'Large requests are only allowed for staff image uploads.');
   let target;
-  // The tracking page can read an existing receipt even on hosts without a configured write relay.
-  try {target=new URL(scriptUrl||(payload.action==='customer_shared_order'?PUBLIC_RECEIPT_SCRIPT:''));}
+  // Fail closed for every route. A staging preview must NEVER silently
+  // send private receipt links or account operations to a production script.
+  try {target=new URL(scriptUrl||'');}
   catch {return response(503,'Bakery backend URL has not been configured.');}
   if(target.protocol!=='https:'||target.hostname!=='script.google.com'||!SCRIPT_RE.test(target.pathname)
     ||target.username||target.password||target.search||target.hash)

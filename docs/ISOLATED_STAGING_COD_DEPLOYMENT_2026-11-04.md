@@ -1,0 +1,138 @@
+# Aurora’s Cake — isolated staging Apps Script + real COD acceptance
+
+## Actual current state
+- Google Sheets is the only database; Netlify is the intended hosting platform.
+- An owner-private isolated test Google Sheet exists. Its original nonpublic order, staff, session, customer, refund, expense and review values were cleared while public catalogue and 37 tab headers/structure were retained. The production Sheet and private full backup remain unchanged.
+- A separate staging Apps Script Web App has NOT been deployed. No real HTTP COD test has run yet, because the available Google Drive connection cannot create Apps Script projects, authorize Apps Script deployments or mint their /exec URLs.
+- No production credentials, Sheet IDs, staging IDs, script tokens or external web app endpoints belong in public GitHub.
+
+## One-time staging Apps Script deployment (Windows PowerShell)
+Use a LOCAL checkout of the PR branch. The following script creates a fail-closed Code.gs from the current single-file bundle and embeds the private sanitized staging Sheet ID locally. It cannot target the original production Sheet.
+
+~~~powershell
+git fetch origin
+git checkout fix/netlify-google-sheets-only-20261104
+npm ci
+node scripts/build-apps-script.mjs --check
+npm install -g @google/clasp
+clasp login
+New-Item -ItemType Directory -Force .aurora-staging-apps-script | Out-Null
+cd .aurora-staging-apps-script
+clasp create --type standalone --title "Aurora Cake - ISOLATED COD STAGING"
+cd ..
+node scripts/prepare-staging-apps-script.mjs --sheet-id "<PRIVATE_SANITIZED_STAGING_SHEET_ID>"
+cd .aurora-staging-apps-script
+clasp push
+~~~
+
+Important: create a **NEW** Apps Script project. Do not paste or reuse production .clasp.json or an existing deployment ID. The generated folder is ignored by Git. Create the empty NEW project FIRST: clasp create pulls its initial files into the directory. Generate the guarded staging files AFTERWARD to replace those blank files, then push. It writes Code.gs and appsscript.json. The staging script hardcodes the sanitized Sheet ID; it refuses mismatched Script Properties, refuses a non-Google-Sheets database, disables staging new-order push notifications, and does not generate production receipt-view links.
+
+Open the **NEW** project in Apps Script. Choose Deploy > New deployment > Web app; set Execute as: Me (the Sheet owner), Who has access: Anyone (anonymous guest checkout allowed), then authorize it. The staging manifest specifies access ANYONE_ANONYMOUS and executeAs USER_DEPLOYING. Record the newly created **staging-only** /exec URL. Keep the sanitized Google Sheet Restricted/private. The web app can run as its authorized owner without making the Sheet itself public.
+
+Authoritative deployment documentation:
+https://developers.google.com/apps-script/concepts/deployments
+https://developers.google.com/apps-script/guides/clasp
+
+## Real COD acceptance (separate from Netlify)
+First, run the zero-write health/catalog preflight:
+
+~~~powershell
+cd ..
+node scripts/accept-staging-cod.mjs --url "<NEW_STAGING_EXEC_URL>" --sheet-id "<PRIVATE_SANITIZED_STAGING_SHEET_ID>"
+~~~
+
+It refuses all production endpoints without a special staging health marker and a fingerprint matching the specified Sheet ID. A successful preflight is not a COD test.
+
+Then intentionally submit **one synthetic gift/COD order**, replay its exact UUID, attempt a different payload with the same UUID (must be rejected), and read private order status with the returned capability:
+
+~~~powershell
+node scripts/accept-staging-cod.mjs --url "<NEW_STAGING_EXEC_URL>" --sheet-id "<PRIVATE_SANITIZED_STAGING_SHEET_ID>" --commit
+~~~
+
+The runner prints only a test order reference and total, not bearer credentials. It uses synthetic customer/recipient details and states "DO NOT DELIVER" in the note. Afterward use private Google Sheets to verify exactly ONE matching row in orders and a single order-item row. Even a successful HTTP retry must NOT substitute for private Sheet row-count verification.
+
+## Release acceptance / safety
+- [x] Owner-private backup exists and is unchanged.
+- [x] Isolated private COD testing Sheet with 37 original tabs, cleared private data rows and preserved catalogue exists.
+- [x] Fail-closed staging Code.gs generator and staging HTTP acceptance runner added to PR #37.
+- [x] New Apps Script project created; staging /exec URL verified against the private sanitized Sheet fingerprint.
+- [x] GET health confirmed environment=staging, Sheets-only, matching Sheet fingerprint and unfrozen writes.
+- [x] Real synthetic gift/COD order persisted and private tracking succeeded (2026-11-05).
+- [x] Exact UUID retry returned the original order; conflicting retry was rejected.
+- [x] Read all ID rows: exactly ONE matching `orders` row and ONE linked `order_items` row; no orphans/other orders.
+- [ ] Staff roles, fulfillment, rider cash collection, refund and POS acceptance separately tested.
+- [x] Owner showed Restricted in Google Drive UI; final owner-account ACL review remains advisable.
+- [ ] Netlify staging preview checked separately with staging-only /exec URL.
+
+No production Sheet, Netlify site or live Apps Script deployment was modified. Do not merge PR #37 to production before these checks pass.
+
+
+## Windows PowerShell safe deployment helper (no production writes)
+A guarded, interactive helper is available on this PR:
+`scripts/bootstrap-private-cod-staging.ps1`.
+It requires the ID of the **sanitized staging** Sheet (which remains private and
+is now shared with the production owner's Google account as an Editor). The
+existing production Sheet ID is explicitly refused. It creates only a **new**
+Apps Script project and uploads the generated one-file Google Sheets backend.
+
+From a local checkout of the PR branch, with Node.js 20+ and the official
+`@google/clasp` CLI installed, run:
+
+~~~powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap-private-cod-staging.ps1 -SheetId "<SANITIZED_STAGING_SHEET_ID>"
+~~~
+
+Choose the Google account that can edit the staging Sheet during the interactive
+clasp login. Enable Apps Script API access at
+https://script.google.com/home/usersettings if clasp requests it. The helper
+will NOT reuse an existing `.clasp.json`, and does not automatically make any
+deployment or submit an order. It opens the newly created project. Finish
+**Deploy > New deployment > Web app > Execute as me > Anyone**, authorize it
+and keep the new staging `/exec` URL separate from production.
+
+Only after deploying, run the **zero-write read-only** acceptance command:
+
+~~~powershell
+node scripts/accept-staging-cod.mjs --url "<NEW_STAGING_EXEC_URL>" --sheet-id "<SANITIZED_STAGING_SHEET_ID>"
+~~~
+
+After its staging fingerprint passes, explicitly request one synthetic COD test
+with `--commit` and inspect the isolated staging Sheet for a single order.
+No authentication tokens, script IDs or staging Sheet IDs are placed in GitHub.
+
+
+## Repair for "No active staging delivery zone/time slot" (2026-11-05)
+This error was caused by an **acceptance-runner field-name mismatch**, NOT by
+missing delivery data in the Sheet. The private staging Sheet's
+`delivery_zones` and `delivery_slots` tabs each contain 5 active records.
+The deployed Apps Script returns them as `data.zones` and `data.slots`,
+and embeds variants inside each `product.variants`. The old test runner
+incorrectly expected `data.delivery_zones`, `data.delivery_slots`, and
+top-level `data.product_variants`. The current runner handles both shapes.
+
+If working from a previously downloaded GitHub ZIP (not a Git clone), update
+just the local runner from the reviewed branch in PowerShell:
+
+~~~powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/sagarmia583/Aurora-s-Cake/fix/netlify-google-sheets-only-20261104/scripts/accept-staging-cod.mjs" -OutFile ".\\scripts\\accept-staging-cod.mjs"
+~~~
+
+Then repeat **without** `--commit`:
+
+~~~powershell
+node .\\scripts\\accept-staging-cod.mjs --url "<NEW_STAGING_EXEC_URL>" --sheet-id "<SANITIZED_STAGING_SHEET_ID>"
+~~~
+
+Only after `"mode":"preflight"` and `"isolated_staging":true` are shown,
+explicitly run the same command with `--commit` for a single synthetic COD
+order and verify the isolated staging `orders` and `order_items` tabs.
+Do not edit the production Google Sheet, or re-push/redeploy Apps Script for
+this runner-only fix.
+
+
+## Real isolated COD acceptance evidence — 2026-11-05
+- Owner ran the production-independent staging `--commit` acceptance runner after successful GET-only preflight. The returned result had `saved:true`, `identical_retry:true`, `collision_rejected:true` and `private_tracking:true`.
+- Assistant independently read the **private staging** Google Sheet's complete order-ID and item-reference columns (not just first rows) through the authorized Drive connection. Exactly **1 order** and **1 associated item** were present, with no duplicate order IDs and no orphan items.
+- Test order ID: `ord_8e42ea25-120e-4e48-a0f3-9ed18ecf7e9f`; `status=pending`, `payment_method=cod`, `payment_status=pending`, `total_amount=360` BDT; Vanilla Half Pound item `subtotal=300`, delivery `60` BDT.
+- The saved private receipt JSON parsed successfully and includes gift recipient/sender fields, `is_gift:true` and `hide_price_on_box:true`. No customer capability or private phone/address details were copied into the PR.
+- This proves one isolated Apps Script COD flow only. Real production checkout, rider cash collection, staff fulfillment, refunds and POS printing remain separate unverified acceptance tests.

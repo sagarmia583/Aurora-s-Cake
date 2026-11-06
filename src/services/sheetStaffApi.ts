@@ -120,16 +120,35 @@ export async function checkStaffSession(endpoint: string, idToken: string): Prom
     : undefined;
   return { role: data.role as StaffRoleName, email: data.email, username: typeof data.username==='string'?data.username:undefined, name: String(data.name || data.email), riders, staff_profiles };
 }
-export async function getStaffOrders(endpoint: string, idToken: string): Promise<StaffOrder[]> {
-  const data = await privatePost(endpoint, { action: 'staff_orders', ...staffCredential(idToken) });
-  if (!validateStaffOrderList(data.orders)||data.snapshot_complete===false)
-    throw new Error('Incomplete staff order response; keeping your previous list.');
-  // An old or overloaded Apps Script deployment may reply with an empty
-  // incomplete snapshot. Never interpret that as "delete every order".
-  if (data.orders.length === 0 && data.snapshot_complete !== true)
-    throw new Error('The backend did not confirm an empty order list. Keeping your previous data.');
-  return data.orders;
+export interface StaffOrderSnapshot {
+  orders: StaffOrder[];
+  complete: boolean;
+  invalidReceipts: number;
 }
+
+/** A malformed Google Sheets receipt row must not block valid new orders.
+ * Clients must retain previous missing orders until the server confirms a
+ * complete snapshot. This is private, authenticated staff-only data.
+ */
+export async function getStaffOrderSnapshot(endpoint:string,token:string):Promise<StaffOrderSnapshot>{
+  const data=await privatePost(endpoint,{action:'staff_orders',...staffCredential(token)});
+  if(!validateStaffOrderList(data.orders)||typeof data.snapshot_complete!=='boolean')
+    throw new Error('Invalid staff order snapshot; keeping previous orders.');
+  const invalid=typeof data.invalid_receipts==='number'&&
+    Number.isSafeInteger(data.invalid_receipts)&&data.invalid_receipts>=0
+      ? data.invalid_receipts:0;
+  if(data.snapshot_complete===false&&invalid===0)
+    throw new Error('Incomplete staff order snapshot without a valid corruption count.');
+  return {orders:data.orders,complete:data.snapshot_complete,invalidReceipts:invalid};
+}
+
+/** Existing strict API for any caller that requires a complete authoritative list. */
+export async function getStaffOrders(endpoint:string,idToken:string):Promise<StaffOrder[]>{
+  const snapshot=await getStaffOrderSnapshot(endpoint,idToken);
+  if(!snapshot.complete)throw new Error('Incomplete staff order response; keeping your previous list.');
+  return snapshot.orders;
+}
+
 export async function mutateStaffOrder(endpoint: string, idToken: string, operation: StaffOperation, orderId: string, extra: Record<string, unknown> = {}): Promise<StaffOrder> {
   const response=await privatePost(endpoint,{ action:'staff_mutate',...staffCredential(idToken),operation,order_id:orderId,...extra });
   if(!objectValue(response.order)||response.order.id!==orderId||

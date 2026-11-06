@@ -77,6 +77,8 @@ export interface StaffOrder {
   delivery_fee?:number;message_on_cake?:string;
   subtotal?:number;discount_amount?:number;coupon_code?:string;
   cod_collected?:boolean;items?:OrderItem[];
+  is_gift?:boolean;recipient_name?:string;recipient_phone?:string;
+  sender_name?:string;sender_phone?:string;gift_card_message?:string;hide_price_on_box?:boolean;
   customer_share_url?:string;
 }
 export const roles:Role[] = ['super_admin','admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'];
@@ -93,7 +95,7 @@ export const roleLabel:Record<Role,string>={
 };
 export function canOperate(role:Role,op:Operation):boolean{
   if(role==='super_admin'||role==='admin')return true;
-  // Preserve existing website rule: riders alone perform handover and OTP.
+  // Preserve existing website rule: riders handle handover; delivery OTP is intentionally disabled.
   if(op==='pick_up'||op==='start_delivery'||op==='deliver')return role==='delivery_man';
   if(role==='order_manager')return op==='confirm'||op==='cancel';
   if(role==='kitchen_manager')return op==='start_baking'||op==='mark_ready';
@@ -203,12 +205,23 @@ const STAFF_API_ORIGINS = new Set([
   // Retained for an existing owner-configured build; retired hosting is not re-enabled.
   'https://aurora-s-cake.vercel.app',
 ]);
+// A Netlify origin is accepted only when it matches the build owner's explicit
+// EXPO_PUBLIC_OPERATIONS_URL. Do not trust an arbitrary runtime-supplied hostname.
+const configuredNetlifyApi = process.env.EXPO_PUBLIC_OPERATIONS_URL || '';
+function configuredNetlifyOrigin():string|null {
+  try {
+    const u=new URL(configuredNetlifyApi);
+    return u.protocol==='https:' && u.hostname.endsWith('.netlify.app') &&
+      u.hostname.length>'.netlify.app'.length && u.pathname==='/api/operations' &&
+      !u.username && !u.password && !u.search && !u.hash && !u.port ? u.origin:null;
+  } catch {return null;}
+}
 export function validateStaffOperationsUrl(raw:string):string {
   if(!raw)throw new Error('App API URL is not configured. Set EXPO_PUBLIC_OPERATIONS_URL before building.');
   let url:URL;
   try{url=new URL(raw);}catch{throw new Error('Invalid staff API URL.');}
   if(url.protocol!=='https:'||url.username||url.password||raw.includes('@')||/[?#]/.test(raw)||
-      url.pathname!=='/api/operations'||!STAFF_API_ORIGINS.has(url.origin))
+      url.pathname!=='/api/operations'||!(STAFF_API_ORIGINS.has(url.origin)||url.origin===configuredNetlifyOrigin()))
     throw new Error('Use the approved Aurora’s Cake HTTPS /api/operations endpoint.');
   return url.href;
 }

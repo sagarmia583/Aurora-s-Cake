@@ -20,3 +20,8 @@ catalog-export*.json
 *aurora*backup*.sql
 *aurora*backup*.json
 *.d1-backup.sql
+
+# Fail-closed staging Apps Script code, OAuth state, and private project IDs.
+.aurora-staging-apps-script/
+.clasp.json
+.clasprc.json

@@ -1,0 +1,45 @@
+name: Verify Netlify + Google Sheets release
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  sheets-netlify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NETLIFY: "true"
+      VITE_SHEETS_POST_PROXY: "/api/operations"
+      VITE_FIREBASE_ENABLED: "false"
+      VITE_SUPABASE_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Verify Netlify + Sheets static configuration
+        run: node scripts/verify-netlify-sheets-config.mjs
+      - name: Test read-only live-smoke checker with fixtures
+        run: node --test tests/netlify-release-smoke.test.mjs
+      - name: Confirm Apps Script single-file bundle matches modules
+        run: node scripts/build-apps-script.mjs --check
+      - name: Test staging Apps Script isolation and COD acceptance harness
+        run: node --test tests/staging-cod-acceptance.test.mjs tests/staging-staff-acceptance.test.mjs tests/bootstrap-private-staging.test.mjs
+      - name: TypeScript
+        run: npm run lint
+      - name: Build with Netlify environment
+        run: npm run build
+      - name: Check output and Function handlers
+        run: |
+          test -f dist/index.html
+          test -f netlify/functions/public.mjs
+          test -f netlify/functions/backend-health.mjs
+          test -f netlify/functions/operations.mjs
+          test -f netlify/functions/image.mjs

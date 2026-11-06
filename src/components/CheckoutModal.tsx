@@ -85,13 +85,13 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cod');
 
   // Gift & Surprise Delivery State
-  const [isGift, setIsGift] = useState(false);
-  const [recipientName, setRecipientName] = useState('');
-  const [recipientPhone, setRecipientPhone] = useState('');
-  const [senderName, setSenderName] = useState('');
-  const [senderPhone, setSenderPhone] = useState('');
-  const [hidePriceOnBox, setHidePriceOnBox] = useState(true);
-  const [giftCardMessage, setGiftCardMessage] = useState('');
+  const [isGift, setIsGift] = useState(recoveredDraft?.is_gift === true);
+  const [recipientName, setRecipientName] = useState(recoveredDraft?.recipient_name || '');
+  const [recipientPhone, setRecipientPhone] = useState(recoveredDraft?.recipient_phone || '');
+  const [senderName, setSenderName] = useState(recoveredDraft?.sender_name || '');
+  const [senderPhone, setSenderPhone] = useState(recoveredDraft?.sender_phone || '');
+  const [hidePriceOnBox, setHidePriceOnBox] = useState(recoveredDraft?.hide_price_on_box !== false);
+  const [giftCardMessage, setGiftCardMessage] = useState(recoveredDraft?.gift_card_message || '');
 
   // bKash / Nagad Advance Payment State
   const [paymentMode, setPaymentMode] = useState<'full' | 'advance'>('advance');
@@ -391,6 +391,11 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
           ...(appliedCoupon ? { coupon_code: appliedCoupon } : {}),
           ...(orderNote.trim() ? { order_note: orderNote } : {}),
           payment_method: 'cod',
+          ...(isGift ? {
+            is_gift: true, recipient_name: recipientName.trim(), recipient_phone: recipientPhone.trim(),
+            sender_name: senderName.trim() || customerName.trim(), sender_phone: senderPhone.trim(),
+            hide_price_on_box: hidePriceOnBox, gift_card_message: giftCardMessage.trim(),
+          } : {}),
           expected_total: estimatedTotal,
         }, orderAttemptRef.current);
         const pending = await preservePendingCheckout(orderAttemptRef.current, captureCheckoutCart(items));
