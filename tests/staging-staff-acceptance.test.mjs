@@ -268,3 +268,24 @@ test('fresh ZIP wizard creates only an explicit existing staging clasp link',()=
   assert.doesNotMatch(link,/New-Item.*(?:[Ss]preadsheet|[Dd]atabase|Apps Script project)/);
   assert.match(wizard,/Assert-StagingTarget\nif\(\$Mode -ne 'Check'/);
 });
+
+
+test('wizard installs official Google clasp only with opt-in and correct Node runtime',()=>{
+  const wizard=readFileSync(new URL('../scripts/aurora-staging-one-command.ps1',import.meta.url),'utf8');
+  const start=wizard.indexOf('function Resolve-Clasp {');
+  const end=wizard.indexOf('function Save-ReviewedFile(');
+  assert.ok(start>=0&&end>start);
+  const setup=wizard.slice(start,end);
+  assert.match(setup,/Get-Command 'clasp.cmd' -ErrorAction SilentlyContinue/);
+  assert.match(setup,/Get-Command 'npm.cmd' -ErrorAction SilentlyContinue/);
+  assert.match(setup,/npm\.Source config get prefix/);
+  assert.match(setup,/\[int\]\$Matches\[1\] -lt 22/);
+  assert.match(setup,/Require-Confirmation 'Type INSTALL-CLASP[^']*' 'INSTALL-CLASP'/);
+  assert.match(setup,/& \$npm\.Source install --global '@google\/clasp'/);
+  assert.match(setup,/Test-Path -LiteralPath \$claspPath/);
+  assert.match(wizard,/\$clasp=Resolve-Clasp/);
+  assert.ok(setup.indexOf("Require-Confirmation 'Type INSTALL-CLASP")<
+    setup.indexOf("& $npm.Source install --global '@google/clasp'"),
+    'explicit consent must precede npm global install');
+  assert.doesNotMatch(setup,/clasp(?:\.cmd)?\s+(?:create|clone|deploy)\b/i);
+});
