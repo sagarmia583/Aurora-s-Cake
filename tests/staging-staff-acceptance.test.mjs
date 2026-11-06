@@ -55,6 +55,9 @@ function fixture(hardened=true) {
       }
     }else if(action==='staff_account_set_active'){
       out=tokens[input.auth_token]==='super_admin'?{ok:true,updated:true}:{ok:false,code:'forbidden'};
+    }else if(action==='staff_password_logout'){
+      out=tokens[input.auth_token] ? {ok:true,revoked:true}:{ok:false,code:'unauthorized'};
+      delete tokens[input.auth_token];
     }else if(action==='staff_mutate'){
       const role=tokens[input.auth_token];
       const allowed=forbidden[input.operation]||[];
@@ -200,4 +203,49 @@ test('staging password reset runs only as editor owner, resets failed attempts a
   people.push({...person,id:'duplicate-admin'});
   assert.throws(()=>context.resetAuroraStagingOwnerPasswordOnce(),/Exactly one active staging super_admin/);
   assert.equal(saved.length,1,'duplicate admin must not be mutated');
+});
+
+
+test('new login-only mode authenticates an owner and pending order without stage mutations',async()=>{
+  const f=fixture();
+  const result=await acceptStagingStaff({url:execUrl,sheetId,orderId,
+    expectedTotal:360,loginOnly:true,adminPassword:'SecureStagingOwnerPassword!2026',
+    fetcher:f.fetcher});
+  assert.equal(result.mode,'login_check');
+  assert.equal(result.admin_verified,true);
+  assert.equal(result.order_pending,true);
+  assert.equal(result.no_staff_or_order_mutations,true);
+  assert.equal(f.calls.filter(x=>x.action==='staff_account_create').length,0);
+  assert.equal(f.calls.filter(x=>x.action==='staff_mutate').length,0);
+  assert.equal(f.calls.filter(x=>x.action==='staff_password_logout').length,1);
+  assert.equal(f.getCurrent().status,'pending');
+});
+test('invalid admin login-only password fails before creating test employees',async()=>{
+  const f=fixture();
+  await assert.rejects(()=>acceptStagingStaff({url:execUrl,sheetId,orderId,
+    expectedTotal:360,loginOnly:true,adminPassword:'WrongOwnerSecret2026!Pass',
+    fetcher:f.fetcher}),/Owner login failed \(invalid_credentials\)/);
+  assert.equal(f.calls.filter(x=>x.action==='staff_account_create').length,0);
+  assert.equal(f.calls.filter(x=>x.action==='staff_mutate').length,0);
+  assert.equal(f.getCurrent().status,'pending');
+});
+test('consolidated Windows wizard checks only existing staging project, uses hidden password and one-time marker',()=>{
+  const wizard=readFileSync(new URL('../scripts/aurora-staging-one-command.ps1',import.meta.url),'utf8');
+  assert.match(wizard,/existing isolated staging project/i);
+  assert.match(wizard,/\$config\.scriptId -cne \$scriptId/);
+  assert.match(wizard,/\$stagingSheetId -ceq \$productionSheetId/);
+  assert.match(wizard,/Code\.AllInOne\.gs/);
+  assert.match(wizard,/staging_auth_hardened:true/);
+  assert.match(wizard,/resetAuroraStagingOwnerPasswordOnce/);
+  assert.match(wizard,/RUN-STAGING-STAFF/);
+  assert.match(wizard,/Read-Host 'STAGING admin password \(hidden\)' -AsSecureString/);
+  assert.match(wizard,/Env:\\AURORA_STAGING_ADMIN_PASSWORD/);
+  assert.match(wizard,/FileMode\]::CreateNew/);
+  assert.match(wizard,/--login-only/);
+  assert.match(wizard,/--commit/);
+  const nativeClaspLines=wizard.split('\n').map(line=>line.trim())
+    .filter(line=>line.startsWith('& $clasp'));
+  assert.deepEqual(nativeClaspLines,["& $clasp 'push'"]);
+  assert.doesNotMatch(wizard,/& \$clasp '(?:deploy|clone|create|run)'/);
+  assert.doesNotMatch(wizard,/New-Item.*[Cc]reate.*(?:Apps Script|[Ss]preadsheet)/);
 });
