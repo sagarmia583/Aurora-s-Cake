@@ -43,6 +43,7 @@ test('admin cannot dispatch an unassigned order or silently impersonate a rider'
     history:[],created_at:new Date().toISOString()};
   const saved:any[]=[];
   ctx.auroraStaffAuthenticate_=()=>({role:'admin',email:'admin@example.test',username:'admin',name:'Owner'});
+  ctx.auroraOrderText_=(value:string)=>String(value);
   ctx.auroraSpreadsheet_=()=>({});
   ctx.auroraFastOrderTable_=()=>({});
   ctx.auroraPrivateFindRow_=()=>2;
