@@ -80,13 +80,35 @@ function Invoke-StaffRunner([string]$kind, [string]$nodePath) {
   )
   if($kind -eq 'login'){$cliArgs+='--login-only'}
   if($kind -eq 'commit'){$cliArgs+='--commit'}
-  & $nodePath @cliArgs
-  if($LASTEXITCODE -ne 0){
-    if($kind -eq 'commit'){
+  if($kind -eq 'commit'){
+    # Stream stage progress to the terminal, since the commit is non-atomic.
+    & $nodePath @cliArgs
+    if($LASTEXITCODE -ne 0){
       throw 'STAFF TEST STOPPED. Stages may have changed. DO NOT run the test again; inspect the private staging Sheet first.'
     }
+    return
+  }
+  $lines=@(& $nodePath @cliArgs)
+  $exitCode=$LASTEXITCODE
+  foreach($line in $lines){Write-Host $line}
+  if($exitCode -ne 0){
     throw ('STAGING '+$kind+' check failed. No Staff order stages were changed by this check.')
   }
+  $record=@($lines | Where-Object {$_ -like 'STAGING STAFF ACCEPTANCE: *'} | Select-Object -Last 1)
+  if($record.Count -ne 1){throw ('Staging '+$kind+' returned no verifiable result. STOP.')}
+  $payload=($record[0] -replace '^STAGING STAFF ACCEPTANCE:\s*','') | ConvertFrom-Json
+  if($payload.isolated_staging -ne $true -or $payload.hardened_staff_auth -ne $true){
+    throw 'Staging response has invalid isolation or security markers. STOP.'
+  }
+  if($kind -eq 'preflight' -and $payload.mode -cne 'preflight'){
+    throw 'Expected the read-only staging preflight. STOP.'
+  }
+  if($kind -eq 'login' -and (
+    $payload.mode -cne 'login_check' -or
+    $payload.admin_verified -ne $true -or
+    $payload.order_pending -ne $true -or
+    $payload.no_staff_or_order_mutations -ne $true
+  )){throw 'Admin login or pending-order check did not pass. STOP.'}
 }
 function Require-Confirmation([string]$message, [string]$phrase){
   $answer=Read-Host $message
