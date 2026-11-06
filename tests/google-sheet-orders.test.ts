@@ -1320,3 +1320,20 @@ test('legacy public phone-history route never reveals orders, recipient names or
   assert.doesNotMatch(JSON.stringify(exposed),/Private Customer|Private Tangail Address/);
   assert.equal(h.records('orders').length,1,'legacy lookup must not change stored orders');
 });
+
+test('anonymous costing endpoints cannot read or mutate private business margins',()=>{
+  const h=harness({singleFile:true});
+  vm.runInContext(fs.readFileSync(new URL('../apps-script/ItemCostings.gs',import.meta.url),'utf8'),h.context);
+  const secret={product_id:'p1',selling_price:1000,cost_ingredients:1,cost_packaging:2,
+    cost_delivery:3,cost_other:4};
+  for(const action of ['get_item_costings','sync_item_costings']){
+    const answer=h.post({action,costings:[secret]});
+    assert.equal(answer.code,'forbidden',action+' must never be public');
+    assert.equal(answer.costings,undefined);
+  }
+  assert.equal(h.tables.item_costings,undefined,'anonymous write must not create a ledger');
+  assert.throws(()=>h.context.auroraCostingPost_({action:'get_item_costings'}));
+  const staffRead=h.post({action:'staff_item_costings',operation:'read',id_token:ADMIN_TOKEN});
+  assert.equal(staffRead.ok,true);
+  assert.deepEqual(staffRead.costings,[]);
+});
