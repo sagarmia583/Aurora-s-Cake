@@ -152,7 +152,11 @@ function auroraDoPost_(e) {
     if(input && /^customer_phone_(signup|login|session|logout|orders|profile|claim|password|close|save_order_profile)$/.test(String(input.action||'')))
       return auroraResponse_(auroraAccountCustomerPost_(input));
     if (input && (input.action === 'create_custom_cake' || input.action === 'get_custom_cake_status' || input.action === 'staff_custom_cakes' || input.action === 'staff_custom_quote')) return auroraResponse_(auroraCustomCakePost_(input));
-    if (input && (input.action === 'sync_item_costings' || input.action === 'get_item_costings' || input.action === 'staff_item_costings')) return auroraResponse_(auroraCostingPost_(input));
+    // Legacy costing routes were publicly callable; only the authenticated
+    // staff operation may reach the private costing ledger.
+    if (input && (input.action === 'sync_item_costings' || input.action === 'get_item_costings'))
+      auroraReject_('forbidden','Use authenticated staff item costings to view or save costs.');
+    if (input && input.action === 'staff_item_costings') return auroraResponse_(auroraCostingPost_(input));
     if (input && input.action === 'staff_customer_lookup') return auroraResponse_(auroraStaffCustomerLookup_(input));
     if (input && input.action === 'customer_contact_submit') return auroraResponse_(auroraGuestContactSubmit_(input));
     // Phone ownership is unverified; this legacy route must never enumerate
@@ -3994,11 +3998,12 @@ function auroraCostingPost_(input) {
   if (!input || typeof input !== 'object') {
     auroraReject_('invalid_request', 'Invalid costing request payload.');
   }
-  // Native staff workspace uses one authenticated route for reading and saving.
+  // Defense in depth: even direct legacy calls cannot bypass staff auth.
+  // The public doPost router accepts only staff_item_costings.
+  var actor=auroraStaffAuthenticate_(input);
+  if(['super_admin','admin','order_manager','accountant'].indexOf(actor.role)===-1)
+    auroraReject_('forbidden','This staff role cannot manage item costings.');
   if(input.action==='staff_item_costings'){
-    var actor=auroraStaffAuthenticate_(input);
-    if(['super_admin','admin','order_manager','accountant'].indexOf(actor.role)===-1)
-      auroraReject_('forbidden','This staff role cannot manage item costings.');
     if(['read','save'].indexOf(input.operation)===-1)auroraReject_('invalid_action','Choose read or save costings.');
     if(input.operation==='save'){
       if(!Array.isArray(input.costings)||!input.costings.length||input.costings.length>500)auroraReject_('invalid_request','Provide 1–500 item costings.');
