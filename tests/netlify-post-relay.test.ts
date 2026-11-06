@@ -13,6 +13,7 @@ test('free POST relay refuses off-origin use, unsupported routes and non-POST re
   assert.equal((await relay(new Request(endpoint))).status,405);
   assert.equal((await relay(make('staff_orders','https://malicious.example'))).status,403);
   assert.equal((await relay(make('get_every_private_order'))).status,400);
+  assert.equal((await relay(make('customer_phone_history'))).status,400);
 });
 test('free POST relay accepts only a pinned Google Apps Script HTTPS endpoint',async()=>{
   const old=process.env.AURORA_SCRIPT_POST_URL;
