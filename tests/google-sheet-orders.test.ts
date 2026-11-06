@@ -1220,3 +1220,58 @@ test('one-time editor-only owner bootstraps a hashed admin and deletes temporary
   props.set('AURORA_FIRST_OWNER_PASSWORD',secret);
   assert.throws(()=>h.context.setupAuroraFirstStaffOwnerOnce(),/already exist/);
 });
+
+test('delegated admin cannot create or take over administrator accounts; last owner remains active',()=>{
+  const h=harness({singleFile:true});
+  const base={name:'Team Member',password:'CorrectHorseBattery20!'};
+  const create=(username:string,role:string,token=ADMIN_TOKEN)=>
+    h.post({action:'staff_account_create',id_token:token.startsWith('admin_')?token:undefined,
+      auth_token:token.startsWith('admin_')?undefined:token,username,role,...base});
+  assert.equal(create('admin02','admin').created,true);
+  const login=h.post({action:'staff_password_login',username:'admin02',password:base.password});
+  assert.equal(login.role,'admin');
+  assert.equal(create('owner03','super_admin',login.auth_token).code,'forbidden');
+  assert.equal(create('admin03','admin',login.auth_token).code,'forbidden');
+  assert.equal(create('rider03','delivery_man',login.auth_token).created,true);
+  assert.equal(create('owner02','super_admin').created,true);
+  assert.equal(h.post({action:'staff_account_reset_password',auth_token:login.auth_token,
+    username:'owner02',password:'CompromisedPassword20!'}).code,'forbidden');
+  assert.equal(h.post({action:'staff_account_set_active',auth_token:login.auth_token,
+    username:'owner02',active:false}).code,'forbidden');
+  assert.equal(h.post({action:'staff_account_set_active',auth_token:login.auth_token,
+    username:'admin02',active:false}).code,'forbidden');
+  assert.equal(h.post({action:'staff_account_set_active',id_token:ADMIN_TOKEN,
+    username:'owner02',active:'false'}).code,'invalid_request');
+  assert.equal(h.post({action:'staff_account_set_active',id_token:ADMIN_TOKEN,
+    username:'owner02',active:false}).code,'last_owner');
+  assert.equal(h.records('staff_accounts').find((person:{username?:string})=>person.username==='owner02').active,true);
+});
+
+test('delivery assignment rejects partial names, inactive accounts and forged rider IDs',()=>{
+  const h=harness({singleFile:true});
+  const create=(username:string,role:string,name:string)=>
+    h.post({action:'staff_account_create',id_token:ADMIN_TOKEN,username,role,name,password:'StrongStaffPass2026!'});
+  assert.equal(create('rider020','delivery_man','Verified Rider').created,true);
+  assert.equal(create('chef020','kitchen_manager','Baker').created,true);
+  const order=h.post(request()).order;
+  const stage=(operation:string,extra:Record<string,unknown>={},id_token=ADMIN_TOKEN)=>
+    h.post({action:'staff_mutate',id_token,operation,order_id:order.id,...extra});
+  for(const operation of ['confirm','start_baking','mark_ready'])assert.equal(stage(operation).ok,true);
+  assert.equal(stage('assign',{rider_email:'rider02'}).code,'invalid_rider');
+  assert.equal(stage('assign',{rider_email:'chef020'}).code,'invalid_rider');
+  assert.equal(stage('assign',{rider_email:'unknown_rider'}).code,'invalid_rider');
+  assert.equal(h.post({action:'staff_account_set_active',id_token:ADMIN_TOKEN,
+    username:'rider020',active:false}).updated,true);
+  assert.equal(stage('assign',{rider_email:'rider020'}).code,'invalid_rider');
+  assert.equal(h.post({action:'staff_account_set_active',id_token:ADMIN_TOKEN,
+    username:'rider020',active:true}).updated,true);
+  const assigned=stage('assign',{rider_email:'rider020',rider_id:'rider@example.com',
+    rider_name:'Wrong person'});
+  assert.equal(assigned.ok,true);
+  assert.equal(assigned.order.rider_id,'rider020');
+  assert.equal(assigned.order.rider_name,'Verified Rider');
+  assert.equal(stage('pick_up',{},RIDER_TOKEN).code,'forbidden');
+  const rider=h.post({action:'staff_password_login',username:'rider020',password:'StrongStaffPass2026!'});
+  assert.equal(h.post({action:'staff_mutate',auth_token:rider.auth_token,
+    operation:'pick_up',order_id:order.id}).ok,true);
+});
