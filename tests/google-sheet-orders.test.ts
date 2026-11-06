@@ -1244,7 +1244,7 @@ test('delegated admin cannot create or take over administrator accounts; last ow
     username:'owner02',active:'false'}).code,'invalid_request');
   assert.equal(h.post({action:'staff_account_set_active',id_token:ADMIN_TOKEN,
     username:'owner02',active:false}).code,'last_owner');
-  assert.equal(h.records('staff_accounts').find((person:{username?:string})=>person.username==='owner02').active,true);
+  assert.equal(h.records('staff_accounts').find((person:{username?:string})=>person.username==='owner02')?.active,true);
 });
 
 test('delivery assignment rejects partial names, inactive accounts and forged rider IDs',()=>{
