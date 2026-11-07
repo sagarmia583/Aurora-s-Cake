@@ -22,8 +22,8 @@ interface DeliveryRiderModuleProps {
   currency: string;
   staffName: string;
   role: string;
-  onAssignRider?: (orderId: string, riderEmail: string, riderName: string) => void;
-  onUpdateStatus?: (orderId: string, status: Order['status']) => void;
+  /** Opens the authenticated live queue; never dispatch local demo orders. */
+  onOpenLiveDelivery?: () => void;
 }
 
 export const DeliveryRiderModule: React.FC<DeliveryRiderModuleProps> = ({
@@ -31,8 +31,7 @@ export const DeliveryRiderModule: React.FC<DeliveryRiderModuleProps> = ({
   currency,
   staffName,
   role,
-  onAssignRider,
-  onUpdateStatus,
+  onOpenLiveDelivery,
 }) => {
   const [activeTab, setActiveTab] = useState<'deliveries' | 'riders_cash' | 'deposits'>('deliveries');
   const [search, setSearch] = useState('');
@@ -119,9 +118,9 @@ export const DeliveryRiderModule: React.FC<DeliveryRiderModuleProps> = ({
   }
 
   return (
-    <div className="p-4 lg:p-6 space-y-6">
+    <div className="w-full min-w-0 max-w-full overflow-x-clip p-3 sm:p-4 lg:p-6 space-y-6" data-testid="mobile-delivery-module">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 min-w-0">
         <div>
           <h1 className="text-xl lg:text-2xl font-bold text-gray-800 flex items-center gap-2">
             <Bike size={26} style={{ color: '#B77D80' }} />
@@ -131,7 +130,7 @@ export const DeliveryRiderModule: React.FC<DeliveryRiderModuleProps> = ({
         </div>
 
         {/* Tab Pills */}
-        <div className="flex bg-white rounded-xl border border-rose-100 p-1 gap-1 shadow-sm">
+        <div className="flex w-full sm:w-auto min-w-0 max-w-full overflow-x-auto bg-white rounded-xl border border-rose-100 p-1 gap-1 shadow-sm">
           <button
             onClick={() => setActiveTab('deliveries')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
@@ -160,6 +159,17 @@ export const DeliveryRiderModule: React.FC<DeliveryRiderModuleProps> = ({
             ডিপোজিট রিকোয়েস্ট ({deposits.filter(d => d.status === 'pending').length})
           </button>
         </div>
+      </div>
+
+      <div className="w-full min-w-0 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
+        <p className="text-xs sm:text-sm text-emerald-950 break-words">
+          রাইডার অ্যাসাইন ও ডেলিভারি সম্পন্ন করতে Live Staff Orders খুলুন। সেখানে আসল Google Sheet-এর অর্ডার ও নিবন্ধিত রাইডার দেখাবে।
+        </p>
+        <button type="button" onClick={onOpenLiveDelivery} disabled={!onOpenLiveDelivery}
+          className="w-full sm:w-auto shrink-0 rounded-xl bg-emerald-800 px-4 py-3 text-white text-xs font-bold disabled:opacity-50 min-h-11"
+          data-testid="open-live-rider-assignment">
+          Live Rider Assignment & Delivery
+        </button>
       </div>
 
       {/* KPI Cards */}
@@ -225,9 +235,9 @@ export const DeliveryRiderModule: React.FC<DeliveryRiderModuleProps> = ({
           </div>
 
           {/* Deliveries Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div className="grid min-w-0 grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {deliveryOrders.map(order => (
-              <div key={order.id} className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm space-y-3">
+              <div key={order.id} className="min-w-0 max-w-full bg-white rounded-2xl p-3 sm:p-4 border border-gray-100 shadow-sm space-y-3 break-words">
                 <div className="flex items-start justify-between">
                   <div>
                     <span className="font-mono text-xs font-bold text-gray-600">
@@ -271,37 +281,13 @@ export const DeliveryRiderModule: React.FC<DeliveryRiderModuleProps> = ({
                   </div>
                 </div>
 
-                {/* Actions */}
+                {/* Delivery mutations must use a verified staff session and server-confirmed order. */}
                 <div className="flex gap-2 pt-1">
-                  {!order.rider_name && (
-                    <select
-                      onChange={e => {
-                        const r = riders.find(x => x.username === e.target.value || x.name === e.target.value);
-                        if (r) onAssignRider?.(order.id, r.username, r.name);
-                      }}
-                      defaultValue=""
-                      className="flex-1 py-1.5 px-2 text-xs border border-rose-300 rounded-xl bg-rose-50 text-rose-800 font-semibold focus:outline-none"
-                    >
-                      <option value="" disabled>রাইডার অ্যাসাইন করুন</option>
-                      {riders.map(r => (
-                        <option key={r.id} value={r.username}>{r.name}</option>
-                      ))}
-                    </select>
-                  )}
-                  {order.status === 'assigned' && (
-                    <button
-                      onClick={() => onUpdateStatus?.(order.id, 'out_for_delivery')}
-                      className="flex-1 py-2 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 text-center shadow-sm"
-                    >
-                      ডেলিভারি শুরু (Out for Delivery)
-                    </button>
-                  )}
-                  {order.status === 'out_for_delivery' && (
-                    <button
-                      onClick={() => onUpdateStatus?.(order.id, 'delivered')}
-                      className="flex-1 py-2 rounded-xl text-xs font-bold text-white bg-green-600 hover:bg-green-700 text-center shadow-sm"
-                    >
-                      ডেলিভারি সম্পন্ন (Mark Delivered)
+                  {['ready','assigned','picked_up','out_for_delivery'].includes(order.status) && (
+                    <button type="button" onClick={onOpenLiveDelivery} disabled={!onOpenLiveDelivery}
+                      className="w-full min-h-11 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white px-3 py-2 text-xs font-bold disabled:opacity-50"
+                      data-testid="open-live-delivery-order">
+                      {order.status === 'ready' ? 'Assign Rider in Live Orders' : 'Manage Delivery in Live Orders'}
                     </button>
                   )}
                 </div>

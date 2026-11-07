@@ -30,7 +30,7 @@ import { loadConfirmedSheetOrders, rememberConfirmedSheetOrder, removeConfirmedS
 import { fetchCustomerOrderStatus, redeemLegacyReceiptAccess } from './services/sheetStaffApi';
 import { isConfirmedDeletedSheetOrder, verifyStoredOrderHistory } from './services/sheetOrderHistorySync';
 import { syncPhoneCustomerConfirmedOrder } from './services/phoneCustomerApi';
-import { getBrowserWorkspaceStorage, isStaffWorkspaceOpen, setStaffWorkspaceOpen } from './services/staffWorkspaceSession';
+import { getBrowserWorkspaceStorage, isStaffWorkspaceOpen, saveStaffTab, setStaffWorkspaceOpen } from './services/staffWorkspaceSession';
 import { reconcilePublicCart, reorderFromPublicOrder } from './services/reconcilePublicCart';
 import { inspectPendingCheckout, loadCheckoutCart, saveCheckoutCart, settleCheckoutCart } from './services/checkoutRecovery';
 import type { CheckoutCompletion } from './services/checkoutRecovery';
@@ -61,6 +61,13 @@ export default function App() {
   const staffPage = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('staff') === '1';
   const [isStaffPortalOpen, setIsStaffPortalOpen] = useState(() => staffPage || isStaffWorkspaceOpen(getBrowserWorkspaceStorage()));
   const openStaffPortal = () => { setStaffWorkspaceOpen(getBrowserWorkspaceStorage(),true); setIsStaffPortalOpen(true); };
+  const openLiveDeliveryFromAdmin = () => {
+    // Use the authenticated Staff Orders queue rather than a mock rider
+    // identity. The existing staff session is validated by Apps Script.
+    saveStaffTab(getBrowserWorkspaceStorage(),'orders');
+    setStaffWorkspaceOpen(getBrowserWorkspaceStorage(),true);
+    setIsStaffPortalOpen(true);
+  };
   const closeStaffPortal = () => { setStaffWorkspaceOpen(getBrowserWorkspaceStorage(),false); setIsStaffPortalOpen(false); };
   const [isCustomerAccountOpen, setIsCustomerAccountOpen] = useState(false);
   const [customerGoogleToken, setCustomerGoogleToken] = useState('');
@@ -551,7 +558,7 @@ export default function App() {
         </div>
       </div>}
       {/* Main Content Area: Responsive Website vs Mobile App */}
-      <main id="main-content" className={viewMode === 'web' && activeRole === 'customer' ? 'ac-main' : 'ac-main ac-main--portal'}>
+      <main id="main-content" className={'w-full min-w-0 max-w-full ' + (viewMode === 'web' && activeRole === 'customer' ? 'ac-main' : 'ac-main ac-main--portal')}>
         <Suspense fallback={<div className="py-20 text-center text-rose-700" role="status">Loading cakes…</div>}>
         {viewMode === 'mobile_app' ? (
           /* DEDICATED MOBILE APP VIEW */
@@ -628,6 +635,7 @@ export default function App() {
                 endpoint={sheetContent.endpoint}
                 addons={addons}
                 flavors={flavors}
+                onOpenLiveDelivery={openLiveDeliveryFromAdmin}
               />
             )}
           </>
