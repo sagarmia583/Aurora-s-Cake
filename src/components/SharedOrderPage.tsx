@@ -69,7 +69,7 @@ function Receipt({ fragment }: { fragment: string }) {
   const money = (amount: number) => (receipt?.currency || '৳') + (Number(amount) || 0).toLocaleString('en-BD');
   return <main className="mx-auto max-w-2xl space-y-4 px-4 py-8 sm:py-12">
     <header className="flex flex-wrap items-center justify-between gap-3">
-      <a href="/" className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-900"><ArrowLeft size={16} /> দোকানের ওয়েবসাইট</a>
+      <a href={(import.meta as ImportMeta & {env?:{BASE_URL?:string}}).env?.BASE_URL || '/'} className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-900"><ArrowLeft size={16} /> দোকানের ওয়েবসাইট</a>
       <p className="text-sm font-bold text-emerald-950">{receipt?.shopName || 'Aurora’s Cake'}</p>
     </header>
     <section className="rounded-2xl bg-[#174b3b] p-5 text-white sm:p-6">
