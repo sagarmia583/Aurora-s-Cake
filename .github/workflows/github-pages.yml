@@ -22,9 +22,6 @@ jobs:
     env:
       AURORA_GITHUB_PAGES: "true"
       VITE_GITHUB_PAGES_READ_ONLY: "true"
-      # Public URL of the separate, owner-controlled API Worker.
-      # If unset, GitHub Pages remains read-only and safe.
-      VITE_GITHUB_PAGES_API_ORIGIN: ${{ vars.AURORA_PAGES_API_ORIGIN }}
       NETLIFY: "false"
       VITE_SHEETS_POST_PROXY: ""
     steps:
@@ -39,8 +36,6 @@ jobs:
         run: npm ci
       - name: TypeScript check
         run: npm run lint
-      - name: Test secure Pages API relay and redirect handling
-        run: node --test tests/pages-api-relay.test.mjs
       - name: Build Vite project for /Aurora-s-Cake/
         run: npm run build
       - name: Support direct /cake and /track-order links
