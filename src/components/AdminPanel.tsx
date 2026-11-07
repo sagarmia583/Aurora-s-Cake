@@ -53,9 +53,9 @@ import {
   ProductAddon
 } from '../types';
 import { mockDb } from '../services/mockDatabase';
-import { AnalyticsDashboard } from './AnalyticsDashboard';
-import { ItemCostingManager } from './ItemCostingManager';
-import { StaffPermissionManager } from './StaffPermissionManager';
+const AnalyticsDashboard = React.lazy(() => import('./AnalyticsDashboard').then(module => ({ default: module.AnalyticsDashboard })));
+const ItemCostingManager = React.lazy(() => import('./ItemCostingManager').then(module => ({ default: module.ItemCostingManager })));
+const StaffPermissionManager = React.lazy(() => import('./StaffPermissionManager').then(module => ({ default: module.StaffPermissionManager })));
 import { ThermalBoxStickerModal } from './ThermalBoxStickerModal';
 import { PosPrintModal } from './PosPrintModal';
 import { PosPrinterSettingsModal } from './PosPrinterSettingsModal';
@@ -64,14 +64,14 @@ import { AdminCreateOrderModal } from './AdminCreateOrderModal';
 import { OrderDetailsModal } from './OrderDetailsModal';
 import { createDemoReceiptOrder } from '../services/posPrinterService';
 import { formatShortOrderNumber } from '../utils/orderUtils';
-import { PosModule } from './admin/PosModule';
-import { KitchenProductionModule } from './admin/KitchenProductionModule';
-import { InventoryModule } from './admin/InventoryModule';
-import { PurchasesModule } from './admin/PurchasesModule';
-import { DeliveryRiderModule } from './admin/DeliveryRiderModule';
-import { FinanceModule } from './admin/FinanceModule';
-import { CustomerCrmModule } from './admin/CustomerCrmModule';
-import { ReportsModule } from './admin/ReportsModule';
+const PosModule = React.lazy(() => import('./admin/PosModule').then(module => ({ default: module.PosModule })));
+const KitchenProductionModule = React.lazy(() => import('./admin/KitchenProductionModule').then(module => ({ default: module.KitchenProductionModule })));
+const InventoryModule = React.lazy(() => import('./admin/InventoryModule').then(module => ({ default: module.InventoryModule })));
+const PurchasesModule = React.lazy(() => import('./admin/PurchasesModule').then(module => ({ default: module.PurchasesModule })));
+const DeliveryRiderModule = React.lazy(() => import('./admin/DeliveryRiderModule').then(module => ({ default: module.DeliveryRiderModule })));
+const FinanceModule = React.lazy(() => import('./admin/FinanceModule').then(module => ({ default: module.FinanceModule })));
+const CustomerCrmModule = React.lazy(() => import('./admin/CustomerCrmModule').then(module => ({ default: module.CustomerCrmModule })));
+const ReportsModule = React.lazy(() => import('./admin/ReportsModule').then(module => ({ default: module.ReportsModule })));
 import { isProductNew, getProductDaysLeftAsNew } from '../services/productStats';
 import { mutateStaffOrder, mutateCmsTable, type CmsTable } from '../services/sheetStaffApi';
 import { loadStaffCredential, getBrowserWorkspaceStorage } from '../services/staffWorkspaceSession';
@@ -848,6 +848,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       </div>
 
+      <React.Suspense fallback={<div role="status" className="bg-white rounded-2xl border border-slate-200 p-6 text-sm text-slate-600">Loading workspace...</div>}>
       {/* TAB 1: OVERVIEW */}
       {activeTab === 'overview' && (
         <div className="space-y-4 sm:space-y-6">
@@ -2624,6 +2625,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           actorName={role === 'super_admin' ? 'Super Admin (Owner)' : role === 'admin' ? 'Admin' : 'Staff Admin'}
         />
       )}
+
+      </React.Suspense>
 
       {/* MODAL: ADD / EDIT PRODUCT WITH CUSTOM WEIGHTS & PRICES */}
       {showAddProductModal && (
