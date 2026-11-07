@@ -12,8 +12,8 @@ const ProductDetailModal = lazy(() => import('./components/ProductDetailModal').
 const CartDrawer = lazy(() => import('./components/CartDrawer').then(m=>({default:m.CartDrawer})));
 const CheckoutModal = lazy(() => import('./components/CheckoutModal').then(m=>({default:m.CheckoutModal})));
 const OrderTrackingModal = lazy(() => import('./components/OrderTrackingModal').then(m=>({default:m.OrderTrackingModal})));
-import { KitchenDisplay } from './components/KitchenDisplay';
-import { DeliveryRiderPortal } from './components/DeliveryRiderPortal';
+const KitchenDisplay = lazy(() => import('./components/KitchenDisplay').then(m => ({default: m.KitchenDisplay})));
+const DeliveryRiderPortal = lazy(() => import('./components/DeliveryRiderPortal').then(m => ({default: m.DeliveryRiderPortal})));
 const AdminPanel = lazy(() => import('./components/AdminPanel').then(m => ({default: m.AdminPanel})));
 const StaffPortal = lazy(() => import('./components/StaffPortal').then(m => ({default: m.StaffPortal})));
 const CustomerAccountPortal = lazy(() => import('./components/CustomerAccountPortal').then(m => ({default: m.CustomerAccountPortal})));
