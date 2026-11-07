@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { CartItem, DeliveryZone, DeliverySlot, Order, PaymentMethod } from '../types';
 import { mockDb, validateCoupon } from '../services/mockDatabase';
+import { CheckoutProductGiftNote } from './CheckoutProductGiftNote';
 import { calculateSheetOrderEstimate, createSheetOrderAttempt, submitSheetOrder, SheetOrderSubmissionError, loadConfirmedSheetOrders } from '../services/googleSheetOrders';
 import { getPhoneCustomerProfile } from '../services/phoneCustomerApi';
 import { matchCheckoutCustomer, normalizeCheckoutPhone } from '../services/customerPhoneLookup';
@@ -67,8 +68,6 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const liveOrderEndpoint = checkoutTargetRef.current?.endpoint;
   const isLiveOrder = !!liveOrderEndpoint;
   const liveOrderingPaused = isLiveOrder && (orderingPaused || !sheetOrderEndpoint);
-
-  const shopSettings = useMemo(() => mockDb.getShopSettingsSync(), [isOpen]);
 
   // Form State
   const [customerName, setCustomerName] = useState(recoveredDraft?.customer_name || '');
@@ -514,6 +513,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
                             "{it.writing_message}"
                           </div>
                         )}
+                        <CheckoutProductGiftNote product={it.product} />
                       </div>
                     </div>
                     <div className="text-right shrink-0">
@@ -536,23 +536,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
               })}
             </div>
 
-            {/* Complimentary Free Bakery Kit */}
-            <div className="bg-emerald-50/80 border border-emerald-200/80 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-2 text-xs text-emerald-950">
-              <span className="font-bold flex items-center gap-1.5 text-emerald-900">
-                <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>{shopSettings?.complimentary_kit_title || 'প্রতিটি কেকের সাথে পাচ্ছেন:'}</span>
-              </span>
-              <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold text-emerald-800">
-                {(shopSettings?.complimentary_kit_items && shopSettings.complimentary_kit_items.length > 0
-                  ? shopSettings.complimentary_kit_items
-                  : ['ফ্রি কেক কাটার ছুরি', 'ফ্রি মোমবাতি', 'প্রিমিয়াম বক্স ও রিবন']
-                ).map((it, idx) => (
-                  <span key={idx} className="bg-white px-2 py-0.5 rounded-lg border border-emerald-200 shadow-2xs">
-                    ✓ {it}
-                  </span>
-                ))}
-              </div>
-            </div>
+
           </div>
 
           {/* Customer Info */}
@@ -696,7 +680,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
 
                   <div>
                     <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                      💌 ফ্রি গ্রিটিং কার্ডে আপনার শুভেচ্ছা বার্তা (Gift Card Message)
+                      💌 আপনার শুভেচ্ছা বার্তা (Gift Message)
                     </label>
                     <textarea
                       rows={2}
