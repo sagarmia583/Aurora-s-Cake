@@ -91,7 +91,7 @@ function HighlightIcon({ name, size = 20 }: { name?: string; size?: number }) {
   return <Icon size={size} strokeWidth={1.3} aria-hidden="true" />;
 }
 
-export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
+export const CustomerStorefront: React.FC<CustomerStorefrontProps> = React.memo(({
   settings: suppliedSettings, products, categories, flavors = [], currency, onSelectProduct, onOpenCustomCake, reviews: suppliedReviews,
   coupons: suppliedCoupons,
   onOpenTrackOrder, onOpenProfile, searchQuery, publicData,
@@ -740,4 +740,4 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
     {facebookUrl && <aside aria-label="Customer support" className="fixed bottom-6 right-6 z-40 pointer-events-auto"><a href={facebookUrl} target="_blank" rel="noopener noreferrer" className="ac-facebook-button" title="আমাদের Facebook page দেখুন"><span className="ac-facebook-mark">f</span><span>Facebook page</span><span aria-hidden="true">↗</span></a></aside>}
   </div>
   );
-};
+});

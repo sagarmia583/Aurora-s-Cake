@@ -5,6 +5,7 @@ import { KeyRound, MapPin, PackageCheck, Phone, ShieldCheck, X } from 'lucide-re
 import type { Order } from '../types';
 import { EmailSubscriptionPanel } from './EmailSubscriptionPanel';
 import { privatePost } from '../services/sheetStaffApi';
+import { limitBangladeshiPhoneInput } from '../utils/phoneValidation';
 import { recoverOrderWithReceiptKey } from '../services/receiptRecovery';
 
 const LegacyAccounts=React.lazy(()=>import('./LegacyCustomerAccountPortal')
@@ -108,8 +109,8 @@ export const CustomerAccountPortal:React.FC<Props>=(props)=>{
                 required autoComplete="name" placeholder="Full name" className="w-full mt-1 p-3 rounded-xl border bg-white"/>
             </label>
             <label className="text-sm font-semibold">Mobile number
-              <input value={contact.phone} onChange={e=>setContact(p=>({...p,phone:e.target.value}))}
-                required inputMode="tel" autoComplete="tel" placeholder="01XXXXXXXXX"
+              <input value={contact.phone} onChange={e=>setContact(p=>({...p,phone:limitBangladeshiPhoneInput(e.target.value)}))}
+                required type="tel" inputMode="numeric" maxLength={13} pattern="01[3-9][0-9]{8}" autoComplete="tel" placeholder="01XXXXXXXXX"
                 className="w-full mt-1 p-3 rounded-xl border bg-white"/>
             </label>
             <label className="text-sm font-semibold sm:col-span-2">Delivery address
@@ -153,7 +154,8 @@ export const CustomerAccountPortal:React.FC<Props>=(props)=>{
             <input required aria-label="Original Order ID" placeholder="Original Order ID (ord_...)" value={recovery.orderId}
               onChange={e=>setRecovery(p=>({...p,orderId:e.target.value}))} className="p-3 rounded-xl border"/>
             <input required aria-label="Receipt phone number" placeholder="Order phone number" value={recovery.phone}
-              onChange={e=>setRecovery(p=>({...p,phone:e.target.value}))} className="p-3 rounded-xl border"/>
+              type="tel" inputMode="numeric" maxLength={13} pattern="01[3-9][0-9]{8}"
+              onChange={e=>setRecovery(p=>({...p,phone:limitBangladeshiPhoneInput(e.target.value)}))} className="p-3 rounded-xl border"/>
             <input required aria-label="Private Receipt Access Key" placeholder="Private receipt access key"
               value={recovery.key} onChange={e=>setRecovery(p=>({...p,key:e.target.value}))}
               className="p-3 rounded-xl border sm:col-span-2" autoComplete="off"/>
