@@ -44,7 +44,7 @@ test('Pages stays read-only until the secure API origin is explicitly configured
   const workflow=read('.github/workflows/github-pages.yml');
   assert.match(pagesApi,/isPagesApiUnavailable/);
   assert.match(pagesApi,/VITE_GITHUB_PAGES_API_ORIGIN/);
-  assert.ok(pagesApi.includes('workers.dev'));
+  assert.ok(pagesApi.includes('aurora-gh-pages-api'));
   assert.match(sheet,/getPagesApiOrigin/);
   assert.ok(sheet.includes('/api/operations'));
   assert.ok(app.includes('if (pagesReadOnly) {'));
