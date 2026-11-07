@@ -87,13 +87,11 @@ export function useGoogleSheetContent() {
       // Publish a heartbeat at most once per minute. Every successful poll
       // still occurs on the existing 12-second cadence; no backend changes.
       const now = Date.now();
-      setStatus(previous => {
-        if (previous.state === 'connected' && previous.source === 'google_sheets' &&
-            !previous.error && now - lastStatusPublishedAt.current < 60_000)
-          return previous;
-        lastStatusPublishedAt.current = now;
-        return { state: 'connected', source: 'google_sheets', lastSyncedAt: savedAt };
-      });
+      const publishHeartbeat = now - lastStatusPublishedAt.current >= 60_000;
+      if (publishHeartbeat) lastStatusPublishedAt.current = now;
+      setStatus(previous => previous.state === 'connected' && previous.source === 'google_sheets' &&
+        !previous.error && !publishHeartbeat
+        ? previous : { state: 'connected', source: 'google_sheets', lastSyncedAt: savedAt });
     } catch (error) {
       if (controller.signal.aborted) return;
       console.warn("[GoogleSheets] Content sync warning:", error);

@@ -71,7 +71,7 @@ test('unchanged Sheet payload does not write synchronously to storage on every p
   const hook=fs.readFileSync(new URL('../src/hooks/useGoogleSheetContent.ts',import.meta.url),'utf8');
   assert.match(hook,/lastAppliedSnapshot\.current !== serialized/);
   assert.match(hook,/if \(lastAppliedSnapshot\.current !== serialized\) \{[\s\S]*?localStorage\.setItem\(CACHE_KEY/);
-  assert.match(hook,/lastStatusPublishedAt\.current < 60_000/);
+  assert.match(hook,/lastStatusPublishedAt\.current >= 60_000/);
   assert.match(hook,/window\.setInterval\(updateWhenVisible, 12000\)/,'Live refresh cadence is unchanged');
   assert.doesNotMatch(hook,/JSON\.stringify\(previous\)===JSON\.stringify\(next\)/);
 });
