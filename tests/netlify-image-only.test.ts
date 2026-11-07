@@ -13,10 +13,10 @@ test('Netlify image gateway refuses unsupported methods and invalid private imag
 });
 test('Netlify image gateway only serves validated script images',async()=>{
  const bytes=Uint8Array.from([137,80,78,71,13,10,26,10,1,2]);
- const fetcher=async(url,opts)=>{
+ const fetcher:typeof fetch=async(url,opts)=>{
   assert.equal(opts.method,'GET');assert.equal(opts.credentials,'omit');
   assert.equal(new URL(url).searchParams.get('action'),'public_image');
-  return {ok:true,url:'https://script.googleusercontent.com/exec',json:async()=>({ok:true,mime_type:'image/png',base64:Buffer.from(bytes).toString('base64')})};
+  return {ok:true,url:'https://script.googleusercontent.com/exec',json:async()=>({ok:true,mime_type:'image/png',base64:Buffer.from(bytes).toString('base64')})} as Response;
  };
  const response=await publicImage(probe(),{scriptUrl:script,fetcher});
  assert.equal(response.status,200);assert.equal(response.headers.get('Content-Type'),'image/png');
