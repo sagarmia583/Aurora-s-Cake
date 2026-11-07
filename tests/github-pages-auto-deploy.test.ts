@@ -37,11 +37,16 @@ test('Pages can show default and live Sheet images, product detail and order rou
   assert.match(entry,/currentPath===ORDER_TRACKING_PATH/);
 });
 
-test('Pages blocks browser order/staff writes when no server-side API exists',()=>{
+test('Pages stays read-only until the secure API origin is explicitly configured',()=>{
   const sheet=read('src/services/googleSheets.ts');
   const app=read('src/App.tsx');
-  assert.match(sheet,/VITE_GITHUB_PAGES_READ_ONLY === 'true'/);
-  assert.match(sheet,/read-only preview/);
-  assert.match(app,/if \(pagesReadOnly\) \{/);
-  assert.match(app,/GitHub Pages preview/);
+  const pagesApi=read('src/services/pagesApi.ts');
+  const workflow=read('.github/workflows/github-pages.yml');
+  assert.match(pagesApi,/isPagesApiUnavailable/);
+  assert.match(pagesApi,/VITE_GITHUB_PAGES_API_ORIGIN/);
+  assert.ok(pagesApi.includes('workers.dev'));
+  assert.match(sheet,/getPagesApiOrigin/);
+  assert.ok(sheet.includes('/api/operations'));
+  assert.ok(app.includes('if (pagesReadOnly) {'));
+  assert.ok(workflow.includes('vars.AURORA_PAGES_API_ORIGIN'));
 });

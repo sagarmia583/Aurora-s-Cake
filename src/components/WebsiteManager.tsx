@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Database, RefreshCw, Plus, Save, Archive, Search } from 'lucide-react';
 import { CMS_TABLE_OPTIONS, fetchCmsTable, mutateCmsTable, uploadCmsImage } from '../services/sheetStaffApi';
 import { ProductGiftAssignmentManager } from './ProductGiftAssignmentManager';
+import { CakeQuickEditor } from './CakeQuickEditor';
 import type { CmsSnapshot, CmsTable } from '../services/sheetStaffApi';
 
 interface Props {endpoint:string;token:string;role:'super_admin'|'admin';onUpdated:()=>void}
@@ -279,6 +280,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
         </button>
       </div>
     </div>
+    <CakeQuickEditor endpoint={endpoint} token={token} onUpdated={onUpdated}/>
     <ProductGiftAssignmentManager endpoint={endpoint} token={token} onUpdated={onUpdated}/>
     {error&&<p role="alert" className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800">{error}</p>}
     {notice&&<p role="status" className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</p>}
