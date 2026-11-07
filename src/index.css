@@ -408,3 +408,23 @@ img { max-width:100%; }
     display: none !important;
   }
 }
+
+/* Mobile management containment: keep existing cards/tables and layout.
+   Only the portal viewport is clipped; tables retain their own horizontal scroll. */
+@media (max-width: 639px) {
+  .ac-main--portal {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: clip;
+  }
+  .ac-main--portal :where(input, select, textarea) {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .ac-main--portal .overflow-x-auto {
+    max-width: 100%;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}

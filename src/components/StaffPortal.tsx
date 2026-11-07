@@ -73,7 +73,7 @@ function canOperate(role: StaffRoleName, operation: StaffOperation): boolean {
   };
   return (rules[role] || []).includes(operation);
 }
-const actionForStatus: Record<string, { operation: StaffOperation; label: string } | null> = {
+export const actionForStatus: Record<string, { operation: StaffOperation; label: string } | null> = {
   pending: { operation: 'confirm', label: 'Confirm order' },
   confirmed: { operation: 'start_baking', label: 'Start baking' },
   preparing: { operation: 'mark_ready', label: 'Mark ready' },
@@ -355,6 +355,9 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       setNewStaff({name:'',username:'',password:'',role:'kitchen_manager'});
       const result=await checkStaffSession(endpoint,identity.token);
       setStaffProfiles(result.staff_profiles??[]);
+      // A newly created rider must be selectable immediately without signing out.
+      setIdentity(previous=>previous?{...previous,riders:result.riders}:previous);
+      setRiderEmail(previous=>result.riders.some(r=>r.email===previous)?previous:(result.riders[0]?.email||''));
     }catch(caught){setError(shopErrorMessage(caught, 'Staff account could not be created.'));}
     finally{setCreatingStaff(false);}
   };
@@ -537,7 +540,9 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const mutate = async (order: StaffOrder, operation: StaffOperation) => {
     if (!identity || busyOrderId) return;
     if (operation === 'cancel' && !window.confirm('Cancel this order? This cannot be undone.')) return;
-    if (operation === 'assign' && !riderEmail) { setError('Select a registered rider.'); return; }
+    if (operation === 'assign' && (!riderEmail || !identity.riders.some(r=>r.email===riderEmail))) {
+      setError('Select an active registered rider before assigning.'); return;
+    }
     if (operation === 'deliver' && order.payment_method === 'cod' && !cashCollected) {
       setError('Confirm that the cash was received before marking delivered.'); return;
     }
@@ -562,8 +567,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
 
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 z-[80] bg-slate-950/75 overflow-y-auto p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="staff-portal-title">
-      <section className="mx-auto max-w-[1480px] min-h-screen sm:min-h-[calc(100vh-2rem)] rounded-none sm:rounded-[28px] bg-[#f6f8f7] shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-[80] w-full max-w-[100vw] bg-slate-950/75 overflow-x-hidden overflow-y-auto p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="staff-portal-title">
+      <section className="mx-auto w-full min-w-0 max-w-[1480px] min-h-screen sm:min-h-[calc(100vh-2rem)] rounded-none sm:rounded-[28px] bg-[#f6f8f7] shadow-2xl overflow-x-hidden">
         <header className="bg-[#15342e] px-4 sm:px-7 py-4 text-white flex justify-between items-center gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <div className="bg-white/10 rounded-2xl p-3 shrink-0"><CakeSlice size={25} className="text-[#f0dbb3]"/></div>
@@ -660,8 +665,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                 </div>
               </div>
             </div>          ) : (
-            <div className="grid lg:grid-cols-[238px_minmax(0,1fr)] min-h-[74vh]">
-              <aside className="bg-white border-b lg:border-b-0 lg:border-r border-slate-200 p-3 sm:p-4 lg:p-5 space-y-5">
+            <div className="grid w-full min-w-0 lg:grid-cols-[238px_minmax(0,1fr)] min-h-[74vh]">
+              <aside className="min-w-0 max-w-full bg-white border-b lg:border-b-0 lg:border-r border-slate-200 p-3 sm:p-4 lg:p-5 space-y-5">
                 <div className="flex items-center gap-3 rounded-2xl bg-[#eff5f0] p-3">
                   <div className="relative shrink-0">
                     <img
@@ -681,7 +686,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                     <p className="text-xs text-slate-500">{roleName(identity.role)}</p>
                   </div>
                 </div>
-                <nav aria-label="Staff workspace sections" className="flex lg:flex-col overflow-x-auto gap-2 pb-2 lg:pb-0">
+                <nav aria-label="Staff workspace sections" className="flex w-full min-w-0 max-w-full lg:flex-col overflow-x-auto gap-2 pb-2 lg:pb-0">
                   {tabs.map(tab=>{
                     const Icon=tab.icon;
                     return <button key={tab.id} type="button" aria-current={activeTab===tab.id?'page':undefined}
@@ -700,7 +705,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                   <p>You’ll see the actions available to your role.</p>
                 </div>
               </aside>
-              <div className="min-w-0 p-4 sm:p-6 lg:p-8 space-y-5">
+              <div className="w-full min-w-0 max-w-full overflow-x-hidden p-3 sm:p-6 lg:p-8 space-y-5">
                 <div className="flex flex-wrap gap-3 items-center justify-between">
                   <div className="min-w-0">
                     <p className="text-[11px] text-emerald-800 uppercase tracking-[.18em] font-bold">Operations workspace</p>
@@ -938,10 +943,12 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                     </div>}
                   <div className="grid gap-3">
                     {matchingOrders.slice(0,activeTab==='overview'?5:100).map(order => {
-                  const next = ['super_admin','admin'].includes(identity.role)&&order.status==='ready'?{operation:'start_delivery' as StaffOperation,label:'নিজেই delivery শুরু করুন'}:actionForStatus[order.status] || null;
+                  // Always assign a real registered rider first. A manager cannot
+                  // dispatch a ready order directly: the backend requires rider_id.
+                  const next = actionForStatus[order.status] || null;
                   const canCancel = canOperate(identity.role, 'cancel') && ['pending','confirmed','preparing','ready','assigned'].includes(order.status);
                   const shortNum = formatShortOrderNumber(order.order_number);
-                  return <article key={order.id} onClick={()=>{setUnreadOrderAlerts([]);acknowledgeOrderAlert();}} className="bg-white rounded-3xl border border-slate-200 hover:border-slate-300 p-4 sm:p-5 space-y-4 transition-all shadow-xs hover:shadow-md">
+                  return <article key={order.id} onClick={()=>{setUnreadOrderAlerts([]);acknowledgeOrderAlert();}} className="w-full min-w-0 max-w-full bg-white rounded-3xl border border-slate-200 hover:border-slate-300 p-3 sm:p-5 space-y-4 transition-all shadow-xs hover:shadow-md">
                     {/* Top Header Bar: 4-digit order number, status, slot, and total price */}
                     <div className="flex flex-wrap justify-between items-start gap-3 border-b border-slate-100 pb-3">
                       <div className="flex items-start gap-3 min-w-0">
@@ -1165,25 +1172,31 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
 
                     {/* Action Buttons Toolbar */}
                     {['super_admin','admin','order_manager','delivery_manager'].includes(identity.role)&&<CustomerOrderLink endpoint={endpoint} token={identity.token} orderId={order.id} initialUrl={order.customer_share_url}/>}
-                    <div className="flex flex-wrap gap-2.5 items-center pt-2 border-t border-slate-100">
+                    <div className="flex w-full min-w-0 flex-wrap gap-2.5 items-center pt-2 border-t border-slate-100">
                       {/* Workflow action button */}
                       {next && canOperate(identity.role, next.operation) && next.operation !== 'deliver' && (
                         <>
                           {next.operation === 'assign' && (
-                            <select
-                              aria-label="Assign registered rider"
-                              value={riderEmail}
-                              onChange={e => setRiderEmail(e.target.value)}
-                              className="min-h-10 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold bg-white text-slate-800"
-                            >
-                              {identity.riders.map(rider => (
-                                <option key={rider.email} value={rider.email}>{rider.name} — {rider.email}</option>
-                              ))}
-                            </select>
+                            identity.riders.length ? (
+                              <select
+                                aria-label="Assign registered rider"
+                                value={riderEmail}
+                                onChange={e => setRiderEmail(e.target.value)}
+                                className="min-h-11 w-full sm:w-auto max-w-full min-w-0 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold bg-white text-slate-800"
+                              >
+                                {identity.riders.map(rider => (
+                                  <option key={rider.email} value={rider.email}>{rider.name} — {rider.email}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span role="status" className="text-xs text-amber-900 font-semibold break-words">
+                                কোনো Active Rider নেই। Team থেকে Delivery Rider Account তৈরি করুন।
+                              </span>
+                            )
                           )}
                           <button
                             type="button"
-                            disabled={!!busyOrderId}
+                            disabled={!!busyOrderId || (next.operation === 'assign' && (!identity.riders.length || !riderEmail))}
                             onClick={() => void mutate(order, next.operation)}
                             className="min-h-10 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2 text-xs font-bold disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
                           >
@@ -1205,7 +1218,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                                   onChange={e => setCashCollected(e.target.checked)}
                                   className="w-4 h-4 rounded text-emerald-600"
                                 />
-                                <span>ক্যাশ টাকা বুঝে পেয়েছি (৳{order.total_amount})</span>
+                                <span>ক্যাশ টাকা বুঝে পেয়েছি (৳{order.due_amount ?? Math.max(0, order.total_amount-(order.advance_paid_amount||0))})</span>
                               </label>
                             ) : (
                               <span className="text-xs text-emerald-800 bg-white px-3 py-2 rounded-xl border border-emerald-200 font-bold">
