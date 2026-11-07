@@ -27,3 +27,18 @@ console.log('Netlify/Sheets-only preflight PASS:',release);
 // No retired deployment target can be committed to the Netlify-only branch.
 for(const path of ['vercel.json','wrangler.toml','wrangler.pages.toml','firebase.json','public/_routes.json','cloudflare/worker.js','api/operations.js','functions/api/operations.js'])
  assert.ok(!existsSync(new URL('../'+path,import.meta.url)),path+' must be absent');
+
+const mapped = [
+ ['public','/api/public'],
+ ['backend-health','/api/backend-health'],
+ ['operations','/api/operations'],
+ ['image','/api/image']
+];
+for(const [name, path] of mapped){
+  assert.ok(netlify.includes(`from = "${path}"`) &&
+    netlify.includes(`to = "/.netlify/functions/${name}"`),
+    `Missing Netlify API rewrite: ${path}`);
+  assert.doesNotMatch(read(`netlify/functions/${name}.mjs`),
+    /export\\s+const\\s+config\\s*=\\s*\\{\\s*path\\s*:/,
+    `Do not disable the default function path for ${name}`);
+}

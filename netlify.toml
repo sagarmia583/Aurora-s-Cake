@@ -7,6 +7,33 @@
   # The storefront and staff portal use Netlify Functions as their one backend relay.
   VITE_SHEETS_POST_PROXY = "/api/operations"
 
+# Explicit Netlify Functions rewrites. The default function endpoints work
+# independently of the Functions v2 custom-path export. Never proxy to an
+# external Apps Script URL directly; same-origin Functions enforce auth gates.
+[[redirects]]
+  from = "/api/public"
+  to = "/.netlify/functions/public"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/backend-health"
+  to = "/.netlify/functions/backend-health"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/image"
+  to = "/.netlify/functions/image"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/operations"
+  to = "/.netlify/functions/operations"
+  status = 200
+  force = true
+
 # Netlify Free deployment: security headers for customer and staff pages.
 # Build settings remain managed by the connected Netlify site.
 # Cake share links must load the React storefront on hard refresh.

@@ -23,4 +23,5 @@ export default async function publicImage(request,{scriptUrl=process.env.AURORA_
     return new Response(request.method==='HEAD'?null:bytes,{status:200,headers:{'Content-Type':data.mime_type,'Content-Length':String(bytes.length),'X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox",'Cache-Control':'public,max-age=3600,s-maxage=604800,stale-while-revalidate=86400'}});
   }catch{return reply(502,'image_unavailable');}
 }
-export const config={path:'/api/image'};
+// API routing is configured centrally in netlify.toml; Netlify's default
+// /.netlify/functions/<name> path remains available for internal rewrites.

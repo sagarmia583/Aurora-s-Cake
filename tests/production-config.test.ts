@@ -15,3 +15,13 @@ test('Netlify health matches Google Apps Script release',()=>{
  const release=read('apps-script/Code.gs').match(/var AURORA_BACKEND_RELEASE\s*=\s*'([^']+)'/)?.[1];
  assert.ok(release);assert.ok(read('netlify/functions/backend-health.mjs').includes(release));
 });
+
+test('Netlify API routes explicitly rewrite to deployed Functions and retain default function paths',()=>{
+ const netlify=read('netlify.toml');
+ for(const [path,name] of [['/api/public','public'],['/api/operations','operations'],['/api/image','image'],['/api/backend-health','backend-health']]){
+   assert.ok(netlify.includes('from = "'+path+'"'));
+   assert.ok(netlify.includes('to = "/.netlify/functions/'+name+'"'));
+   assert.doesNotMatch(read('netlify/functions/'+name+'.mjs'),/export\\s+const\\s+config\\s*=\\s*\\{\\s*path\\s*:/);
+ }
+ assert.match(netlify,/force\\s*=\\s*true/);
+});

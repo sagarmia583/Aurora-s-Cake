@@ -69,4 +69,5 @@ export default async function operations(request, { scriptUrl = process.env.AURO
     return response(502,'Bakery backend is temporarily unreachable. Retry the same order reference.');
   }
 }
-export const config={path:'/api/operations'};
+// API routing is configured centrally in netlify.toml; Netlify's default
+// /.netlify/functions/<name> path remains available for internal rewrites.
