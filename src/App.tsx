@@ -25,6 +25,7 @@ import { mockDb } from './services/mockDatabase';
 import { submitSheetReview } from './services/sheetReviews';
 import { loadBackendDatabaseStatus, unknownBackendDatabaseStatus } from './services/backendDatabaseStatus';
 import { useGoogleSheetContent } from './hooks/useGoogleSheetContent';
+import { isPagesApiUnavailable } from './services/pagesApi';
 const SheetContentPanel = lazy(() => import('./components/SheetContentPanel').then(m=>({default:m.SheetContentPanel})));
 import { loadConfirmedSheetOrders, rememberConfirmedSheetOrder, removeConfirmedSheetOrdersById } from './services/googleSheetOrders';
 import { fetchCustomerOrderStatus, redeemLegacyReceiptAccess } from './services/sheetStaffApi';
@@ -62,7 +63,7 @@ export default function App() {
     const raw=window.location.pathname||'/';
     return sitePrefix && raw.startsWith(sitePrefix+'/')?raw.slice(sitePrefix.length):raw;
   };
-  const pagesReadOnly=runtimeEnv?.VITE_GITHUB_PAGES_READ_ONLY==='true';
+  const pagesReadOnly=isPagesApiUnavailable();
   const sheetContent = useGoogleSheetContent();
   const publicData = sheetContent.data;
   const [isSheetContentOpen, setIsSheetContentOpen] = useState(false);

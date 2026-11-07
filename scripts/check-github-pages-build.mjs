@@ -21,5 +21,5 @@ const scripts=fs.readdirSync(assetsDir).filter(name=>name.endsWith('.js'));
 const bundled=scripts.map(name=>fs.readFileSync(path.join(assetsDir,name),'utf8')).join('\n');
 assert.match(bundled,/\/Aurora-s-Cake\/images\//,'Bundled cakes must use the Pages base');
 assert.match(bundled,/GitHub Pages preview/,'The static read-only warning must be visible');
-assert.match(bundled,/server-side bakery API/,'Mutations must be guarded on the static host');
-console.log('PASS: GitHub Pages production artifacts are built for /Aurora-s-Cake/ and are read-only.');
+assert.match(bundled,/configured secure bakery API/,'Mutations must be guarded if Worker configuration is absent');
+console.log('PASS: GitHub Pages production artifacts are built for /Aurora-s-Cake/ and fail closed until the secure API is configured.');

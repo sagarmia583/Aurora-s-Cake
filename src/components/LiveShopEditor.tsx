@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { RefreshCw, Save, Settings2 } from 'lucide-react';
 import { fetchLiveCatalog, updateLiveCatalog } from '../services/sheetStaffApi';
 import type { LiveCatalog } from '../services/sheetStaffApi';
+import { CakeQuickEditor } from './CakeQuickEditor';
 
 interface Props {endpoint:string;token:string;onUpdated:()=>void}
 export const LiveShopEditor:React.FC<Props>=({endpoint,token,onUpdated})=>{
@@ -51,6 +52,7 @@ export const LiveShopEditor:React.FC<Props>=({endpoint,token,onUpdated})=>{
     finally{setBusy(false);}
   };
   return <section className="rounded-2xl border border-emerald-200 bg-white p-5 space-y-4">
+    <CakeQuickEditor endpoint={endpoint} token={token} onUpdated={onUpdated}/>
     <header className="flex items-center justify-between gap-2">
       <div><h3 className="text-lg font-black flex items-center gap-2"><Settings2 size={19}/> Live shop management</h3>
         <p className="text-xs text-slate-600">Manage live shop information and settings.</p></div>

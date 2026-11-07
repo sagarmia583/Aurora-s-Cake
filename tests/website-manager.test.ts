@@ -41,6 +41,7 @@ function editorHarness(api:Record<string,any>){
       if(name==='lucide-react')return new Proxy({},{get:()=>()=>null});
       if(name==='../utils/shopErrorMessage')return {shopErrorMessage};
       if(name==='./ProductGiftAssignmentManager')return {ProductGiftAssignmentManager:()=>null};
+      if(name==='./CakeQuickEditor')return {CakeQuickEditor:()=>null};
       if(name.includes('sheetStaffApi'))return {CMS_TABLE_OPTIONS:['products','product_variants','settings','content'].map(table=>({table,label:table})),...api};
       throw new Error('Unexpected import in offline editor fixture.');
     }};
