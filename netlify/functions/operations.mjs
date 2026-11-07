@@ -1,3 +1,4 @@
+import { withBakeryCors } from './shared-cors.mjs';
 /**
  * Optional same-origin Google Apps Script POST relay for Netlify Free.
  * Resolves browser CORS/ContentService redirect problems without a paid gateway.
@@ -6,7 +7,7 @@
  * Netlify Functions consume Free plan credits; usage is NOT unlimited.
  */
 const SCRIPT_RE=/^\/macros\/s\/[A-Za-z0-9_-]+\/exec$/;
-export default async function operations(request, { scriptUrl = process.env.AURORA_SCRIPT_POST_URL, fetcher = globalThis.fetch } = {}) {
+async function operations(request, { scriptUrl = process.env.AURORA_SCRIPT_POST_URL, fetcher = globalThis.fetch } = {}) {
   const response=(status,message)=>new Response(JSON.stringify({ok:false,success:false,code:'proxy_error',error:message}),{
     status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}
   });
@@ -71,3 +72,7 @@ export default async function operations(request, { scriptUrl = process.env.AURO
 }
 // API routing is configured centrally in netlify.toml; Netlify's default
 // /.netlify/functions/<name> path remains available for internal rewrites.
+
+export default function handler(request, context={}) {
+  return withBakeryCors(request, incoming=>operations(incoming,context), ['POST']);
+}

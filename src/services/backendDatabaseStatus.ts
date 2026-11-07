@@ -1,3 +1,4 @@
+import { getSharedBakeryApiUrl } from './dualHosting';
 export type DatabaseBackend='google_sheets'|'unknown';
 export const databaseBackendLabel=(backend:DatabaseBackend):string=>backend==='google_sheets'?'Google Sheets':'Status unknown';
 export interface BackendDatabaseStatus{available:boolean;backend:DatabaseBackend;installedRelease:string|null;upToDate:boolean|null;scheduledChecks:{available:boolean;enabled:boolean|null;configured:boolean|null};}
@@ -15,7 +16,7 @@ export async function loadBackendDatabaseStatus(options:{fetcher?:typeof fetch;s
  const controller=new AbortController();const abort=()=>controller.abort();const timer=setTimeout(abort,15000);
  if(options.signal?.aborted)abort();else options.signal?.addEventListener('abort',abort,{once:true});
  try{if(controller.signal.aborted)return unknownBackendDatabaseStatus();
- const response=await (options.fetcher||fetch)('/api/backend-health',{method:'GET',credentials:'same-origin',cache:'no-store',redirect:'error',headers:{Accept:'application/json'},signal:controller.signal});
+ const response=await (options.fetcher||fetch)(getSharedBakeryApiUrl('/api/backend-health')||'/api/backend-health',{method:'GET',credentials:getSharedBakeryApiUrl('/api/backend-health')?'omit':'same-origin',cache:'no-store',redirect:'error',headers:{Accept:'application/json'},signal:controller.signal});
  return response.ok?parseBackendDatabaseStatus(await response.json()):unknownBackendDatabaseStatus();
  }catch{return unknownBackendDatabaseStatus();}finally{clearTimeout(timer);options.signal?.removeEventListener('abort',abort);}
 }

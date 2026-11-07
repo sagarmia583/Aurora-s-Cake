@@ -34,6 +34,8 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Verify shared Netlify API CORS and routing
+        run: node --test tests/dual-host-shared-bakery-api.test.mjs
       - name: TypeScript check
         run: npm run lint
       - name: Build Vite project for /Aurora-s-Cake/

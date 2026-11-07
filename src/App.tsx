@@ -53,6 +53,7 @@ import {
   CartItem 
 } from './types';
 import { Home, ShoppingBag, Clock, Sparkles, Cake, User } from 'lucide-react';
+import { isGitHubPagesReadOnly } from './services/dualHosting';
 
 export default function App() {
   const runtimeEnv=(import.meta as ImportMeta & {env?:{BASE_URL?:string,VITE_GITHUB_PAGES_READ_ONLY?:string}}).env;
@@ -62,7 +63,7 @@ export default function App() {
     const raw=window.location.pathname||'/';
     return sitePrefix && raw.startsWith(sitePrefix+'/')?raw.slice(sitePrefix.length):raw;
   };
-  const pagesReadOnly=runtimeEnv?.VITE_GITHUB_PAGES_READ_ONLY==='true';
+  const pagesReadOnly=isGitHubPagesReadOnly();
   const sheetContent = useGoogleSheetContent();
   const publicData = sheetContent.data;
   const [isSheetContentOpen, setIsSheetContentOpen] = useState(false);
@@ -314,7 +315,7 @@ export default function App() {
   };
   const openCheckout = () => {
     if (pagesReadOnly) {
-      setCartNotice('GitHub Pages preview: online ordering is disabled here because this static host has no secure bakery POST API. Your cart is safe.');
+      setCartNotice('GitHub Pages requires the Netlify production API before checkout is available. Your cart is safe.');
       setIsCartOpen(true);
       return;
     }
@@ -530,7 +531,7 @@ export default function App() {
       />
 
       {pagesReadOnly && <aside role="note" className="mx-4 my-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950">
-        GitHub Pages preview — কেক ও মেনু দেখতে পারবেন। এই static site-এ অর্ডার পাঠানো ও Admin-এর পরিবর্তন Save করা বন্ধ আছে; নিরাপদ server-side API সংযুক্ত হলে চালু হবে।
+        GitHub Pages — কেক ও মেনু দেখতে পারবেন। Netlify production API যাচাই না হওয়া পর্যন্ত Order ও Staff/Admin Save বন্ধ থাকবে।
       </aside>}
       {cartNotice && <div role="status" className="mx-4 my-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 text-xs flex justify-between items-start gap-4"><span>{cartNotice}</span><button onClick={() => setCartNotice('')} className="font-semibold underline">Dismiss</button></div>}
       {profileSyncFailure&&<div role="status" className="mx-4 my-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
