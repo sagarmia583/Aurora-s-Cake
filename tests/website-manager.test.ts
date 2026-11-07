@@ -40,6 +40,7 @@ function editorHarness(api:Record<string,any>){
       if(name==='react')return {...hooks,default:hooks,__esModule:true};
       if(name==='lucide-react')return new Proxy({},{get:()=>()=>null});
       if(name==='../utils/shopErrorMessage')return {shopErrorMessage};
+      if(name==='./ProductGiftAssignmentManager')return {ProductGiftAssignmentManager:()=>null};
       if(name.includes('sheetStaffApi'))return {CMS_TABLE_OPTIONS:['products','product_variants','settings','content'].map(table=>({table,label:table})),...api};
       throw new Error('Unexpected import in offline editor fixture.');
     }};

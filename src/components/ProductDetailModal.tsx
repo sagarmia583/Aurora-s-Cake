@@ -6,6 +6,7 @@ import { Product, Flavor, ProductAddon, CartItem, Review } from '../types';
 import { mockDb } from '../services/mockDatabase';
 import { getProductDisplayStats, isProductNew } from '../services/productStats';
 import { StorefrontPrice } from './StorefrontPrice';
+import { cleanFreeGiftItems, formatFreeGiftList } from '../utils/freeGifts';
 
 interface ProductDetailModalProps {
   product: Product | null;
@@ -288,6 +289,11 @@ const handleOrderNow = () => {
               <p className="text-sm text-slate-600 leading-relaxed">
                 {product.description}
               </p>
+              {cleanFreeGiftItems(product.free_gift_items).length > 0 && (
+                <div className="text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2" data-testid="assigned-product-free-gifts">
+                  🎁 এই কেকের সঙ্গে ফ্রি: {formatFreeGiftList(cleanFreeGiftItems(product.free_gift_items))}
+                </div>
+              )}
 
               {/* Price Preview */}
               <div className="pt-2">
