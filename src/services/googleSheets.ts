@@ -1,6 +1,7 @@
 import type { PublicSiteData } from '../types/siteContent';
 import type { ShopSettings, ProductVariant } from '../types';
 import { DEFAULT_PUBLIC_SITE_DATA } from '../content/defaultSiteData';
+import { parseFreeGiftSettings, getProductFreeGifts } from '../utils/freeGifts';
 
 const configuredEndpoint = (import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_GOOGLE_SHEETS_URL;
 export const DEFAULT_SHEETS_ENDPOINT = configuredEndpoint || 'https://script.google.com/macros/s/AKfycbw38J4AzlYkAhNtyDAp_CP34fUk9Epae6xz46AQFbF9ye1VsZjxTXmzbJgs52WEoWETMw/exec';
@@ -143,6 +144,11 @@ export function normalizePublicSiteData(input: unknown, defaults: PublicSiteData
     return value === undefined ? [] : unique(records(value, keys[0]), keys[0]);
   };
   const settingsSource = keyValues(lookup('settings', 'shop_settings'), 'settings');
+  // The original list is the gift catalogue, not a blanket free-gift offer.
+  // Persisted normalized snapshots keep their mapped assignments separately.
+  const giftSettings = parseFreeGiftSettings(own(settingsSource,'product_free_gifts')
+    ? {version:2,items:settingsSource.complimentary_kit_items,products:settingsSource.product_free_gifts}
+    : settingsSource.complimentary_kit_items);
   const settings: Row = { ...defaults.settings };
   const settingsFields = new Set<string>([...SETTINGS_FIELDS, ...Object.keys(defaults.settings)]);
   settingsFields.forEach(key => {
@@ -150,11 +156,12 @@ export function normalizePublicSiteData(input: unknown, defaults: PublicSiteData
     if (/password|secret|token|api_key|anon_key|supabase/i.test(key)) return;
     const value = settingsSource[key];
     settings[key] = key === 'complimentary_kit_items'
-      ? list(value, 'settings.complimentary_kit_items').filter(item => item.length <= 80).slice(0, 20)
+      ? giftSettings.items
       : ['accepting_orders','delivery_enabled'].includes(key) ? bool(value, false)
       : /(?:url)$/.test(key) ? normalizePublicUrl(value, `settings.${key}`, /logo|image/.test(key))
       : text(value);
   });
+  settings.product_free_gifts = giftSettings.products;
   const contentSource = keyValues(lookup('content'), 'content');
   const content: Record<string,string> = { ...defaults.content };
   const contentFields = new Set(Object.keys(defaults.content));
@@ -204,6 +211,7 @@ export function normalizePublicSiteData(input: unknown, defaults: PublicSiteData
       image_url:normalizePublicUrl(row.image_url,'products.image_url',true),
       gallery_images:list(row.gallery_images,'products.gallery_images',/\n/).map(url=>normalizePublicUrl(url,'products.gallery_images',true)),
       is_featured:bool(row.is_featured,false),is_active:bool(row.is_active,true),rating,review_count:number(row.review_count,'products.review_count',0),sold_count:number(row.sold_count,'products.sold_count',0),variants,
+      free_gift_items:getProductFreeGifts(giftSettings,id),
       allowed_flavor_ids: (() => {
         const rawFlavors = list(row.allowed_flavor_ids, 'products.allowed_flavor_ids');
         const isAll = rawFlavors.some(x => x.toLowerCase() === 'all' || x === '*');

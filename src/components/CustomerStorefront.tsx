@@ -102,11 +102,8 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
   const text = (key: string) => data.content[key] ?? DEFAULT_PUBLIC_SITE_DATA.content[key] ?? '';
   const reviews = publicData ? publicData.reviews : suppliedReviews;
   const coupons = publicData ? publicData.coupons : (suppliedCoupons || []);
-  // The owner edits the 'ফ্রি উপহার' tab; Apps Script exposes its allowlisted
-  // setting as a list. No gift is promised unless the Sheet supplies one.
-  const freeGiftItems = cleanFreeGiftItems(settings.complimentary_kit_items);
-  const freeGiftBadge = formatFreeGiftBadge(freeGiftItems);
-  const freeGiftList = formatFreeGiftList(freeGiftItems);
+  // Gift badges are always computed separately from each product's assigned list.
+  // Legacy shop-wide gift lists are choices, never automatic promises.
   const [copiedCouponCode, setCopiedCouponCode] = useState<string | null>(null);
   const [isCouponsExpanded, setIsCouponsExpanded] = useState<boolean>(true);
 
@@ -429,6 +426,9 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
         const pricing = getProductPricing(product);
         const firstVariant = pricing.cheapestVariant;
         const stats = getProductDisplayStats(product);
+        const freeGiftItems = cleanFreeGiftItems(product.free_gift_items);
+        const freeGiftBadge = formatFreeGiftBadge(freeGiftItems);
+        const freeGiftList = formatFreeGiftList(freeGiftItems);
         return <article className="ac-product" key={product.id}>
           <button className="ac-product-image-button" onClick={() => onSelectProduct(product)} aria-label={`Choose ${product.name}`}>
             <StorefrontProductPhoto product={product} />
@@ -711,7 +711,7 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
               <p className="text-xs text-slate-600 max-w-2xl leading-relaxed">
                 • <strong>ডেলিভারি পাওয়ার সাথে সাথে:</strong> কেক কাটার আগ পর্যন্ত বক্সসহ ফ্রিজে (৪°-৮° সে.) রাখুন।<br/>
                 • <strong>সেরা স্বাদ পেতে:</strong> খাওয়ার ১৫ মিনিট আগে ফ্রিজ থেকে বের করুন, যাতে ক্রিম ও স্পঞ্জ রুম টেম্পারেচারে পারফেক্ট সফট হয়।
-                {freeGiftList && <><br/>• <strong>{settings.complimentary_kit_title?.trim() || 'ফ্রি উপহার'}:</strong> প্রতিটি কেকের সঙ্গে বিনামূল্যে {freeGiftList} দেওয়া হয়।</>}
+                {products.some(product => cleanFreeGiftItems(product.free_gift_items).length > 0) && <><br/>• <strong>ফ্রি উপহার:</strong> শুধু যেসব কেকের কার্ডে উপহার উল্লেখ আছে, সেগুলোর সঙ্গেই নির্দিষ্ট উপহার প্রযোজ্য।</>}
               </p>
             </div>
           </div>

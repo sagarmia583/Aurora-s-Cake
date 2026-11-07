@@ -68,6 +68,8 @@ export interface ShopSettings {
   mobile_subtitle?: string;
   complimentary_kit_title?: string;
   complimentary_kit_items?: string[];
+  /** Per-product promotional gifts, never automatically given to all products. */
+  product_free_gifts?: Record<string,string[]>;
   is_locally_modified?: boolean;
 }
 
@@ -125,6 +127,8 @@ export interface Product {
   variants: ProductVariant[];
   allowed_flavor_ids: string[];
   allowed_addon_ids: string[];
+  /** Only this product's specifically assigned complimentary gifts. */
+  free_gift_items?: string[];
   cost_ingredients?: number;
   cost_packaging?: number;
   cost_delivery?: number;
