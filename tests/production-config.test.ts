@@ -1,28 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-
-test('Netlify deploy uses Google Sheets as its only operational backend',()=>{
- const netlify=readFileSync(new URL('../netlify.toml',import.meta.url),'utf8');
- assert.match(netlify,/publish\s*=\s*"dist"/);
- assert.match(netlify,/functions\s*=\s*"netlify\/functions"/);
- assert.match(netlify,/VITE_SHEETS_POST_PROXY\s*=\s*"\/api\/operations"/);
- assert.match(netlify,/VITE_FIREBASE_ENABLED\s*=\s*"false"/);
- assert.match(netlify,/VITE_SUPABASE_ENABLED\s*=\s*"false"/);
- const relay=readFileSync(new URL('../netlify\/functions\/operations.mjs',import.meta.url),'utf8');
- assert.ok(relay.includes("target.hostname!=='script.google.com'"));
- const api=readFileSync(new URL('../netlify/functions/public.mjs',import.meta.url),'utf8');
- assert.ok(api.includes("endpoint")===false || api.includes("public"));
+import {readFileSync,existsSync} from 'node:fs';
+const read=(path:string)=>readFileSync(new URL('../'+path,import.meta.url),'utf8');
+test('Netlify and Google Sheets are the only supported production stack',()=>{
+ const config=read('netlify.toml');
+ assert.match(config,/publish\s*=\s*"dist"/);
+ assert.match(config,/functions\s*=\s*"netlify\/functions"/);
+ assert.match(config,/VITE_SHEETS_POST_PROXY\s*=\s*"\/api\/operations"/);
+ for(const p of ['wrangler.toml','wrangler.pages.toml','vercel.json','firebase.json','cloudflare/worker.js','functions/api/operations.js','api/operations.js','public/_routes.json'])assert.equal(existsSync(new URL('../'+p,import.meta.url)),false);
+ for(const p of ['netlify/functions/operations.mjs','netlify/functions/public.mjs','netlify/functions/backend-health.mjs','netlify/functions/image.mjs'])assert.ok(existsSync(new URL('../'+p,import.meta.url)));
+ assert.doesNotMatch(read('src/main.tsx'),/firebase|supabase/i);
+});
+test('Netlify health matches Google Apps Script release',()=>{
+ const release=read('apps-script/Code.gs').match(/var AURORA_BACKEND_RELEASE\s*=\s*'([^']+)'/)?.[1];
+ assert.ok(release);assert.ok(read('netlify/functions/backend-health.mjs').includes(release));
 });
 
-test('Netlify and historical proxies compare against the current Apps Script release',()=>{
- const source=readFileSync(new URL('../apps-script/Code.gs',import.meta.url),'utf8');
- const release=source.match(/var AURORA_BACKEND_RELEASE\s*=\s*'([^']+)'/)?.[1];
- assert.ok(release);
- for(const path of ['netlify/functions/backend-health.mjs','functions/api/backend-health.js']){
-   const source=readFileSync(new URL('../'+path,import.meta.url),'utf8');
-   assert.equal(source.match(/(?:export\s+)?const EXPECTED_RELEASE\s*=\s*'([^']+)'/)?.[1],release);
+test('Netlify API routes explicitly rewrite to deployed Functions and retain default function paths',()=>{
+ const netlify=read('netlify.toml');
+ for(const [path,name] of [['/api/public','public'],['/api/operations','operations'],['/api/image','image'],['/api/backend-health','backend-health']]){
+   assert.ok(netlify.includes('from = "'+path+'"'));
+   assert.ok(netlify.includes('to = "/.netlify/functions/'+name+'"'));
+   assert.doesNotMatch(read('netlify/functions/'+name+'.mjs'),/export\s+const\s+config\s*=\s*\{\s*path\s*:/);
  }
- const oldProxy=readFileSync(new URL('../api/backend-health.js',import.meta.url),'utf8');
- assert.match(oldProxy,/import\s*\{\s*EXPECTED_RELEASE\s*\}/);
+ assert.match(netlify,/force\s*=\s*true/);
 });

@@ -63,23 +63,25 @@ export function getLocalTodayDateString(): string {
 export function normalizeDateToYMD(dateStr?: string): string {
   if (!dateStr) return '';
   const trimmed = dateStr.trim();
-  // Match standard YYYY-MM-DD at the start
-  const match = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  // Only real calendar dates belong in a dated financial statement.
+  const match = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?=$|[T\s])/);
   if (match) {
-    const y = match[1];
-    const m = match[2].padStart(2, '0');
-    const d = match[3].padStart(2, '0');
-    return `${y}-${m}-${d}`;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const date = new Date(0);
+    date.setUTCFullYear(year, month - 1, day);
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() + 1 !== month || date.getUTCDate() !== day) return '';
+    return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
   }
-  // If parsing as Date
   const parsed = new Date(trimmed);
-  if (!isNaN(parsed.getTime())) {
+  if (Number.isFinite(parsed.getTime())) {
     const y = parsed.getFullYear();
     const m = String(parsed.getMonth() + 1).padStart(2, '0');
     const d = String(parsed.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
   }
-  return trimmed;
+  return '';
 }
 
 /**
@@ -128,6 +130,38 @@ export function getDateRangeForPreset(preset: CollectionDatePreset, customStart?
   }
 }
 
+export interface StatementPaymentBreakdown {
+  advanceCollected: number;
+  cashCollected: number;
+  digitalCollected: number;
+  dueAmount: number;
+}
+
+const positiveMoney = (value: unknown): number => {
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount > 0 ? Math.round(amount * 100) / 100 : 0;
+};
+
+/**
+ * Treat advance payment as its own bucket. The remainder is counted once,
+ * only after payment is explicitly confirmed. A delivered status alone does
+ * not prove that a historical COD order's cash was received.
+ */
+export function getStatementPaymentBreakdown(order: StatementOrder): StatementPaymentBreakdown {
+  const total = positiveMoney(order.total_amount);
+  const advanceCollected = Math.min(total, positiveMoney(order.advance_paid_amount));
+  const remainder = Math.max(0, Math.round((total - advanceCollected) * 100) / 100);
+  const isCOD = String(order.payment_method || 'cod').toLowerCase() === 'cod';
+  const isCollected = advanceCollected >= total ||
+    (isCOD ? order.cod_collected === true : order.payment_status === 'paid');
+  return {
+    advanceCollected,
+    cashCollected: isCOD && isCollected ? remainder : 0,
+    digitalCollected: !isCOD && isCollected ? remainder : 0,
+    dueAmount: isCollected ? 0 : remainder,
+  };
+}
+
 /**
  * Computes the complete collection statement summary from orders
  */
@@ -150,7 +184,7 @@ export function computeCollectionStatement(orders: StatementOrder[], options: Co
     // 3. Date Matching
     const rawDate = dateField === 'delivery_date' ? (order.delivery_date || order.created_at) : order.created_at;
     const ymd = normalizeDateToYMD(rawDate);
-    if (!ymd) return true; // If no date, retain
+    if (!ymd) return false; // Unknown dates must not enter a dated statement
 
     if (startDate && ymd < startDate) return false;
     if (endDate && ymd > endDate) return false;
@@ -190,15 +224,19 @@ export function computeCollectionStatement(orders: StatementOrder[], options: Co
     else if (order.status === 'cancelled') cancelledOrders++;
     else pendingOrders++;
 
-    const orderTotal = Number(order.total_amount || 0);
-    const orderDeliveryFee = Number(order.delivery_fee || 0);
-    const orderDiscount = Number(order.discount_amount || 0);
-    const advancePaid = Number(order.advance_paid_amount || 0);
+    const orderTotal = positiveMoney(order.total_amount);
+    const orderDeliveryFee = positiveMoney(order.delivery_fee);
+    const orderDiscount = positiveMoney(order.discount_amount);
+    const payment = getStatementPaymentBreakdown(order);
 
+    // total_amount already includes the discount and delivery fee.
     grossSales += orderTotal;
     totalDeliveryFees += orderDeliveryFee;
     totalDiscounts += orderDiscount;
-    advanceCollected += advancePaid;
+    advanceCollected += payment.advanceCollected;
+    cashCollected += payment.cashCollected;
+    digitalCollected += payment.digitalCollected;
+    totalDueAmount += payment.dueAmount;
 
     const rawMethod = (order.payment_method || 'cod').toLowerCase();
     const isCod = rawMethod === 'cod';
@@ -212,31 +250,14 @@ export function computeCollectionStatement(orders: StatementOrder[], options: Co
     methodMap[methodKey].count++;
     methodMap[methodKey].total += orderTotal;
 
-    if (isCod) {
-      // Cash on delivery: cash collected on delivery if delivered or rider marked cod_collected
-      const isCollected = order.status === 'delivered' || Boolean(order.cod_collected);
-      const actualCash = isCollected ? Math.max(0, orderTotal - advancePaid) : 0;
-      const orderDue = isCollected ? 0 : (order.due_amount ?? Math.max(0, orderTotal - advancePaid));
-
-      cashCollected += actualCash;
-      totalDueAmount += orderDue;
-      methodMap[methodKey].collected += actualCash + advancePaid;
-      methodMap[methodKey].due += orderDue;
-    } else {
-      // Prepaid (bKash/Nagad/Card)
-      const isPaid = order.payment_status === 'paid' || advancePaid >= orderTotal;
-      const collectedHere = isPaid ? orderTotal : advancePaid;
-      const orderDue = isPaid ? 0 : Math.max(0, orderTotal - advancePaid);
-
-      digitalCollected += collectedHere;
-      totalDueAmount += orderDue;
-      methodMap[methodKey].collected += collectedHere;
-      methodMap[methodKey].due += orderDue;
-    }
+    // Method totals must reconcile to the same disjoint buckets as the KPIs.
+    methodMap[methodKey].collected +=
+      payment.advanceCollected + payment.cashCollected + payment.digitalCollected;
+    methodMap[methodKey].due += payment.dueAmount;
   }
 
   const totalActualCollected = cashCollected + advanceCollected + digitalCollected;
-  const netSales = grossSales - totalDiscounts;
+  const netSales = grossSales; // total_amount is already net of discounts.
 
   const methodSummaries: PaymentMethodSummary[] = Object.keys(methodMap).map((k) => ({
     method: k,

@@ -55,4 +55,5 @@ export default async function publicCatalog(request,{scriptUrl=process.env.AUROR
     }});
   }catch{return reject(504,'public_catalog_timeout');}
 }
-export const config={path:'/api/public'};
+// API routing is configured centrally in netlify.toml; Netlify's default
+// /.netlify/functions/<name> path remains available for internal rewrites.

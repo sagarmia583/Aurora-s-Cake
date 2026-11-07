@@ -907,7 +907,7 @@ test('legacy receipt recovery requires owner verification; no delivery OTP is ex
   delete original.customer_access_token;
   h.tables.orders[1][ORDER_HEADERS.indexOf('receipt_json')]=JSON.stringify(original);
   const customer={action:'get_order_status',order_id:order.id,customer_phone:order.customer_phone};
-  assert.equal(h.post(customer).delivery_otp,undefined);
+  assert.equal(h.post(customer).code,'forbidden','legacy order IDs and phone numbers are not proof');
   assert.equal(h.post({action:'staff_session',id_token:RIDER_TOKEN}).staff_profiles,undefined);
   const orderList=h.post({action:'staff_orders',id_token:ADMIN_TOKEN}).orders;
   assert.equal(orderList[0].legacy_receipt_missing,true);
@@ -1219,4 +1219,121 @@ test('one-time editor-only owner bootstraps a hashed admin and deletes temporary
   assert.equal(h.post({action:'setupAuroraFirstStaffOwnerOnce'}).code,'invalid_action');
   props.set('AURORA_FIRST_OWNER_PASSWORD',secret);
   assert.throws(()=>h.context.setupAuroraFirstStaffOwnerOnce(),/already exist/);
+});
+
+test('delegated admin cannot create or take over administrator accounts; last owner remains active',()=>{
+  const h=harness({singleFile:true});
+  const base={name:'Team Member',password:'CorrectHorseBattery20!'};
+  const create=(username:string,role:string,token=ADMIN_TOKEN)=>
+    h.post({action:'staff_account_create',id_token:token.startsWith('admin_')?token:undefined,
+      auth_token:token.startsWith('admin_')?undefined:token,username,role,...base});
+  assert.equal(create('admin02','admin').created,true);
+  const login=h.post({action:'staff_password_login',username:'admin02',password:base.password});
+  assert.equal(login.role,'admin');
+  assert.equal(create('owner03','super_admin',login.auth_token).code,'forbidden');
+  assert.equal(create('admin03','admin',login.auth_token).code,'forbidden');
+  assert.equal(create('rider03','delivery_man',login.auth_token).created,true);
+  assert.equal(create('owner02','super_admin').created,true);
+  assert.equal(h.post({action:'staff_account_reset_password',auth_token:login.auth_token,
+    username:'owner02',password:'CompromisedPassword20!'}).code,'forbidden');
+  assert.equal(h.post({action:'staff_account_set_active',auth_token:login.auth_token,
+    username:'owner02',active:false}).code,'forbidden');
+  assert.equal(h.post({action:'staff_account_set_active',auth_token:login.auth_token,
+    username:'admin02',active:false}).code,'forbidden');
+  assert.equal(h.post({action:'staff_account_set_active',id_token:ADMIN_TOKEN,
+    username:'owner02',active:'false'}).code,'invalid_request');
+  assert.equal(h.post({action:'staff_account_set_active',id_token:ADMIN_TOKEN,
+    username:'owner02',active:false}).code,'last_owner');
+  assert.equal(h.records('staff_accounts').find((person:{username?:string})=>person.username==='owner02')?.active,true);
+});
+
+test('delivery assignment rejects partial names, inactive accounts and forged rider IDs',()=>{
+  const h=harness({singleFile:true});
+  const create=(username:string,role:string,name:string)=>
+    h.post({action:'staff_account_create',id_token:ADMIN_TOKEN,username,role,name,password:'StrongStaffPass2026!'});
+  assert.equal(create('rider020','delivery_man','Verified Rider').created,true);
+  assert.equal(create('chef020','kitchen_manager','Baker').created,true);
+  const order=h.post(request()).order;
+  const stage=(operation:string,extra:Record<string,unknown>={},id_token=ADMIN_TOKEN)=>
+    h.post({action:'staff_mutate',id_token,operation,order_id:order.id,...extra});
+  for(const operation of ['confirm','start_baking','mark_ready'])assert.equal(stage(operation).ok,true);
+  assert.equal(stage('assign',{rider_email:'rider02'}).code,'invalid_rider');
+  assert.equal(stage('assign',{rider_email:'chef020'}).code,'invalid_rider');
+  assert.equal(stage('assign',{rider_email:'unknown_rider'}).code,'invalid_rider');
+  assert.equal(h.post({action:'staff_account_set_active',id_token:ADMIN_TOKEN,
+    username:'rider020',active:false}).updated,true);
+  assert.equal(stage('assign',{rider_email:'rider020'}).code,'invalid_rider');
+  assert.equal(h.post({action:'staff_account_set_active',id_token:ADMIN_TOKEN,
+    username:'rider020',active:true}).updated,true);
+  const assigned=stage('assign',{rider_email:'rider020',rider_id:'rider@example.com',
+    rider_name:'Wrong person'});
+  assert.equal(assigned.ok,true);
+  assert.equal(assigned.order.rider_id,'rider020');
+  assert.equal(assigned.order.rider_name,'Verified Rider');
+  assert.equal(stage('pick_up',{},RIDER_TOKEN).code,'forbidden');
+  const rider=h.post({action:'staff_password_login',username:'rider020',password:'StrongStaffPass2026!'});
+  assert.equal(h.post({action:'staff_mutate',auth_token:rider.auth_token,
+    operation:'pick_up',order_id:order.id}).ok,true);
+});
+
+test('kitchen and finance never receive gift contact details through queue or stage mutation',()=>{
+  const h=harness({singleFile:true});
+  const created=h.post(request({is_gift:true,recipient_name:'Cake Recipient',
+    recipient_phone:'01700112233',sender_name:'Gift Sender',sender_phone:'01800112233',
+    gift_card_message:'Happy day'}));
+  assert.equal(created.persisted,true);
+  const orderId=created.order.id;
+  assert.equal(h.post({action:'staff_mutate',id_token:ADMIN_TOKEN,
+    operation:'confirm',order_id:orderId}).ok,true);
+  h.context.PropertiesService={getScriptProperties:()=>({getProperty:(key:string)=>
+    key==='AURORA_GOOGLE_CLIENT_ID'?'test-client.apps.googleusercontent.com':
+    key==='AURORA_STAFF_USERS'?JSON.stringify({
+      'owner@example.com':{role:'kitchen_manager',name:'Chef'},
+      'rider@example.com':{role:'accountant',name:'Accountant'}
+    }):null})};
+  const kitchen=h.post({action:'staff_orders',id_token:ADMIN_TOKEN}).orders[0];
+  const changed=h.post({action:'staff_mutate',id_token:ADMIN_TOKEN,
+    operation:'start_baking',order_id:orderId}).order;
+  const finance=h.post({action:'staff_orders',id_token:RIDER_TOKEN}).orders[0];
+  for(const view of [kitchen,changed,finance]){
+    assert.ok(view);
+    for(const field of ['customer_phone','delivery_address','recipient_phone','sender_phone',
+      'customer_email','customer_account_id','customer_access_token','customer_google_sub','delivery_otp']){
+      assert.equal(view[field],undefined,field+' unexpectedly visible to limited staff');
+    }
+  }
+  assert.equal(kitchen.gift_card_message,'Happy day');
+  assert.equal(changed.status,'preparing');
+  assert.equal(finance.items,undefined);
+  const persisted=JSON.parse(String(h.records('orders')[0].receipt_json));
+  assert.equal(persisted.recipient_phone,'01700112233','contact data remains in the private source of truth');
+});
+
+test('legacy public phone-history route never reveals orders, recipient names or addresses',()=>{
+  const h=harness({singleFile:true});
+  const created=h.post(request({customer_name:'Private Customer',delivery_address:'Private Tangail Address'}));
+  assert.equal(created.persisted,true);
+  const exposed=h.post({action:'customer_phone_history',phone:created.order.customer_phone});
+  assert.equal(exposed.code,'forbidden');
+  assert.equal(exposed.orders,undefined);
+  assert.equal(exposed.profile,undefined);
+  assert.doesNotMatch(JSON.stringify(exposed),/Private Customer|Private Tangail Address/);
+  assert.equal(h.records('orders').length,1,'legacy lookup must not change stored orders');
+});
+
+test('anonymous costing endpoints cannot read or mutate private business margins',()=>{
+  const h=harness({singleFile:true});
+  vm.runInContext(fs.readFileSync(new URL('../apps-script/ItemCostings.gs',import.meta.url),'utf8'),h.context);
+  const secret={product_id:'p1',selling_price:1000,cost_ingredients:1,cost_packaging:2,
+    cost_delivery:3,cost_other:4};
+  for(const action of ['get_item_costings','sync_item_costings']){
+    const answer=h.post({action,costings:[secret]});
+    assert.equal(answer.code,'forbidden',action+' must never be public');
+    assert.equal(answer.costings,undefined);
+  }
+  assert.equal(h.tables.item_costings,undefined,'anonymous write must not create a ledger');
+  assert.throws(()=>h.context.auroraCostingPost_({action:'get_item_costings'}));
+  const staffRead=h.post({action:'staff_item_costings',operation:'read',id_token:ADMIN_TOKEN});
+  assert.equal(staffRead.ok,true);
+  assert.deepEqual(staffRead.costings,[]);
 });

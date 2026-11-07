@@ -109,9 +109,11 @@ export async function resetStaffPassword(endpoint:string,token:string,username:s
 }
 export async function checkStaffSession(endpoint: string, idToken: string): Promise<StaffSession> {
   const data = await privatePost(endpoint, { action: 'staff_session', ...staffCredential(idToken) });
-  if (typeof data.role !== 'string' || typeof data.email !== 'string') throw new Error('Staff role was not returned.');
-  const riders = Array.isArray(data.riders) ? data.riders.filter(item => objectValue(item) && typeof item.email === 'string' && typeof item.name === 'string') as StaffSession['riders'] : [];
   const allowedRoles: StaffRoleName[] = ['super_admin','admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'];
+  if (typeof data.role !== 'string' || !allowedRoles.includes(data.role as StaffRoleName) ||
+      typeof data.email !== 'string' || !data.email.trim())
+    throw new Error('The backend returned an invalid staff identity. Sign in again.');
+  const riders = Array.isArray(data.riders) ? data.riders.filter(item => objectValue(item) && typeof item.email === 'string' && typeof item.name === 'string') as StaffSession['riders'] : [];
   const staff_profiles: StaffProfile[] | undefined = (data.role === 'super_admin' || data.role === 'admin') && Array.isArray(data.staff_profiles)
     ? data.staff_profiles.filter(item => objectValue(item)
         && typeof item.email === 'string' && typeof item.name === 'string'

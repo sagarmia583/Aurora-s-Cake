@@ -27,4 +27,5 @@ export default async function health(request,{scriptUrl=process.env.AURORA_SCRIP
      database_backend:'google_sheets',writes_frozen:state.writes_frozen});
  }catch{return json(504,{ok:false,code:'backend_timeout'});}
 }
-export const config={path:'/api/backend-health'};
+// API routing is configured centrally in netlify.toml; Netlify's default
+// /.netlify/functions/<name> path remains available for internal rewrites.

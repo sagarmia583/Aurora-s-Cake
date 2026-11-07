@@ -9,8 +9,7 @@ The owner-selected deployment is **Netlify**. The only operational datastore is
 web portal use Netlify same-origin functions `/api/public` (GET) and
 `/api/operations` (POST); Apps Script remains the authoritative validator and
 writer. Do **not** enable Cloudflare Workers, D1/R2, Supabase or Firebase as
-production backends. Old source and migrations are retained solely as historical
-references; they are not part of this Netlify deployment.
+production backends. Unused deployment configurations and migrations are being removed from the active repository. The only supported production stack is Netlify + Google Apps Script + Google Sheets.
 
 Set `AURORA_SCRIPT_POST_URL` in the Netlify dashboard to the approved existing
 Apps Script `/exec` endpoint (server-side variable; never a client secret).

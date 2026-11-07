@@ -26,6 +26,7 @@ import {
   CollectionPaymentFilter,
   StatementOrder,
   computeCollectionStatement,
+  getStatementPaymentBreakdown,
   getDateRangeForPreset,
   getLocalTodayDateString
 } from '../services/collectionStatementService';
@@ -298,7 +299,7 @@ export const CollectionStatementModal: React.FC<CollectionStatementModalProps> =
                 {/* Cash in Hand (COD Collected) */}
                 <div className="bg-gradient-to-br from-amber-50 to-amber-100/60 p-4 rounded-2xl border border-amber-200/80 shadow-2xs space-y-1">
                   <div className="flex items-center justify-between text-amber-800">
-                    <span className="text-xs font-bold uppercase tracking-wider">ক্যাশ আদায় (Cash In Hand)</span>
+                    <span className="text-xs font-bold uppercase tracking-wider">COD ক্যাশ আদায়</span>
                     <Wallet className="w-4 h-4" />
                   </div>
                   <div className="text-2xl font-black text-amber-950">
@@ -403,11 +404,9 @@ export const CollectionStatementModal: React.FC<CollectionStatementModalProps> =
                         {summary.matchingOrders.map((ord, idx) => {
                           const shortToken = formatShortOrderNumber(ord.order_number);
                           const isDelivered = ord.status === 'delivered';
-                          const isCollected = isDelivered || ord.cod_collected;
-                          const advancePaid = Number(ord.advance_paid_amount || 0);
-                          const cashReceived = ord.payment_method === 'cod' && isCollected 
-                            ? Math.max(0, ord.total_amount - advancePaid)
-                            : 0;
+                          const payment = getStatementPaymentBreakdown(ord);
+                          const advancePaid = payment.advanceCollected;
+                          const cashReceived = payment.cashCollected;
 
                           return (
                             <tr key={ord.id || idx} className="hover:bg-slate-50/80 transition-colors">
@@ -535,12 +534,9 @@ export const CollectionStatementModal: React.FC<CollectionStatementModalProps> =
                   <tbody>
                     {summary.matchingOrders.map((ord, idx) => {
                       const shortToken = formatShortOrderNumber(ord.order_number);
-                      const isDelivered = ord.status === 'delivered';
-                      const isCollected = isDelivered || ord.cod_collected;
-                      const advancePaid = Number(ord.advance_paid_amount || 0);
-                      const cashReceived = ord.payment_method === 'cod' && isCollected 
-                        ? Math.max(0, ord.total_amount - advancePaid)
-                        : 0;
+                      const payment = getStatementPaymentBreakdown(ord);
+                      const advancePaid = payment.advanceCollected;
+                      const cashReceived = payment.cashCollected;
 
                       return (
                         <tr key={ord.id || idx} className="border-b border-slate-300">

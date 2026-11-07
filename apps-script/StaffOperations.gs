@@ -180,6 +180,30 @@ function auroraFastOrderList_(table){
   var index=table.headers.indexOf('receipt_json')+1;
   return table.sheet.getRange(2,index,last-1,1).getValues().map(function(values){return {receipt_json:values[0]};});
 }
+function auroraStaffSafeOrder_(order,actor){
+  // Apply the SAME data-minimization policy to queue results and mutation
+  // responses; otherwise a kitchen stage write reveals private contacts.
+  if(actor.role==='super_admin'&&!order.customer_access_token&&order.status==='out_for_delivery')
+    order.legacy_receipt_missing=true;
+  delete order.customer_access_token;
+  if(typeof auroraStaffShareSafe_==='function')auroraStaffShareSafe_(order,actor);
+  delete order.customer_google_sub;
+  delete order.customer_account_id;
+  if(actor.role==='kitchen_manager'||actor.role==='accountant'){
+    delete order.customer_phone;
+    delete order.delivery_address;
+    delete order.recipient_phone;
+    delete order.sender_phone;
+    delete order.customer_email;
+    delete order.recipient_email;
+    delete order.sender_email;
+  }
+  if(actor.role==='accountant')delete order.items;
+  delete order.delivery_otp;
+  delete order.otp_failed_attempts;
+  delete order.otp_locked_until;
+  return order;
+}
 function auroraOperationsOrders_(actor, table) {
   var list = [], complete = true, invalidReceipts = 0;
   table.rows.forEach(function(row) {
@@ -189,25 +213,7 @@ function auroraOperationsOrders_(actor, table) {
     if (!order || !order.id) { complete = false; invalidReceipts++; return; }
     if (actor.role === 'delivery_man' && String(order.rider_id || '').toLowerCase() !== actor.email) return;
     if (actor.role === 'kitchen_manager' && ['pending','cancelled','delivered'].indexOf(order.status) !== -1) return;
-    // Staff never receives the delivery OTP or the customer's bearer capability.
-    if(actor.role==='super_admin'&&!order.customer_access_token&&order.status==='out_for_delivery')
-      order.legacy_receipt_missing=true;
-    delete order.customer_access_token;
-    if(typeof auroraStaffShareSafe_==='function')auroraStaffShareSafe_(order,actor);
-    delete order.customer_google_sub;
-    if (actor.role === 'kitchen_manager') {
-      delete order.customer_phone;
-      delete order.delivery_address;
-    }
-    if (actor.role === 'accountant') {
-      delete order.customer_phone;
-      delete order.delivery_address;
-      delete order.items;
-    }
-    delete order.delivery_otp;
-    delete order.otp_failed_attempts;
-    delete order.otp_locked_until;
-    list.push(order);
+    list.push(auroraStaffSafeOrder_(order,actor));
   });
   list.sort(function(a,b){return String(b.created_at||'').localeCompare(String(a.created_at||''));});
   var recentHistory = 0;
@@ -318,7 +324,7 @@ function auroraOperationsPost_(input) {
     };
     if((actor.role==='super_admin'||actor.role==='admin')&&action==='start_delivery'){
       allowedSourceStatuses.start_delivery.push('ready');
-      if(order.status==='ready'&&!order.rider_id){order.rider_id=actor.username||actor.email;order.rider_name=actor.name;}
+      // A manager is not automatically a rider; a registered rider must be assigned first.
     }
     if (!targetStatus[action] || !allowedSourceStatuses[action] || allowedSourceStatuses[action].indexOf(order.status) === -1) {
       auroraReject_('invalid_transition','Order is not at the required stage.');
@@ -327,44 +333,34 @@ function auroraOperationsPost_(input) {
       var isManagerOrAdmin = actor.role === 'super_admin' || actor.role === 'admin' || actor.role === 'delivery_manager';
       var hasAdminOverride = isManagerOrAdmin && (actor.role==='super_admin'||actor.role==='admin'||input.admin_override === true || input.admin_override === 'true');
       var assignedRider = String(order.rider_id || '').toLowerCase().trim();
+      if (action === 'start_delivery' && !assignedRider)
+        auroraReject_('rider_required','Assign an active registered rider before dispatching this order.');
       var actorEmail = String(actor.email || '').toLowerCase().trim();
       var actorUser = String(actor.username || '').toLowerCase().trim();
 
-      if (!hasAdminOverride) {
-        if (assignedRider && assignedRider !== 'rider-1' && assignedRider !== actorEmail && assignedRider !== actorUser) {
-          auroraReject_('forbidden','This delivery is assigned to a different rider.');
-        }
-      }
-      if (actor.role === 'delivery_man' && (!order.rider_id || order.rider_id === 'rider-1')) {
-        order.rider_id = actor.username || actor.email;
-        order.rider_name = actor.name || order.rider_id;
+      if (!hasAdminOverride && (!assignedRider ||
+          (assignedRider !== actorEmail && assignedRider !== actorUser))) {
+        auroraReject_('forbidden','This delivery must be assigned to your rider account.');
       }
     }
     if (action === 'assign') {
-      var rawRider = input.rider_email || input.rider_id || input.rider_username || input.rider_name || '';
-      var riderEmail = String(rawRider).trim().toLowerCase();
-      if (!riderEmail || riderEmail.length < 2) {
-        auroraReject_('invalid_rider','Select a registered delivery rider.');
-      }
-      var rider = actor.people ? actor.people[riderEmail] : null;
-      if (!rider) {
-        var allowed = auroraAccountProfiles_().filter(function(person) {
-          var u = String(person.username || '').toLowerCase();
-          var n = String(person.name || '').toLowerCase();
-          return (u === riderEmail || n === riderEmail || u.indexOf(riderEmail) !== -1 || riderEmail.indexOf(u) !== -1) &&
-                 (person.role === 'delivery_man' || person.role === 'delivery_manager');
+      var riderEmail = String(input.rider_email || input.rider_id || input.rider_username || '').trim().toLowerCase();
+      if(!riderEmail || riderEmail.length>200)auroraReject_('invalid_rider','Select a registered delivery rider.');
+      var registered = actor.people && Object.prototype.hasOwnProperty.call(actor.people,riderEmail)
+        ? actor.people[riderEmail] : null;
+      var rider = registered && registered.role==='delivery_man'
+        ? {name:String(registered.name||riderEmail).slice(0,100)} : null;
+      if(!rider){
+        var allowed = auroraAccountProfiles_().filter(function(person){
+          return person.active===true && person.role==='delivery_man' &&
+            String(person.username||'').toLowerCase()===riderEmail;
         })[0];
-        if (allowed) rider = { role: 'delivery_man', name: allowed.name };
+        if(allowed)rider={name:allowed.name};
       }
-      if (!rider) {
-        if (actor.role === 'super_admin' || actor.role === 'admin' || actor.role === 'delivery_manager') {
-          rider = { role: 'delivery_man', name: String(input.rider_name || rawRider).slice(0, 100) };
-        } else {
-          auroraReject_('invalid_rider','Select a registered delivery rider.');
-        }
-      }
-      order.rider_id = String(input.rider_id || riderEmail).trim();
-      order.rider_name = String(input.rider_name || rider.name || rawRider).slice(0, 100);
+      if(!rider)auroraReject_('invalid_rider','Select an active, registered delivery rider.');
+      // Canonical roster identity, not a request-supplied rider label or ID.
+      order.rider_id=riderEmail;
+      order.rider_name=rider.name;
     }
     // Delivery OTP is disabled. Clear legacy codes and lockouts on every transition.
     order.delivery_otp='';order.otp_failed_attempts=0;order.otp_locked_until=0;
@@ -386,13 +382,7 @@ function auroraOperationsPost_(input) {
     order.history.push({id:'staff_'+Utilities.getUuid(),status:order.status,
       notes:action==='cancel'&&input.reason?'Cancelled: '+auroraOrderText_(input.reason,'Cancellation reason',1,500):'Updated by authorized staff',actor_name:actor.name,created_at:order.updated_at});
     auroraPrivateSaveReceipt_(table,rowNumber,order);
-    var safeOrder = JSON.parse(JSON.stringify(order));
-    delete safeOrder.customer_access_token;
-    if(typeof auroraStaffShareSafe_==='function')auroraStaffShareSafe_(safeOrder,actor);
-    delete safeOrder.customer_google_sub;
-    delete safeOrder.delivery_otp;
-    delete safeOrder.otp_failed_attempts;
-    delete safeOrder.otp_locked_until;
+    var safeOrder=auroraStaffSafeOrder_(JSON.parse(JSON.stringify(order)),actor);
     return {ok:true,order:safeOrder,stage_changed:priorStage!==order.status||priorRider!==String(order.rider_id||'').trim().toLowerCase()};
   } finally {lock.releaseLock();}
 }
@@ -421,10 +411,11 @@ function auroraCustomerOrderStatus_(input) {
   if (!hasCapability && !hasPhoneOwner && input.id_token && order.customer_google_sub) {
     hasGoogleOwner = auroraCustomerIdentity_(input).sub === order.customer_google_sub;
   }
-  // Legacy orders predate customer capabilities and may still support
-  // limited phone/reference lookup, but NEVER return an OTP on that basis.
-  if (!hasCapability && !hasPhoneOwner && !hasGoogleOwner && order.customer_access_token) {
-    auroraReject_('forbidden','A valid receipt access key or linked Google login is required.');
+  // Even legacy order IDs and customer phone numbers are not ownership
+  // proof. The shop can issue a new receipt capability after independent
+  // verification through staff_legacy_receipt.
+  if (!hasCapability && !hasPhoneOwner && !hasGoogleOwner) {
+    auroraReject_('forbidden','A valid receipt access key or linked login is required.');
   }
   var result={ok:true,order_id:order.id,status:order.status,updated_at:order.updated_at,
     history:Array.isArray(order.history) ? order.history.slice(-20) : [],rider_name:order.rider_name||'',

@@ -263,21 +263,14 @@ export function normalizePublicSiteData(input: unknown, defaults: PublicSiteData
 /** Optional same-origin free Netlify relay; only one fixed path is accepted.
  * Backend URL stays pinned to the validated Google Apps Script deployment.
  */
-/** Same-origin Vercel Preview requests need the site's access cookie, if protected.
- * Direct requests to Google Apps Script must never carry browser credentials.
- * The Vercel relay does NOT forward browser cookies to Google.
- */
+/** Netlify's same-origin relay never forwards user cookies to Google. */
 export function sheetsPostCredentials(resolvedUrl: string): RequestCredentials {
   return resolvedUrl === '/api/operations' ? 'same-origin' : 'omit';
 }
 
 export function usesSameOriginBakeryApi(): boolean {
   const configured=(import.meta.env?.VITE_SHEETS_POST_PROXY as string|undefined)?.trim()==='/api/operations';
-  // Workers Builds does not set CF_PAGES; the actual Cloudflare application
-  // hostname is a reliable way to keep checkout behind its secure API relay.
-  const cloudflareHost=typeof window!=='undefined' &&
-    /(?:^|\.)(?:workers|pages)\.dev$/i.test(window.location.hostname);
-  return configured || cloudflareHost || import.meta.env?.DEV === true;
+  return configured || import.meta.env?.DEV === true;
 }
 
 /** On a production Netlify build the Apps Script endpoint is configured
@@ -330,10 +323,10 @@ export async function loadGoogleSheetData(endpoint=DEFAULT_SHEETS_ENDPOINT, sign
   const url=validateGoogleSheetsEndpoint(endpoint);
   url.searchParams.set('action','public');
   url.searchParams.set('_t',String(Date.now()));
-  // Same-origin Vercel or Cloudflare proxy avoids browser CORS redirects.
+  // Netlify same-origin proxy avoids browser CORS redirects.
   // Local Vite development continues to use the public Apps Script endpoint.
-  const viaVercel=usesSameOriginBakeryApi() && typeof window!=='undefined';
-  const readUrl=viaVercel?'/api/public':url.href;
+  const viaNetlify=usesSameOriginBakeryApi() && typeof window!=='undefined';
+  const readUrl=viaNetlify?'/api/public':url.href;
   const controller=new AbortController();
   const onAbort=()=>controller.abort();
   signal?.addEventListener('abort',onAbort,{once:true});
@@ -341,7 +334,7 @@ export async function loadGoogleSheetData(endpoint=DEFAULT_SHEETS_ENDPOINT, sign
   let timedOut=false;
   const timer=setTimeout(()=>{timedOut=true;controller.abort();},12000);
   try{
-    const response=await fetch(readUrl,{credentials:viaVercel?'same-origin':'omit',redirect:'follow',cache:'no-store',signal:controller.signal});
+    const response=await fetch(readUrl,{credentials:viaNetlify?'same-origin':'omit',redirect:'follow',cache:'no-store',signal:controller.signal});
     if(/accounts\.google\.com/.test(response.url))throw new GoogleSheetsError('permission_required','The Apps Script link requires Google sign-in. Deploy the read-only public-content web app for site visitors.');
     if(!response.ok)throw new GoogleSheetsError('network',`Google Sheets returned HTTP ${response.status}. Try again after checking its deployment.`);
     return normalizePublicSiteData(await response.text());

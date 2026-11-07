@@ -49,11 +49,12 @@ function auroraCostingPost_(input) {
   if (!input || typeof input !== 'object') {
     auroraReject_('invalid_request', 'Invalid costing request payload.');
   }
-  // Native staff workspace uses one authenticated route for reading and saving.
+  // Defense in depth: even direct legacy calls cannot bypass staff auth.
+  // The public doPost router accepts only staff_item_costings.
+  var actor=auroraStaffAuthenticate_(input);
+  if(['super_admin','admin','order_manager','accountant'].indexOf(actor.role)===-1)
+    auroraReject_('forbidden','This staff role cannot manage item costings.');
   if(input.action==='staff_item_costings'){
-    var actor=auroraStaffAuthenticate_(input);
-    if(['super_admin','admin','order_manager','accountant'].indexOf(actor.role)===-1)
-      auroraReject_('forbidden','This staff role cannot manage item costings.');
     if(['read','save'].indexOf(input.operation)===-1)auroraReject_('invalid_action','Choose read or save costings.');
     if(input.operation==='save'){
       if(!Array.isArray(input.costings)||!input.costings.length||input.costings.length>500)auroraReject_('invalid_request','Provide 1–500 item costings.');
