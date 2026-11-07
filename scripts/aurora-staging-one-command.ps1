@@ -26,7 +26,11 @@ $stagingSheetId='1juEUytJCmnzwuoec3k5wsOa7xRy8N-rNqCAquZcNJPg'
 $productionSheetId='18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4'
 $orderId='ord_8e42ea25-120e-4e48-a0f3-9ed18ecf7e9f'
 $stagingUrl='https://script.google.com/macros/s/AKfycbwT3J7RLlJ2Uy0NwziRCex2XIJgJhryGC8x3NcvwRBkc6sQsYCOvRGropefvgAFA5N0/exec'
-$sourceRef='fix/staging-one-command-20261106'
+$sourceRef='80348e522e40df9d345820997a6a6ff3c4dc71b1'
+$reviewedGsCommit='d0015d946d171f91f06507b2472aa39aef9c9be0'
+$reviewedGsBlob='7656ab709f33847c5d9209986321ace75b3709b7'
+$reviewedGeneratorBlob='07157abedb78901b94fa097d55e0722447719f42'
+$reviewedRunnerBlob='eec699c2721cf249421ff5b61f7f45dfc51d3621'
 $rawBase='https://raw.githubusercontent.com/sagarmia583/Aurora-s-Cake/'+$sourceRef
 $editorUrl='https://script.google.com/d/'+$scriptId+'/edit'
 $runner=Join-Path $repoRoot 'scripts\accept-staging-staff.mjs'
@@ -124,16 +128,40 @@ function Resolve-Clasp {
   return $claspPath
 }
 
+function Get-GitBlobSha1([string]$path) {
+  # Git object IDs hash "blob <byte length>\0" + the exact file bytes.
+  $bytes=[System.IO.File]::ReadAllBytes($path)
+  $prefix=[System.Text.Encoding]::ASCII.GetBytes('blob '+$bytes.Length+[char]0)
+  $all=New-Object byte[] ($prefix.Length+$bytes.Length)
+  [System.Array]::Copy($prefix,0,$all,0,$prefix.Length)
+  [System.Array]::Copy($bytes,0,$all,$prefix.Length,$bytes.Length)
+  $sha=[System.Security.Cryptography.SHA1]::Create()
+  try {return ([System.BitConverter]::ToString($sha.ComputeHash($all))).Replace('-','').ToLowerInvariant()}
+  finally {$sha.Dispose()}
+}
 function Save-ReviewedFile([string]$relative, [string]$backupRoot) {
   $destination=Join-Path $repoRoot $relative
   $parent=Split-Path -Parent $destination
   if(!(Test-Path -LiteralPath $parent)){throw ('Missing project directory: '+$parent)}
   $uri=$rawBase+'/'+$relative.Replace('\','/')
+  $expectedBlob = switch ($relative) {
+    'scripts/prepare-staging-apps-script.mjs' {$reviewedGeneratorBlob}
+    'scripts/accept-staging-staff.mjs' {$reviewedRunnerBlob}
+    'apps-script/Code.AllInOne.gs' {
+      $uri='https://raw.githubusercontent.com/sagarmia583/Aurora-s-Cake/'+$reviewedGsCommit+'/apps-script/Code.AllInOne.gs'
+      $reviewedGsBlob
+    }
+    default {throw ('Unapproved staging download path: '+$relative)}
+  }
   $temporary=$destination+'.download-'+[guid]::NewGuid().ToString('N')
   try {
     Invoke-WebRequest -UseBasicParsing -Uri $uri -OutFile $temporary -ErrorAction Stop
     if((Get-Item -LiteralPath $temporary).Length -lt 100){
       throw ('Downloaded file is unexpectedly short: '+$relative)
+    }
+    $actualBlob=Get-GitBlobSha1 $temporary
+    if($actualBlob -cne $expectedBlob){
+      throw ('SECURITY STOP: downloaded file differs from approved Git blob: '+$relative)
     }
     if(Test-Path -LiteralPath $destination){
       $backup=Join-Path $backupRoot $relative
@@ -177,6 +205,12 @@ function Invoke-StaffRunner([string]$kind, [string]$nodePath) {
   }
   if($kind -eq 'preflight' -and $payload.mode -cne 'preflight'){
     throw 'Expected the read-only staging preflight. STOP.'
+  }
+  if($kind -eq 'preflight'){
+    $health=Invoke-RestMethod -UseBasicParsing -Method Get -Uri ($stagingUrl+'?action=health') -TimeoutSec 30
+    if([string]$health.staging_reviewed_commit -cne $reviewedGsCommit){
+      throw 'STOP: staging /exec is still on an older version, not the pinned security-reviewed release.'
+    }
   }
   if($kind -eq 'login' -and (
     $payload.mode -cne 'login_check' -or
@@ -237,7 +271,14 @@ if($Mode -eq 'All'){
   if($LASTEXITCODE -ne 0){throw 'STAGING SOURCE GENERATION FAILED. Nothing uploaded.'}
 
   Assert-StagingTarget
-  $code=Get-Content -LiteralPath (Join-Path $stagingRoot 'Code.gs') -Raw
+  $stageCodeFile=Join-Path $stagingRoot 'Code.gs'
+  $code=Get-Content -LiteralPath $stageCodeFile -Raw
+  $marker='staging_auth_hardened:true,'
+  if(([regex]::Matches($code,[regex]::Escape($marker))).Count -ne 1){
+    throw 'STOP: staging health marker cannot be uniquely located.'
+  }
+  $code=$code.Replace($marker,$marker+"staging_reviewed_commit:'"+$reviewedGsCommit+"',")
+  [System.IO.File]::WriteAllText($stageCodeFile,$code,(New-Object System.Text.UTF8Encoding($false)))
   foreach($guard in @(
     'staging_auth_hardened:true',
     'staging_sheet_fingerprint',
@@ -268,6 +309,10 @@ if($Mode -eq 'All'){
   Write-Host 'Expected result: ok=true, reset=true, secret_deleted=true.'
   Write-Host 'DO NOT send or paste your password here. DO NOT run the old owner setup again.'
   Require-Confirmation 'When reset has succeeded in the editor, type RESET-DONE' 'RESET-DONE'
+  Write-Host 'IMPORTANT: clasp push changes editor HEAD, not the existing /exec deployment.'
+  Write-Host 'In this STAGING editor, go to Deploy > Manage deployments, edit the existing STAGING web app,'
+  Write-Host 'select New version and Deploy. Keep the same staging /exec URL; do not touch production.'
+  Require-Confirmation 'After the existing STAGING deployment uses a NEW version, type STAGING-DEPLOYED' 'STAGING-DEPLOYED'
 }
 if($Mode -eq 'Continue'){
   Write-Host 'Continuing after the owner-only staging admin password reset.'
