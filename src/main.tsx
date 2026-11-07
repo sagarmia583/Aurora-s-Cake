@@ -5,7 +5,7 @@ import './index.css';
 import { ORDER_TRACKING_PATH } from '../apps/staff-mobile/src/orderTrackingLink';
 const PosDesignPreview=React.lazy(()=>import('./components/PosDesignPreview'));
 const SharedOrderPage=React.lazy(()=>import('./components/SharedOrderPage'));
-const appBase=(import.meta.env.BASE_URL||'/').replace(/\/$/,'');
+const appBase=((import.meta as ImportMeta & {env?:{BASE_URL?:string}}).env?.BASE_URL||'/').replace(/\/$/,'');
 const currentPath=appBase&&window.location.pathname.startsWith(appBase+'/')
   ?window.location.pathname.slice(appBase.length):window.location.pathname;
 const showPosPreview=import.meta.env.DEV&&new URLSearchParams(window.location.search).get('pos-preview')==='1';

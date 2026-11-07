@@ -55,13 +55,14 @@ import {
 import { Home, ShoppingBag, Clock, Sparkles, Cake, User } from 'lucide-react';
 
 export default function App() {
-  const siteBase=import.meta.env.BASE_URL || '/';
+  const runtimeEnv=(import.meta as ImportMeta & {env?:{BASE_URL?:string,VITE_GITHUB_PAGES_READ_ONLY?:string}}).env;
+  const siteBase=runtimeEnv?.BASE_URL || '/';
   const sitePrefix=siteBase==='/'?'':siteBase.replace(/\/$/,'');
   const sitePath=()=> {
     const raw=window.location.pathname||'/';
     return sitePrefix && raw.startsWith(sitePrefix+'/')?raw.slice(sitePrefix.length):raw;
   };
-  const pagesReadOnly=import.meta.env.VITE_GITHUB_PAGES_READ_ONLY==='true';
+  const pagesReadOnly=runtimeEnv?.VITE_GITHUB_PAGES_READ_ONLY==='true';
   const sheetContent = useGoogleSheetContent();
   const publicData = sheetContent.data;
   const [isSheetContentOpen, setIsSheetContentOpen] = useState(false);

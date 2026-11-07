@@ -69,7 +69,7 @@ export function normalizePublicUrl(value: unknown, path = 'URL', image = false):
   if (/^\/(?!\/)/.test(raw)) {
     // Project Pages is hosted below /Aurora-s-Cake/. Preserve the original
     // Sheet row while resolving only local website assets to the public base.
-    const base=import.meta.env.BASE_URL || '/';
+    const base=(import.meta as ImportMeta & {env?:{BASE_URL?:string}}).env?.BASE_URL || '/';
     if (base !== '/' && /^\/(?:images|fonts)\//.test(raw) && !raw.startsWith(base))
       return base.replace(/\/$/,'') + raw;
     return raw;
@@ -300,7 +300,7 @@ export function isPinnedProductionSheetEndpoint(): boolean {
 export function resolveSheetsPostEndpoint(endpoint: string): string {
   // Pages has no POST relay. Do not send an ambiguous cross-origin order
   // that Google Apps Script might accept but the browser cannot confirm.
-  if (import.meta.env.VITE_GITHUB_PAGES_READ_ONLY === 'true')
+  if ((import.meta as ImportMeta & {env?:{VITE_GITHUB_PAGES_READ_ONLY?:string}}).env?.VITE_GITHUB_PAGES_READ_ONLY === 'true')
     throw new GoogleSheetsError('network','GitHub Pages is a read-only preview. Orders and staff updates require a server-side bakery API.');
   const direct=validateGoogleSheetsEndpoint(endpoint).href;
   return usesSameOriginBakeryApi()?'/api/operations':direct;
