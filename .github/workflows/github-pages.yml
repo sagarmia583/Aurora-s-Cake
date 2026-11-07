@@ -39,6 +39,8 @@ jobs:
         run: npm ci
       - name: TypeScript check
         run: npm run lint
+      - name: Test secure Pages API relay and redirect handling
+        run: node --test tests/pages-api-relay.test.mjs
       - name: Build Vite project for /Aurora-s-Cake/
         run: npm run build
       - name: Support direct /cake and /track-order links
