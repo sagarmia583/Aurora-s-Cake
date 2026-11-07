@@ -11,6 +11,14 @@ export default async function operations(request, { scriptUrl = process.env.AURO
     status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}
   });
   if(request.method!=='POST') return response(405,'POST is required.');
+  // Deploy previews may inherit production environment variables. Never forward
+  // preview traffic to the authoritative production Sheet, even if it has a
+  // valid production Apps Script /exec configured. All preview POST is disabled.
+  const requestHost=new URL(request.url).hostname.toLowerCase();
+  const netlifyPreviewHost=/^(?:deploy-preview-[0-9]+|[a-z0-9-]+)--[a-z0-9-]+\.netlify\.app$/.test(requestHost);
+  const nonProductionNetlifyContext=['deploy-preview','branch-deploy','preview-server'].includes(process.env.CONTEXT||'');
+  if(netlifyPreviewHost || nonProductionNetlifyContext)
+    return response(403,'Preview operations are disabled to protect the live Google Sheet.');
   const origin=request.headers.get('origin');
   if(origin && origin!==new URL(request.url).origin) return response(403,'Cross-origin requests are not permitted.');
   const declaredLength=Number(request.headers.get('content-length')||0);

@@ -77,3 +77,24 @@ test('tracking reads fail closed when Netlify has no backend, and work with its 
   assert.equal((await response.json()).code,'forbidden');
   assert.equal(calls,1);
 });
+
+test('Netlify Deploy Preview blocks all POST actions before any production Apps Script request',async()=>{
+  let calls=0;
+  const scriptUrl=configured;
+  const fetcher=(async()=>{
+    calls++;
+    throw new Error('Preview must never contact the live Google Sheet');
+  }) as typeof fetch;
+  for(const url of [
+    'https://deploy-preview-43--aurorascake.netlify.app/api/operations',
+    'https://feature-checkout--aurorascake.netlify.app/api/operations',
+  ]){
+    for(const action of ['create_order','staff_mutate','staff_password_login','get_order_status']){
+      const target=new URL(url);
+      const request=new Request(url,{method:'POST',headers:{Origin:target.origin},body:JSON.stringify({action})});
+      const result=await relay(request,{scriptUrl,fetcher});
+      assert.equal(result.status,403,action);
+    }
+  }
+  assert.equal(calls,0);
+});
