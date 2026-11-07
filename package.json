@@ -12,13 +12,11 @@
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
-    "@supabase/supabase-js": "^2.117.3",
     "@tailwindcss/vite": "^4.3.3",
     "@types/qrcode": "^1.5.6",
     "@vitejs/plugin-react": "^6.1.1",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
-    "firebase": "12.19.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "qrcode": "^1.5.4",
@@ -40,12 +38,5 @@
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2"
-  },
-  "overrides": {
-    "@firebase/app": "0.16.2",
-    "@firebase/app-compat": "0.5.18",
-    "@firebase/firestore": {
-      "@grpc/grpc-js": "1.14.5"
-    }
   }
 }

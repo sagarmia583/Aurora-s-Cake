@@ -19,7 +19,6 @@ const StaffPortal = lazy(() => import('./components/StaffPortal').then(m => ({de
 const CustomerAccountPortal = lazy(() => import('./components/CustomerAccountPortal').then(m => ({default: m.CustomerAccountPortal})));
 const CachePerformanceHub = lazy(() => import('./components/CachePerformanceHub').then(m=>({default:m.CachePerformanceHub})));
 const DatabaseSchemaViewer = lazy(() => import('./components/DatabaseSchemaViewer').then(m=>({default:m.DatabaseSchemaViewer})));
-const SupabaseSyncModal = lazy(() => import('./components/SupabaseSyncModal').then(m=>({default:m.SupabaseSyncModal})));
 const CustomCakeModal = lazy(() => import('./components/CustomCakeModal').then(m=>({default:m.CustomCakeModal})));
 const CustomerProfileModal = lazy(() => import('./components/CustomerProfileModal').then(m=>({default:m.CustomerProfileModal})));
 import { mockDb } from './services/mockDatabase';
@@ -76,9 +75,6 @@ export default function App() {
 
   // Database mode is reported by the production backend, not browser credentials.
   const [databaseStatus, setDatabaseStatus] = useState(unknownBackendDatabaseStatus);
-  const [databaseStatusLoading, setDatabaseStatusLoading] = useState(true);
-  const [databaseStatusRefresh, setDatabaseStatusRefresh] = useState(0);
-  const isSupabaseConnected = databaseStatus.available && databaseStatus.backend === 'supabase';
 
   // Public website content comes from the validated Sheet snapshot.
   const [settings, setSettings] = useState<ShopSettings>(publicData.settings);
@@ -133,7 +129,6 @@ export default function App() {
   const [isCustomCakeOpen, setIsCustomCakeOpen] = useState(false);
   const [isCacheHubOpen, setIsCacheHubOpen] = useState(false);
   const [isDbViewerOpen, setIsDbViewerOpen] = useState(false);
-  const [isSupabaseSyncOpen, setIsSupabaseSyncOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [latestOrderId, setLatestOrderId] = useState<string | undefined>(undefined);
   const [trackingRefreshKey,setTrackingRefreshKey]=useState(0);
@@ -222,15 +217,13 @@ export default function App() {
 
   useEffect(() => {
     const controller = new AbortController();
-    setDatabaseStatusLoading(true);
     void loadBackendDatabaseStatus({ signal: controller.signal }).then(status => {
       if (!controller.signal.aborted) {
         setDatabaseStatus(status);
-        setDatabaseStatusLoading(false);
       }
     });
     return () => controller.abort();
-  }, [databaseStatusRefresh]);
+  }, []);
 
   // Cart operations
   const handleAddToCart = (item: CartItem) => {
@@ -516,8 +509,6 @@ export default function App() {
         onOpenProfile={() => setIsProfileOpen(true)}
         onOpenCacheHub={() => setIsCacheHubOpen(true)}
         onOpenDbViewer={() => setIsDbViewerOpen(true)}
-        onOpenSupabaseSync={() => setIsSupabaseSyncOpen(true)}
-        isSupabaseConnected={isSupabaseConnected}
         databaseBackend={databaseStatus.backend}
         onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
         onOpenCustomCake={() => setIsCustomCakeOpen(true)}
@@ -561,8 +552,6 @@ export default function App() {
             onSelectProductForDetail={selectCake}
             onOpenCustomCake={() => setIsCustomCakeOpen(true)}
             onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
-            onOpenSupabaseSync={() => setIsSupabaseSyncOpen(true)}
-            isSupabaseConnected={isSupabaseConnected}
             databaseBackend={databaseStatus.backend}
           />
         ) : (
@@ -761,14 +750,6 @@ export default function App() {
         isOpen={isCustomCakeOpen}
         onClose={() => setIsCustomCakeOpen(false)}
         currency={settings.currency}
-      />}
-
-      {isSupabaseSyncOpen && <SupabaseSyncModal
-        isOpen={isSupabaseSyncOpen}
-        onClose={() => setIsSupabaseSyncOpen(false)}
-        status={databaseStatus}
-        loading={databaseStatusLoading}
-        onRefresh={() => setDatabaseStatusRefresh(version => version + 1)}
       />}
 
       {isCacheHubOpen && <CachePerformanceHub

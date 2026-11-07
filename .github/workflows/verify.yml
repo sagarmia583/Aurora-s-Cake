@@ -1,13 +1,17 @@
-name: Verify bakery app
-
+name: Verify bakery app (Netlify + Google Sheets)
 on:
   pull_request:
   push:
     branches: [main]
-
+permissions:
+  contents: read
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NETLIFY: "true"
+      VITE_SHEETS_POST_PROXY: "/api/operations"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -15,24 +19,14 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: Audit production dependencies (advisory)
+      - name: Audit dependencies (advisory)
         run: npm audit --omit=dev --audit-level=high
         continue-on-error: true
-      - name: Verify Firebase SDK component registry
-        run: node scripts/verify-firebase-singleton.cjs
-      - name: TypeScript checks
+      - name: Verify Netlify + Sheets configuration
+        run: node scripts/verify-netlify-sheets-config.mjs
+      - name: TypeScript
         run: npm run lint
-      - name: Install isolated PostgreSQL verifier
-        run: npm install --prefix .sql-runtime --no-save --ignore-scripts @electric-sql/pglite@0.5.13
-      - name: Unit and integration tests
-        env:
-          AURORA_TEST_PGLITE_MODULE: .sql-runtime/node_modules/@electric-sql/pglite/dist/index.js
+      - name: Integration tests
         run: node node_modules/tsx/dist/cli.mjs --test tests/*.test.ts tests/*.test.tsx
-      - name: Verify private Supabase health SQL and role permissions
-        run: node scripts/verify-supabase-health.mjs .sql-runtime
-      - name: Verify lossless Supabase staging and rollback with PostgreSQL
-        run: node scripts/verify-supabase-staging.mjs --fixture --project-ref dtvefwpaxwffxglqbfoo --pglite-module .sql-runtime/node_modules/@electric-sql/pglite/dist/index.js
-      - name: Verify private runtime transactions and role isolation with PostgreSQL
-        run: node scripts/verify-supabase-runtime.mjs --fixture --project-ref dtvefwpaxwffxglqbfoo --pglite-module .sql-runtime/node_modules/@electric-sql/pglite/dist/index.js
       - name: Production bundle
         run: npm run build

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PublicSiteData } from '../types/siteContent';
 import { DEFAULT_PUBLIC_SITE_DATA } from '../content/defaultSiteData';
-import { isFirebaseCatalogPreviewRequested, loadFirebaseCatalogPreview } from '../services/firebasePrimaryCatalog';
 import { DEFAULT_SHEETS_ENDPOINT, isPinnedProductionSheetEndpoint, loadGoogleSheetData, normalizePublicSiteData, validateGoogleSheetsEndpoint } from '../services/googleSheets';
 
 const CACHE_KEY = 'aurora_public_sheet_snapshot_v2';
@@ -18,7 +17,7 @@ const EMPTY_SHEET_DATA: PublicSiteData = {
 const ENDPOINT_KEY = 'aurora_google_sheets_endpoint_v1';
 export interface SheetContentStatus {
   state: 'loading' | 'connected' | 'error';
-  source: 'google_sheets' | 'firebase' | 'saved_snapshot' | 'bundled_preview';
+  source: 'google_sheets' | 'saved_snapshot' | 'bundled_preview';
   lastSyncedAt?: string;
   error?: string;
 }
@@ -30,9 +29,6 @@ function savedEndpoint() {
 }
 function bootstrap() {
   const endpoint = savedEndpoint();
-  // Never display a cached Sheets snapshot as a live Firebase-only preview.
-  if(isFirebaseCatalogPreviewRequested())return {endpoint,data:DEFAULT_PUBLIC_SITE_DATA,
-    status:{state:'loading',source:'bundled_preview'} as SheetContentStatus};
   try {
     const cache = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
     if (cache?.endpoint === endpoint && typeof cache?.savedAt === 'string') {
@@ -63,14 +59,11 @@ export function useGoogleSheetContent() {
     // A background refresh must not make a connected storefront look
     // disconnected or replace its content with placeholders.
     setStatus(previous => ({ ...previous,
-      state: previous.lastSyncedAt && ['google_sheets','firebase'].includes(previous.source) ? 'connected' : 'loading',
+      state: previous.lastSyncedAt && previous.source==='google_sheets' ? 'connected' : 'loading',
       error: undefined,
     }));
     try {
-      const firebasePreview=isFirebaseCatalogPreviewRequested();
-      const next = firebasePreview
-        ? await loadFirebaseCatalogPreview(controller.signal)
-        : await loadGoogleSheetData(endpoint, controller.signal);
+      const next = await loadGoogleSheetData(endpoint, controller.signal);
       if (controller.signal.aborted) return;
       const savedAt = new Date().toISOString();
       // Avoid replacing the entire storefront model when nothing actually
@@ -78,8 +71,8 @@ export function useGoogleSheetContent() {
       // picker from remounting during an otherwise successful auto-refresh.
       console.info("[GoogleSheets] Live data synced:", next.products.length, "products,", next.categories.length, "categories");
       setData(previous => JSON.stringify(previous)===JSON.stringify(next)?previous:next);
-      setStatus({ state: 'connected', source: firebasePreview?'firebase':'google_sheets', lastSyncedAt: savedAt });
-      if(!firebasePreview)try { localStorage.setItem(CACHE_KEY, JSON.stringify({ endpoint, savedAt, data: next })); } catch { /* Content still renders when browser storage is unavailable. */ }
+      setStatus({ state: 'connected', source: 'google_sheets', lastSyncedAt: savedAt });
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify({ endpoint, savedAt, data: next })); } catch { /* Content still renders when browser storage is unavailable. */ }
     } catch (error) {
       if (controller.signal.aborted) return;
       console.warn("[GoogleSheets] Content sync warning:", error);
@@ -87,7 +80,7 @@ export function useGoogleSheetContent() {
         ...previous,
         // Keep the last valid storefront connected while reporting temporary
         // refresh problems; no destructive fallback to bundled demo data.
-        state: previous.lastSyncedAt && ['google_sheets','firebase'].includes(previous.source) ? 'connected' : 'error',
+        state: previous.lastSyncedAt && previous.source==='google_sheets' ? 'connected' : 'error',
         source: previous.lastSyncedAt ? previous.source : 'bundled_preview',
         error: error instanceof Error ? error.message : 'The Google Sheets content could not be loaded.',
       }));

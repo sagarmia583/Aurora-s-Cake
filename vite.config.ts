@@ -8,20 +8,15 @@ import {orderReceiptPreview} from './scripts/vite-order-preview.mjs';
 
 export default defineConfig(({mode}) => {
   const env=loadEnv(mode,process.cwd(),'');
-  // Include the exact Git build revision in the Firebase migration preview.
-  // This is PUBLIC metadata, not a credential; useful when browser caches
-  // or Cloudflare rollouts serve a prior JavaScript asset.
-  let buildId=process.env.CF_PAGES_COMMIT_SHA || process.env.GITHUB_SHA || '';
+  // Stamp the Git revision on Netlify builds for debugging cached assets.
+  let buildId=process.env.GITHUB_SHA || '';
   if(!buildId){
     try{buildId=execFileSync('git',['rev-parse','--short=8','HEAD'],{
       encoding:'utf8',stdio:['ignore','pipe','ignore']
     }).trim();}catch{buildId='local';}
   }
-  // Netlify is the production host. Enforce its same-origin /api/operations
-  // relay for all private Google Sheets writes, including custom domains.
-  // Keep the old CF_PAGES branch only for legacy build tests; no other
-  // database or production host is enabled by this configuration.
-  if (process.env.NETLIFY === 'true' || process.env.CF_PAGES === '1') {
+  // Only Netlify receives the same-origin Google Sheets write relay.
+  if (process.env.NETLIFY === 'true') {
     process.env.VITE_SHEETS_POST_PROXY = '/api/operations';
   }
   return {

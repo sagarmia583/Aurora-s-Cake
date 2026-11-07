@@ -70,8 +70,6 @@ interface MobileAppExperienceProps {
   onSelectProductForDetail: (product: Product) => void;
   onOpenCustomCake: () => void;
   onOpenTrackOrder: () => void;
-  onOpenSupabaseSync: () => void;
-  isSupabaseConnected: boolean;
   databaseBackend?: DatabaseBackend;
 }
 
@@ -94,8 +92,6 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
   onSelectProductForDetail,
   onOpenCustomCake,
   onOpenTrackOrder,
-  onOpenSupabaseSync,
-  isSupabaseConnected,
   databaseBackend,
   publicData,
 }) => {
@@ -194,10 +190,9 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
 
         {/* Database & Frame controls */}
         <div className="flex items-center gap-2">
-          <button
-            onClick={onOpenSupabaseSync}
-            className={`px-3 py-1.5 text-xs font-bold rounded-xl flex items-center gap-1.5 border cursor-pointer transition-colors ${
-              isSupabaseConnected || databaseBackend === 'google_sheets'
+          <div
+            className={`px-3 py-1.5 text-xs font-bold rounded-xl flex items-center gap-1.5 border ${
+              databaseBackend === 'google_sheets'
                 ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
                 : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
             }`}
@@ -205,13 +200,9 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
             <Database className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Database:</span>
             <span>
-              {databaseBackend === 'google_sheets'
-                ? 'Google Sheets'
-                : databaseBackend === 'supabase' || isSupabaseConnected
-                ? 'Cloud Database'
-                : 'Status unknown'}
+              {databaseBackend === 'google_sheets' ? 'Google Sheets' : 'Status unknown'}
             </span>
-          </button>
+          </div>
 
           <button
             onClick={() => setIsFramed(!isFramed)}
@@ -819,13 +810,10 @@ export const MobileAppExperience: React.FC<MobileAppExperienceProps> = ({
                     <p className="text-[10px] text-slate-400">Mobile Operations</p>
                   </div>
                 </div>
-                <button
-                  onClick={onOpenSupabaseSync}
-                  className="text-[10px] bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded-full flex items-center gap-1 cursor-pointer"
-                >
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
                   <Database className="w-3 h-3" />
-                  <span>Sync DB</span>
-                </button>
+                  <span>Google Sheets</span>
+                </span>
               </div>
 
               {/* KPIs & Controls */}

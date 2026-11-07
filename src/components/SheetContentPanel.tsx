@@ -18,7 +18,6 @@ function SheetContentDialog({ onClose, endpoint, status, orderSubmissionEnabled,
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const source = status.source === 'google_sheets' ? 'Live website data'
-    : status.source === 'firebase' ? 'Firebase catalogue preview'
     : status.source === 'saved_snapshot' ? 'Last saved website snapshot' : 'Built-in preview content';
   const download = async () => {
     setError('');
@@ -69,7 +68,6 @@ function SheetContentDialog({ onClose, endpoint, status, orderSubmissionEnabled,
       <div className="mb-6 rounded-xl border border-slate-200 p-4 text-sm leading-relaxed">
         <strong>Manage your website</strong>
         <p className="mt-1">Use Staff login → Website manager to edit business details, text, products and images.</p>
-        {databaseBackend === 'supabase' && <p className="mt-2">The active database is Supabase. Editing the old Google Sheet does not update these website records.</p>}
         {databaseBackend === 'unknown' && <p className="mt-2">Confirm the active database in Database connection before any initial database setup.</p>}
         {onOpenStaffPortal && <button type="button" onClick={onOpenStaffPortal} className="mt-3 rounded-xl bg-rose-700 px-4 py-2.5 text-xs font-semibold text-white">Open Staff login</button>}
       </div>
@@ -78,7 +76,6 @@ function SheetContentDialog({ onClose, endpoint, status, orderSubmissionEnabled,
         <div className="flex flex-wrap gap-2">
           <button type="submit" className="bg-rose-700 text-white rounded-xl px-4 py-2.5 text-xs font-semibold">Save & connect</button>
           <button type="button" onClick={() => void onRefresh()} className="border border-rose-200 rounded-xl px-4 py-2.5 text-xs flex items-center gap-2" disabled={status.state === 'loading'}><RefreshCw size={14}/>Refresh now</button>
-          {databaseBackend === 'supabase' && <a href="https://supabase.com/dashboard/project/dtvefwpaxwffxglqbfoo" target="_blank" rel="noopener noreferrer" className="border border-rose-200 rounded-xl px-4 py-2.5 text-xs flex items-center gap-2">Open Supabase project<ExternalLink size={13}/></a>}
           {databaseBackend === 'google_sheets' && <a href="https://docs.google.com/spreadsheets/d/18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4/edit" target="_blank" rel="noopener noreferrer" className="border border-rose-200 rounded-xl px-4 py-2.5 text-xs flex items-center gap-2">Open source Sheet<ExternalLink size={13}/></a>}
         </div>
       </form>
