@@ -20,8 +20,8 @@ async function operations(request, { scriptUrl = process.env.AURORA_SCRIPT_POST_
   const nonProductionNetlifyContext=['deploy-preview','branch-deploy','preview-server'].includes(process.env.CONTEXT||'');
   if(netlifyPreviewHost || nonProductionNetlifyContext)
     return response(403,'Preview operations are disabled to protect the live Google Sheet.');
-  const origin=request.headers.get('origin');
-  if(origin && origin!==new URL(request.url).origin) return response(403,'Cross-origin requests are not permitted.');
+  // First-party origins are verified by shared-cors.mjs before this handler runs.
+  // Apps Script performs authenticated staff/customer authorization.
   const declaredLength=Number(request.headers.get('content-length')||0);
   if(declaredLength>950000) return response(413,'Request too large.');
   const raw=await request.text();

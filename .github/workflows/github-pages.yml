@@ -22,6 +22,8 @@ jobs:
     env:
       AURORA_GITHUB_PAGES: "true"
       VITE_GITHUB_PAGES_READ_ONLY: "true"
+      # Public Netlify URL only; leave unset until production Functions pass health checks.
+      VITE_SHARED_BAKERY_API_ORIGIN: ${{ vars.AURORA_SHARED_NETLIFY_API_ORIGIN }}
       NETLIFY: "false"
       VITE_SHEETS_POST_PROXY: ""
     steps:

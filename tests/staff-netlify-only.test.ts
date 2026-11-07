@@ -10,7 +10,8 @@ const token='f'.repeat(72);
 test('staff portal never offers retired external database backup writes',()=>{
   assert.doesNotMatch(source,/backfillFirebaseOrders|verifyFirebaseMirrorFromStaff|syncHistoricalFirebaseOrders|testFirestoreWrite/);
   assert.doesNotMatch(source,/Cloud order backup|Test cloud backup|Sync existing orders/);
-  assert.match(source,/fetch\('\/api\/backend-health'/);
+  assert.match(source,/getSharedBakeryApiUrl\('\/api\/backend-health'\)/);
+  assert.match(source,/fetch\(sharedHealth\|\|'\/api\/backend-health'/);
   assert.match(source,/\.netlify\.app/);
   assert.doesNotMatch(source,/\.vercel\.app/);
 });
