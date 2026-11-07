@@ -55,6 +55,9 @@ function fixture(hardened=true) {
       }
     }else if(action==='staff_account_set_active'){
       out=tokens[input.auth_token]==='super_admin'?{ok:true,updated:true}:{ok:false,code:'forbidden'};
+    }else if(action==='staff_password_logout'){
+      out=tokens[input.auth_token] ? {ok:true,revoked:true}:{ok:false,code:'unauthorized'};
+      delete tokens[input.auth_token];
     }else if(action==='staff_mutate'){
       const role=tokens[input.auth_token];
       const allowed=forbidden[input.operation]||[];
@@ -200,4 +203,89 @@ test('staging password reset runs only as editor owner, resets failed attempts a
   people.push({...person,id:'duplicate-admin'});
   assert.throws(()=>context.resetAuroraStagingOwnerPasswordOnce(),/Exactly one active staging super_admin/);
   assert.equal(saved.length,1,'duplicate admin must not be mutated');
+});
+
+
+test('new login-only mode authenticates an owner and pending order without stage mutations',async()=>{
+  const f=fixture();
+  const result=await acceptStagingStaff({url:execUrl,sheetId,orderId,
+    expectedTotal:360,loginOnly:true,adminPassword:'SecureStagingOwnerPassword!2026',
+    fetcher:f.fetcher});
+  assert.equal(result.mode,'login_check');
+  assert.equal(result.admin_verified,true);
+  assert.equal(result.order_pending,true);
+  assert.equal(result.no_staff_or_order_mutations,true);
+  assert.equal(f.calls.filter(x=>x.action==='staff_account_create').length,0);
+  assert.equal(f.calls.filter(x=>x.action==='staff_mutate').length,0);
+  assert.equal(f.calls.filter(x=>x.action==='staff_password_logout').length,1);
+  assert.equal(f.getCurrent().status,'pending');
+});
+test('invalid admin login-only password fails before creating test employees',async()=>{
+  const f=fixture();
+  await assert.rejects(()=>acceptStagingStaff({url:execUrl,sheetId,orderId,
+    expectedTotal:360,loginOnly:true,adminPassword:'WrongOwnerSecret2026!Pass',
+    fetcher:f.fetcher}),/Owner login failed \(invalid_credentials\)/);
+  assert.equal(f.calls.filter(x=>x.action==='staff_account_create').length,0);
+  assert.equal(f.calls.filter(x=>x.action==='staff_mutate').length,0);
+  assert.equal(f.getCurrent().status,'pending');
+});
+test('consolidated Windows wizard checks only existing staging project, uses hidden password and one-time marker',()=>{
+  const wizard=readFileSync(new URL('../scripts/aurora-staging-one-command.ps1',import.meta.url),'utf8');
+  assert.match(wizard,/existing isolated staging project/i);
+  assert.match(wizard,/\$config\.scriptId -cne \$scriptId/);
+  assert.match(wizard,/\$stagingSheetId -ceq \$productionSheetId/);
+  assert.match(wizard,/Code\.AllInOne\.gs/);
+  assert.match(wizard,/staging_auth_hardened:true/);
+  assert.match(wizard,/resetAuroraStagingOwnerPasswordOnce/);
+  assert.match(wizard,/RUN-STAGING-STAFF/);
+  assert.match(wizard,/Read-Host 'STAGING admin password \(hidden\)' -AsSecureString/);
+  assert.match(wizard,/Env:\\AURORA_STAGING_ADMIN_PASSWORD/);
+  assert.match(wizard,/FileMode\]::CreateNew/);
+  assert.match(wizard,/--login-only/);
+  assert.match(wizard,/--commit/);
+  const nativeClaspLines=wizard.split('\n').map(line=>line.trim())
+    .filter(line=>line.startsWith('& $clasp'));
+  assert.deepEqual(nativeClaspLines,["& $clasp 'push'"]);
+  assert.doesNotMatch(wizard,/& \$clasp '(?:deploy|clone|create|run)'/);
+  assert.doesNotMatch(wizard,/New-Item.*[Cc]reate.*(?:Apps Script|[Ss]preadsheet)/);
+});
+
+
+test('fresh ZIP wizard creates only an explicit existing staging clasp link',()=>{
+  const wizard=readFileSync(new URL('../scripts/aurora-staging-one-command.ps1',import.meta.url),'utf8');
+  const start=wizard.indexOf('function Initialize-ExistingStagingLink {');
+  const end=wizard.indexOf('function Assert-StagingTarget {');
+  assert.ok(start>=0&&end>start,'staging link function must precede target assertion');
+  const link=wizard.slice(start,end);
+  assert.match(link,/if\(Test-Path -LiteralPath \$claspConfig\)\{return\}/);
+  assert.match(link,/if\(\$Mode -ne 'All'\)/);
+  assert.match(link,/\$typed\.Trim\(\) -cne \$scriptId/);
+  assert.match(link,/WriteAllText\(\$claspConfig,\$json,\$utf8\)/);
+  assert.match(link,/scriptId=\$scriptId;rootDir='\.'/);
+  assert.match(link,/UTF8Encoding\(\$false\)/);
+  assert.ok(wizard.includes('Initialize-ExistingStagingLink\nAssert-StagingTarget'));
+  assert.doesNotMatch(link,/& \$clasp\s+(?:create|clone|deploy)/i);
+  assert.doesNotMatch(link,/New-Item.*(?:[Ss]preadsheet|[Dd]atabase|Apps Script project)/);
+  assert.match(wizard,/Assert-StagingTarget\nif\(\$Mode -ne 'Check'/);
+});
+
+
+test('wizard installs official Google clasp only with opt-in and correct Node runtime',()=>{
+  const wizard=readFileSync(new URL('../scripts/aurora-staging-one-command.ps1',import.meta.url),'utf8');
+  const start=wizard.indexOf('function Resolve-Clasp {');
+  const end=wizard.indexOf('function Save-ReviewedFile(');
+  assert.ok(start>=0&&end>start);
+  const setup=wizard.slice(start,end);
+  assert.match(setup,/Get-Command 'clasp.cmd' -ErrorAction SilentlyContinue/);
+  assert.match(setup,/Get-Command 'npm.cmd' -ErrorAction SilentlyContinue/);
+  assert.match(setup,/npm\.Source config get prefix/);
+  assert.match(setup,/\[int\]\$Matches\[1\] -lt 22/);
+  assert.match(setup,/Require-Confirmation 'Type INSTALL-CLASP[^']*' 'INSTALL-CLASP'/);
+  assert.match(setup,/& \$npm\.Source install --global '@google\/clasp'/);
+  assert.match(setup,/Test-Path -LiteralPath \$claspPath/);
+  assert.match(wizard,/\$clasp=Resolve-Clasp/);
+  assert.ok(setup.indexOf("Require-Confirmation 'Type INSTALL-CLASP")<
+    setup.indexOf("& $npm.Source install --global '@google/clasp'"),
+    'explicit consent must precede npm global install');
+  assert.doesNotMatch(setup,/clasp(?:\.cmd)?\s+(?:create|clone|deploy)\b/i);
 });

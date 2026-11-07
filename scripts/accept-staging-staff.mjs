@@ -40,7 +40,7 @@ const code=response=>typeof response?.code==='string'?response.code:'invalid_res
 const resultOk=response=>response?.ok===true;
 const stageStatus=order=>String(order?.status||'');
 export async function acceptStagingStaff({
-  url,sheetId,orderId,expectedTotal,commit=false,adminPassword='',fetcher=globalThis.fetch,
+  url,sheetId,orderId,expectedTotal,commit=false,loginOnly=false,adminPassword='',fetcher=globalThis.fetch,
   report=()=>{}
 }={}){
   const target=endpoint(url||'');
@@ -56,7 +56,8 @@ export async function acceptStagingStaff({
   ensure(health.staging_auth_hardened===true,
     'STAGING SAFETY BLOCK: redeploy hardened staging Code.gs before staff tests');
   ensure(health.writes_frozen===false,'Staging writes are unavailable');
-  if(!commit)return {mode:'preflight',isolated_staging:true,hardened_staff_auth:true,order_id:orderId};
+  ensure(!(commit&&loginOnly),'Select EITHER login-only or full staff acceptance.');
+  if(!commit&&!loginOnly)return {mode:'preflight',isolated_staging:true,hardened_staff_auth:true,order_id:orderId};
 
   ensure(typeof adminPassword==='string'&&adminPassword.length>=16,
     'Set AURORA_STAGING_ADMIN_PASSWORD locally; never pass it in a command argument.');
@@ -86,6 +87,16 @@ export async function acceptStagingStaff({
     if(stage)ensure(stageStatus(order)===stage,'Stage mismatch: expected '+stage);
     return order;
   };
+  if(loginOnly){
+    try{
+      await fromOrders('pending');
+      return {mode:'login_check',isolated_staging:true,hardened_staff_auth:true,
+        admin_verified:true,order_pending:true,order_id:orderId,
+        expected_total:expectedTotal,no_staff_or_order_mutations:true};
+    }finally{
+      try{await post({action:'staff_password_logout',...asAdmin});}catch(_){/* Token expires. */}
+    }
+  }
   await fromOrders('pending');
   report('Confirmed the single pending staging order; creating temporary role accounts');
   const random=randomBytes(5).toString('hex');
@@ -190,6 +201,7 @@ if(direct){
     sheetId:arg('--sheet-id')||process.env.AURORA_STAGING_SHEET_ID,
     orderId:arg('--order-id'),expectedTotal:Number(arg('--expect-total')),
     commit:process.argv.includes('--commit'),
+    loginOnly:process.argv.includes('--login-only'),
     adminPassword:process.env.AURORA_STAGING_ADMIN_PASSWORD||'',
     report:message=>console.log('STAGING STEP:',message)
   }).then(data=>console.log('STAGING STAFF ACCEPTANCE:',JSON.stringify(data)))
