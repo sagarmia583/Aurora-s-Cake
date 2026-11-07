@@ -403,6 +403,7 @@ export const CollectionStatementModal: React.FC<CollectionStatementModalProps> =
                       <tbody className="divide-y divide-slate-100 text-slate-800">
                         {summary.matchingOrders.map((ord, idx) => {
                           const shortToken = formatShortOrderNumber(ord.order_number);
+                          const isDelivered = ord.status === 'delivered';
                           const payment = getStatementPaymentBreakdown(ord);
                           const advancePaid = payment.advanceCollected;
                           const cashReceived = payment.cashCollected;
