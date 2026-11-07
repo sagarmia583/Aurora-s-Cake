@@ -21,7 +21,7 @@ test('Netlify API routes explicitly rewrite to deployed Functions and retain def
  for(const [path,name] of [['/api/public','public'],['/api/operations','operations'],['/api/image','image'],['/api/backend-health','backend-health']]){
    assert.ok(netlify.includes('from = "'+path+'"'));
    assert.ok(netlify.includes('to = "/.netlify/functions/'+name+'"'));
-   assert.doesNotMatch(read('netlify/functions/'+name+'.mjs'),/export\\s+const\\s+config\\s*=\\s*\\{\\s*path\\s*:/);
+   assert.doesNotMatch(read('netlify/functions/'+name+'.mjs'),/export\s+const\s+config\s*=\s*\{\s*path\s*:/);
  }
- assert.match(netlify,/force\\s*=\\s*true/);
+ assert.match(netlify,/force\s*=\s*true/);
 });

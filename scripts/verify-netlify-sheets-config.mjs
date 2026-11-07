@@ -39,6 +39,6 @@ for(const [name, path] of mapped){
     netlify.includes(`to = "/.netlify/functions/${name}"`),
     `Missing Netlify API rewrite: ${path}`);
   assert.doesNotMatch(read(`netlify/functions/${name}.mjs`),
-    /export\\s+const\\s+config\\s*=\\s*\\{\\s*path\\s*:/,
+    /export\s+const\s+config\s*=\s*\{\s*path\s*:/,
     `Do not disable the default function path for ${name}`);
 }
