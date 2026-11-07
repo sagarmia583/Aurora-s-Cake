@@ -4,6 +4,7 @@ import { X, RefreshCw, ShieldCheck, Truck, PackageCheck, LayoutDashboard, Shoppi
 import { checkStaffSession, getStaffOrderSnapshot, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, signOutStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword, lookupStaffCustomer } from '../services/sheetStaffApi';
 import type { StaffCustomerMatch, StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
+import { getSharedBakeryApiUrl } from '../services/dualHosting';
 import { getBrowserWorkspaceStorage, loadStaffCredential, saveStaffCredential, clearStaffCredential, loadStaffTab, saveStaffTab } from '../services/staffWorkspaceSession';
 import { reconcileStaffOrders, reconcileStaffOrderSnapshot, loadStaffOrdersSnapshot, saveStaffOrdersSnapshot, clearStaffOrdersSnapshot } from '../services/staffOrderSnapshot';
 import { activeStaffOrderAlertIds, detectNewStaffOrderAlerts } from '../services/staffOrderAlerts';
@@ -174,9 +175,10 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [backendWarning,setBackendWarning]=useState('');
   // Health is a read-only Netlify check, never an external database mirror.
   useEffect(()=>{
-    if(!isOpen||typeof window==='undefined'||!window.location.hostname.endsWith('.netlify.app'))return;
+    const sharedHealth=getSharedBakeryApiUrl('/api/backend-health');
+    if(!isOpen||typeof window==='undefined'||(!sharedHealth&&!window.location.hostname.endsWith('.netlify.app')))return;
     const controller=new AbortController();
-    void fetch('/api/backend-health',{credentials:'same-origin',cache:'no-store',signal:controller.signal})
+    void fetch(sharedHealth||'/api/backend-health',{credentials:sharedHealth?'omit':'same-origin',cache:'no-store',signal:controller.signal})
       .then(async response=>{
         const data=await response.json().catch(()=>null);
         if(controller.signal.aborted)return;

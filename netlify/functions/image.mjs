@@ -1,7 +1,8 @@
+import { withBakeryCors } from './shared-cors.mjs';
 /** Netlify-only public image gateway for private Google Apps Script image assets. */
 const SCRIPT_RE=/^\/macros\/s\/[A-Za-z0-9_-]+\/exec$/;
 const reply=(status,code)=>new Response(JSON.stringify({ok:false,code}),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
-export default async function publicImage(request,{scriptUrl=process.env.AURORA_SCRIPT_POST_URL,fetcher=globalThis.fetch}={}){
+async function publicImage(request,{scriptUrl=process.env.AURORA_SCRIPT_POST_URL,fetcher=globalThis.fetch}={}){
   if(request.method!=='GET'&&request.method!=='HEAD')return reply(405,'get_only');
   const id=new URL(request.url).searchParams.get('id')||'';
   if(!/^[A-Za-z0-9_-]{12,150}$/.test(id))return reply(404,'image_not_found');
@@ -25,3 +26,7 @@ export default async function publicImage(request,{scriptUrl=process.env.AURORA_
 }
 // API routing is configured centrally in netlify.toml; Netlify's default
 // /.netlify/functions/<name> path remains available for internal rewrites.
+
+export default function handler(request, context={}) {
+  return withBakeryCors(request, incoming=>publicImage(incoming,context), ['GET','HEAD']);
+}

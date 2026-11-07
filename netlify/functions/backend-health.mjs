@@ -1,9 +1,10 @@
+import { withBakeryCors } from './shared-cors.mjs';
 /** Netlify-only read-only health metadata from authoritative Google Apps Script. */
 const SCRIPT_RE=/^\/macros\/s\/[A-Za-z0-9_-]+\/exec$/;
 const EXPECTED_RELEASE='aurora-2026-11-03-staff-order-alerts-r5';
 const headers={'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
 const json=(status,body)=>new Response(JSON.stringify(body),{status,headers});
-export default async function health(request,{scriptUrl=process.env.AURORA_SCRIPT_POST_URL,fetcher=globalThis.fetch}={}){
+async function health(request,{scriptUrl=process.env.AURORA_SCRIPT_POST_URL,fetcher=globalThis.fetch}={}){
  if(request.method!=='GET')return json(405,{ok:false,code:'get_only'});
  let endpoint;
  try{endpoint=new URL(scriptUrl||'');}catch{return json(503,{ok:false,code:'backend_not_configured'});}
@@ -29,3 +30,7 @@ export default async function health(request,{scriptUrl=process.env.AURORA_SCRIP
 }
 // API routing is configured centrally in netlify.toml; Netlify's default
 // /.netlify/functions/<name> path remains available for internal rewrites.
+
+export default function handler(request, context={}) {
+  return withBakeryCors(request, incoming=>health(incoming,context), ['GET']);
+}

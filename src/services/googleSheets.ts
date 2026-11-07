@@ -2,6 +2,7 @@ import type { PublicSiteData } from '../types/siteContent';
 import type { ShopSettings, ProductVariant } from '../types';
 import { DEFAULT_PUBLIC_SITE_DATA } from '../content/defaultSiteData';
 import { parseFreeGiftSettings, getProductFreeGifts } from '../utils/freeGifts';
+import { getSharedBakeryApiUrl, isGitHubPagesReadOnly } from './dualHosting';
 
 const configuredEndpoint = (import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_GOOGLE_SHEETS_URL;
 export const DEFAULT_SHEETS_ENDPOINT = configuredEndpoint || 'https://script.google.com/macros/s/AKfycbw38J4AzlYkAhNtyDAp_CP34fUk9Epae6xz46AQFbF9ye1VsZjxTXmzbJgs52WEoWETMw/exec';
@@ -66,6 +67,10 @@ export function normalizePublicUrl(value: unknown, path = 'URL', image = false):
   const raw = text(value).trim();
   if (!raw) return '';
   if (/[\u0000-\u001f\u007f]/.test(raw)) throw invalid(path, 'contains an invalid character');
+  if (/^\/api\/image\?id=[A-Za-z0-9_-]{12,150}$/.test(raw)) {
+    const remoteImage=getSharedBakeryApiUrl('/api/image');
+    if(remoteImage)return remoteImage+raw.slice('/api/image'.length);
+  }
   if (/^\/(?!\/)/.test(raw)) {
     // Project Pages is hosted below /Aurora-s-Cake/. Preserve the original
     // Sheet row while resolving only local website assets to the public base.
@@ -300,10 +305,11 @@ export function isPinnedProductionSheetEndpoint(): boolean {
 export function resolveSheetsPostEndpoint(endpoint: string): string {
   // Pages has no POST relay. Do not send an ambiguous cross-origin order
   // that Google Apps Script might accept but the browser cannot confirm.
-  if ((import.meta as ImportMeta & {env?:{VITE_GITHUB_PAGES_READ_ONLY?:string}}).env?.VITE_GITHUB_PAGES_READ_ONLY === 'true')
-    throw new GoogleSheetsError('network','GitHub Pages is a read-only preview. Orders and staff updates require a server-side bakery API.');
+  const shared=getSharedBakeryApiUrl('/api/operations');
+  if(isGitHubPagesReadOnly())
+    throw new GoogleSheetsError('network','GitHub Pages requires a verified Netlify bakery API for order and staff writes.');
   const direct=validateGoogleSheetsEndpoint(endpoint).href;
-  return usesSameOriginBakeryApi()?'/api/operations':direct;
+  return shared??(usesSameOriginBakeryApi()?'/api/operations':direct);
 }
 export function validateGoogleSheetsEndpoint(endpoint: string): URL {
   let url: URL;
@@ -346,7 +352,8 @@ export async function loadGoogleSheetData(endpoint=DEFAULT_SHEETS_ENDPOINT, sign
   // Netlify same-origin proxy avoids browser CORS redirects.
   // Local Vite development continues to use the public Apps Script endpoint.
   const viaNetlify=usesSameOriginBakeryApi() && typeof window!=='undefined';
-  const readUrl=viaNetlify?'/api/public':url.href;
+  const sharedPublic=getSharedBakeryApiUrl('/api/public');
+  const readUrl=sharedPublic??(viaNetlify?'/api/public':url.href);
   const controller=new AbortController();
   const onAbort=()=>controller.abort();
   signal?.addEventListener('abort',onAbort,{once:true});
@@ -354,7 +361,7 @@ export async function loadGoogleSheetData(endpoint=DEFAULT_SHEETS_ENDPOINT, sign
   let timedOut=false;
   const timer=setTimeout(()=>{timedOut=true;controller.abort();},12000);
   try{
-    const response=await fetch(readUrl,{credentials:viaNetlify?'same-origin':'omit',redirect:'follow',cache:'no-store',signal:controller.signal});
+    const response=await fetch(readUrl,{credentials:viaNetlify&&!sharedPublic?'same-origin':'omit',redirect:'follow',cache:'no-store',signal:controller.signal});
     if(/accounts\.google\.com/.test(response.url))throw new GoogleSheetsError('permission_required','The Apps Script link requires Google sign-in. Deploy the read-only public-content web app for site visitors.');
     if(!response.ok)throw new GoogleSheetsError('network',`Google Sheets returned HTTP ${response.status}. Try again after checking its deployment.`);
     return normalizePublicSiteData(await response.text());
@@ -362,7 +369,11 @@ export async function loadGoogleSheetData(endpoint=DEFAULT_SHEETS_ENDPOINT, sign
     if(signal?.aborted)throw new DOMException('The request was cancelled.','AbortError');
     if(error instanceof GoogleSheetsError)throw error;
     if(timedOut)throw new GoogleSheetsError('timeout','Google Sheets took too long to respond. Try again.');
-    // ContentService redirects sometimes fail CORS. Its strictly named, public-only JSONP route is a compatibility fallback.
+    // Never silently bypass a configured first-party Netlify API: if that
+    // service is down the user must see the connection problem, not a stale
+    // public catalogue paired with an unavailable checkout gateway.
+    if(sharedPublic)throw new GoogleSheetsError('network','The shared bakery API is unavailable. Check Netlify production Functions.');
+    // ContentService redirects sometimes fail CORS. Public-only JSONP is a compatibility fallback.
     return normalizePublicSiteData(await loadJsonp(new URL(url.href),signal));
   }finally{
     clearTimeout(timer);signal?.removeEventListener('abort',onAbort);

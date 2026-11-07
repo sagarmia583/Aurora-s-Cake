@@ -1,3 +1,4 @@
+import { withBakeryCors } from './shared-cors.mjs';
 /** Public, read-only Netlify same-origin proxy to the existing Google Apps Script.
  * Never forwards credentials or accesses private Google Sheets tables.
  */
@@ -31,7 +32,7 @@ function isSafePublicCatalogue(payload) {
 }
 const headers = {'Content-Type':'application/json; charset=utf-8','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'};
 const reject = (status,code) => new Response(JSON.stringify({ok:false,code}),{status,headers:{...headers,'Cache-Control':'no-store'}});
-export default async function publicCatalog(request,{scriptUrl=process.env.AURORA_SCRIPT_POST_URL,fetcher=globalThis.fetch}={}) {
+async function publicCatalog(request,{scriptUrl=process.env.AURORA_SCRIPT_POST_URL,fetcher=globalThis.fetch}={}) {
   if(request.method!=='GET'&&request.method!=='HEAD')return reject(405,'get_only');
   let url;
   try{url=new URL(scriptUrl||'');}catch{return reject(503,'sheets_backend_not_configured');}
@@ -57,3 +58,7 @@ export default async function publicCatalog(request,{scriptUrl=process.env.AUROR
 }
 // API routing is configured centrally in netlify.toml; Netlify's default
 // /.netlify/functions/<name> path remains available for internal rewrites.
+
+export default function handler(request, context={}) {
+  return withBakeryCors(request, incoming=>publicCatalog(incoming,context), ['GET','HEAD']);
+}

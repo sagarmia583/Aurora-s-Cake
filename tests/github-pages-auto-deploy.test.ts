@@ -37,11 +37,16 @@ test('Pages can show default and live Sheet images, product detail and order rou
   assert.match(entry,/currentPath===ORDER_TRACKING_PATH/);
 });
 
-test('Pages blocks browser order/staff writes when no server-side API exists',()=>{
+test('Pages stays read-only until the verified production Netlify API variable is set',()=>{
   const sheet=read('src/services/googleSheets.ts');
   const app=read('src/App.tsx');
-  assert.match(sheet,/VITE_GITHUB_PAGES_READ_ONLY === 'true'/);
-  assert.match(sheet,/read-only preview/);
+  const dual=read('src/services/dualHosting.ts');
+  const pages=read('.github/workflows/github-pages.yml');
+  assert.match(sheet,/isGitHubPagesReadOnly\(\)/);
+  assert.match(dual,/getSharedBakeryApiOrigin/);
+  assert.match(dual,/https:\/\/aurorascake\.netlify\.app/);
+  assert.match(dual,/VITE_GITHUB_PAGES_READ_ONLY/);
+  assert.match(dual,/VITE_SHARED_BAKERY_API_ORIGIN/);
+  assert.match(pages,/vars\.AURORA_SHARED_NETLIFY_API_ORIGIN/);
   assert.match(app,/if \(pagesReadOnly\) \{/);
-  assert.match(app,/GitHub Pages preview/);
 });
