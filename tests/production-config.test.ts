@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,existsSync} from 'node:fs';
-const read=path=>readFileSync(new URL('../'+path,import.meta.url),'utf8');
+const read=(path:string)=>readFileSync(new URL('../'+path,import.meta.url),'utf8');
 test('Netlify and Google Sheets are the only supported production stack',()=>{
  const config=read('netlify.toml');
  assert.match(config,/publish\s*=\s*"dist"/);
