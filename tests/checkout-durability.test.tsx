@@ -233,7 +233,6 @@ test('App preserves an unrelated bag line added while its original checkout is u
     './hooks/useGoogleSheetContent': `export const useGoogleSheetContent=()=>({data:globalThis.__checkoutAudit.data,endpoint:${JSON.stringify(endpoint)},status:{state:'connected',source:'google_sheets'},refresh:async()=>{},updateEndpoint(){}});`,
     './services/mockDatabase': `export const mockDb={applyPublicSnapshot(){},subscribe:()=>()=>{},getOrders:()=>[],getCustomCakes:()=>[],getAuditLogs:()=>[]};`,
     './services/backendDatabaseStatus': `export const unknownBackendDatabaseStatus={available:false,backend:'unknown'};export const loadBackendDatabaseStatus=async()=>unknownBackendDatabaseStatus;`,
-    './services/pagesApi': `export const isPagesApiUnavailable=()=>false;export const getPagesApiOrigin=()=>null;`,
     './services/googleSheetOrders': `export const loadConfirmedSheetOrders=()=>globalThis.__checkoutAudit.receipts;export const rememberConfirmedSheetOrder=o=>{globalThis.__checkoutAudit.receipts.push(o);return true};export const removeConfirmedSheetOrdersById=()=>{};`,
     './services/sheetStaffApi': `export const fetchCustomerOrderStatus=async(_e,o)=>({...o});export const redeemLegacyReceiptAccess=async()=>({});export const getStaffOrders=async()=>[];export const staffOrderToOrder=o=>o;`,
     './services/sheetOrderHistorySync': `export const isConfirmedDeletedSheetOrder=()=>false;export const verifyStoredOrderHistory=async()=>({current:[],deletedIds:[],failedIds:[]});`,
