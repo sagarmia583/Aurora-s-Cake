@@ -1,7 +1,7 @@
 import { shopErrorMessage } from '../utils/shopErrorMessage';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, RefreshCw, ShieldCheck, Truck, PackageCheck, LayoutDashboard, ShoppingBag, UsersRound, CakeSlice, Store, Search, ChevronDown, ChevronUp, LogOut, Clock3, BadgeCheck, ArrowRight, AlertCircle, CreditCard, MapPin, Calculator, Printer, Phone, User, FileText, CheckCircle, Eye } from 'lucide-react';
-import { checkStaffSession, getStaffOrderSnapshot, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, signOutStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword, lookupStaffCustomer, backfillFirebaseOrders, verifyFirebaseMirrorFromStaff } from '../services/sheetStaffApi';
+import { checkStaffSession, getStaffOrderSnapshot, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, signOutStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword, lookupStaffCustomer } from '../services/sheetStaffApi';
 import type { StaffCustomerMatch, StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
 import { getBrowserWorkspaceStorage, loadStaffCredential, saveStaffCredential, clearStaffCredential, loadStaffTab, saveStaffTab } from '../services/staffWorkspaceSession';
@@ -172,60 +172,21 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [viewingSavedOrders,setViewingSavedOrders]=useState(false);
   const [orderUpdateMessage,setOrderUpdateMessage]=useState('');
   const [backendWarning,setBackendWarning]=useState('');
-  const [firebaseBackfillBusy,setFirebaseBackfillBusy]=useState(false);
-  const [firebaseBackfillOffset,setFirebaseBackfillOffset]=useState(0);
-  const [firebaseBackfillMessage,setFirebaseBackfillMessage]=useState('');
-  const [firebaseProbeBusy,setFirebaseProbeBusy]=useState(false);
-  const [firebaseProbeMessage,setFirebaseProbeMessage]=useState('');
+  // Health is a read-only Netlify check, never an external database mirror.
   useEffect(()=>{
-    if(!isOpen||typeof window==='undefined'||!window.location.hostname.endsWith('.vercel.app'))return;
+    if(!isOpen||typeof window==='undefined'||!window.location.hostname.endsWith('.netlify.app'))return;
     const controller=new AbortController();
-    fetch('/api/backend-health',{credentials:'same-origin',cache:'no-store',signal:controller.signal})
-      .then(async response=>response.ok?await response.json():null)
-      .then(data=>{
+    void fetch('/api/backend-health',{credentials:'same-origin',cache:'no-store',signal:controller.signal})
+      .then(async response=>{
+        const data=await response.json().catch(()=>null);
         if(controller.signal.aborted)return;
-        if(data?.ok===true&&data?.up_to_date===false)
-          setBackendWarning('Some staff features may be temporarily unavailable.');
-        else setBackendWarning('');
+        if(!response.ok||data?.ok!==true||data?.up_to_date!==true){
+          setBackendWarning('Netlify backend health is not ready. Order actions may be unavailable until the reviewed Apps Script release is deployed.');
+        }else setBackendWarning('');
       })
-      .catch(()=>{});
+      .catch(()=>{if(!controller.signal.aborted)setBackendWarning('Unable to check the Netlify backend. Confirm your connection before updating orders.');});
     return()=>controller.abort();
   },[isOpen,endpoint]);
-  const testFirestoreWrite=async()=>{
-    if(!identity||!['super_admin','admin'].includes(identity.role)||firebaseProbeBusy)return;
-    setFirebaseProbeBusy(true);
-    setFirebaseProbeMessage('');
-    try{
-      const result=await verifyFirebaseMirrorFromStaff(endpoint,identity.token);
-      setFirebaseProbeMessage(result.ok
-        ? 'Order backup is working.'
-        : 'Could not verify order backup.');
-    }catch(error){
-      setFirebaseProbeMessage(shopErrorMessage(error, 'Cloud write test failed.'));
-    }finally{setFirebaseProbeBusy(false);}
-  };
-  const syncHistoricalFirebaseOrders=async()=>{
-    if(!identity||!['super_admin','admin'].includes(identity.role)||firebaseBackfillBusy)return;
-    if(!window.confirm('Back up previously confirmed orders?'))return;
-    setFirebaseBackfillBusy(true);
-    setFirebaseBackfillMessage('');
-    try{
-      let offset=firebaseBackfillOffset,total=0,saved=0,unchanged=0,failed=0,skipped=0;
-      for(let batch=0;batch<5;batch++){
-        const result=await backfillFirebaseOrders(endpoint,identity.token,offset);
-        if(!result.configured)throw new Error('Order backup is currently unavailable.');
-        saved+=result.saved;unchanged+=result.unchanged;failed+=result.failed;skipped+=result.skipped;
-        total=result.total;
-        if(result.next_offset<=offset || result.next_offset>=total){offset=result.next_offset;break;}
-        offset=result.next_offset;
-      }
-      setFirebaseBackfillOffset(offset);
-      setFirebaseBackfillMessage('Cloud backup sync: '+offset+' of '+total+' checked; '+saved+
-        ' saved, '+unchanged+' already current, '+skipped+' skipped, '+failed+
-        ' failed.'+(offset<total?' Click Sync again to continue.':' Backfill complete.'));
-    }catch(err){setFirebaseBackfillMessage(shopErrorMessage(err, 'Cloud backup sync failed.'));}
-    finally{setFirebaseBackfillBusy(false);}
-  };
   const [legacyKey,setLegacyKey]=useState<{orderId:string;key:string}|null>(null);
   const lookupCustomer=async(event:React.FormEvent)=>{
     event.preventDefault();if(!identity||customerLookupBusy)return;
@@ -897,27 +858,6 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                     {activeTab==='overview'&&<button type="button" className="rounded-xl px-4 py-3 bg-[#1b493d] text-white text-sm font-bold flex items-center gap-2"
                       onClick={()=>{setActiveTab('orders');setOrderFilter('all');}}>View all orders <ArrowRight size={15}/></button>}
                   </div>
-                  {['super_admin', 'admin'].includes(identity.role)&&activeTab==='orders'&&(
-                    <section aria-label="Cloud order backup" className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div><p className="font-bold text-[#173b32]">ক্লাউড ব্যাকআপ সিঙ্ক (Cloud Backup)</p>
-                          <p className="text-slate-500 text-xs">Back up earlier confirmed orders.</p></div>
-                        <button type="button" onClick={()=>void syncHistoricalFirebaseOrders()} disabled={firebaseBackfillBusy}
-                          className="rounded-lg bg-[#173b32] px-4 py-2.5 font-bold text-white disabled:opacity-50">
-                          {firebaseBackfillBusy?'Syncing…':firebaseBackfillOffset?'Continue cloud sync':'Sync existing orders'}
-                        </button>
-                      </div>
-                      <div className="mt-3 flex flex-wrap items-center gap-3">
-                        <button type="button" onClick={()=>void testFirestoreWrite()} disabled={firebaseProbeBusy}
-                          className="rounded-lg border border-emerald-800 px-4 py-2.5 font-bold text-emerald-950 disabled:opacity-50">
-                          {firebaseProbeBusy?'Testing cloud…':'Test cloud backup'}
-                        </button>
-                        <span className="text-xs text-slate-600">Check whether order backup is working.</span>
-                      </div>
-                      {firebaseProbeMessage&&<p role="status" className="mt-2 text-slate-700">{firebaseProbeMessage}</p>}
-                      {firebaseBackfillMessage&&<p role="status" className="mt-2 text-slate-700">{firebaseBackfillMessage}</p>}
-                    </section>
-                  )}
                   <div className="rounded-2xl bg-white border border-slate-200 p-3 sm:p-4 space-y-3">
                     <div className="flex flex-wrap gap-2 items-center justify-between" aria-label="Filter orders">
                       <div className="flex flex-wrap gap-2">
