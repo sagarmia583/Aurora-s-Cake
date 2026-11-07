@@ -21,5 +21,5 @@ const scripts=fs.readdirSync(assetsDir).filter(name=>name.endsWith('.js'));
 const bundled=scripts.map(name=>fs.readFileSync(path.join(assetsDir,name),'utf8')).join('\n');
 assert.match(bundled,/\/Aurora-s-Cake\/images\//,'Bundled cakes must use the Pages base');
 assert.match(bundled,/GitHub Pages/,'The Pages-specific checkout gate must be in the bundle');
-assert.match(bundled,/server-side bakery API/,'Mutations must be guarded on the static host');
+assert.match(bundled,/aurorascake\.netlify\.app/,'The Pages bundle must pin its server API to the verified Netlify production site');
 console.log('PASS: GitHub Pages production artifacts are built for /Aurora-s-Cake/ and default to read-only until the shared Netlify API is verified.');
