@@ -208,8 +208,16 @@ function Invoke-StaffRunner([string]$kind, [string]$nodePath) {
   }
   if($kind -eq 'preflight'){
     $health=Invoke-RestMethod -UseBasicParsing -Method Get -Uri ($stagingUrl+'?action=health') -TimeoutSec 30
-    if([string]$health.staging_reviewed_commit -cne $reviewedGsCommit){
-      throw 'STOP: staging /exec is still on an older version, not the pinned security-reviewed release.'
+    # Older Web App deployments may not carry this field at all.
+    # In strict-mode PowerShell, read it via the property collection.
+    $commitProperty=$health.PSObject.Properties['staging_reviewed_commit']
+    $publishedCommit=if($null -eq $commitProperty){''}else{[string]$commitProperty.Value}
+    if($publishedCommit -cne $reviewedGsCommit){
+      throw ('UPDATE REQUIRED: the existing STAGING /exec is not on reviewed commit '+$reviewedGsCommit+
+        '. The code push succeeded, but Apps Script editor HEAD is not the deployed Web App version. '+
+        'In the verified STAGING project, go to Deploy > Manage deployments, choose the EXISTING Web App '+
+        'matching the /exec URL, click Edit (pencil), select New version, then Deploy. '+
+        'Do not rerun -Mode All or reset the owner password. After deployment use -Mode Check.')
     }
   }
   if($kind -eq 'login' -and (
