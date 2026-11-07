@@ -75,29 +75,9 @@ function auroraGuestContactSubmit_(input){
   }finally{lock.releaseLock();}
 }
 
-function auroraCustomerPhoneOrders_(input){
-  var phone=auroraCustomerPhoneKey_(input.phone||input.customer_phone);
-  var table=auroraFastOrderTable_(auroraSpreadsheet_());
-  var results=[];
-  var latestName='';
-  var latestAddress='';
-  var latestZoneId='';
-  auroraFastOrderList_(table).forEach(function(row){
-    var order;try{order=JSON.parse(String(row.receipt_json||''));}catch(_){return;}
-    if(!order)return;
-    try{
-      if(auroraCustomerPhoneKey_(order.customer_phone)===phone){
-        results.push(auroraCustomerSafeReceipt_(order));
-        if(!latestName&&order.customer_name)latestName=String(order.customer_name);
-        if(!latestAddress&&order.delivery_address)latestAddress=String(order.delivery_address);
-        if(!latestZoneId&&order.delivery_zone_id)latestZoneId=String(order.delivery_zone_id);
-      }
-    }catch(_){}
-  });
-  results.sort(function(a,b){return String(b.created_at||'').localeCompare(String(a.created_at||''));});
-  return {ok:true,found:results.length>0,orders:results.slice(0,50),profile:{name:latestName,phone:phone,address:latestAddress,zone_id:latestZoneId}};
-}
-
+// Legacy phone-only order enumeration was removed: a mobile number is not
+// proof of ownership. Only account-linked orders and private receipt keys
+// are eligible for customer history recovery.
 /** Only authentic staff roles can retrieve contact details using phone VLOOKUP. */
 function auroraStaffCustomerLookup_(input){
   var actor=auroraStaffAuthenticate_(input);

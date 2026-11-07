@@ -45,7 +45,8 @@ function canOperate(role: StaffRoleName, operation: StaffOperation): boolean {
 
   // Rider actions
   if (['pick_up', 'start_delivery', 'deliver'].includes(operation)) {
-    return role === 'delivery_man' || role === 'delivery_manager' || mockDb.hasPermission(role, 'delivery.complete') || mockDb.hasPermission(role, 'delivery.dispatch');
+    // Delivery managers dispatch; only assigned riders and administrators complete deliveries.
+    return role === 'delivery_man' || (role !== 'delivery_manager' && (mockDb.hasPermission(role, 'delivery.complete') || mockDb.hasPermission(role, 'delivery.dispatch')));
   }
 
   const operationPermMap: Partial<Record<StaffOperation, StaffPermissionCode>> = {
@@ -839,7 +840,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                             {person.role.replaceAll('_', ' ')}
                           </span>
                           {person.email === identity.email && <span className="ml-2 text-xs text-slate-500">You</span>}
-                          {person.username && (
+                          {person.username && (identity.role==='super_admin' || !['super_admin','admin'].includes(person.role)) && (
                             <div className="mt-3 flex flex-wrap gap-2">
                               <button type="button" disabled={refreshingStaff} onClick={()=>void toggleStaff(person.username!,person.active===false)}
                                 className="text-xs underline text-emerald-800 disabled:opacity-50">
@@ -860,8 +861,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                   {resetFor && (
                     <form onSubmit={resetEmployeePassword} className="border rounded-xl p-3 flex flex-wrap items-center gap-2">
                       <label className="text-sm font-medium">New password for @{resetFor}</label>
-                      <input type="password" required minLength={4} autoComplete="new-password" value={resetPassword}
-                        onChange={e=>setResetPassword(e.target.value)} placeholder="Minimum 4 digits / chars" aria-label="New staff account password"
+                      <input type="password" required minLength={8} autoComplete="new-password" value={resetPassword}
+                        onChange={e=>setResetPassword(e.target.value)} placeholder="Minimum 8 characters" aria-label="New staff account password"
                         className="border rounded-lg p-2 flex-1 min-w-40"/>
                       <button disabled={refreshingStaff} type="submit" className="bg-emerald-800 text-white p-2 rounded-xl">Save & revoke sessions</button>
                       <button type="button" onClick={()=>{setResetFor('');setResetPassword('');}} className="border p-2 rounded-xl">Cancel</button>
@@ -873,17 +874,17 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                       onChange={e=>setNewStaff(v=>({...v,name:e.target.value}))} className="border rounded-lg p-2"/>
                     <input required aria-label="New staff username" placeholder="Username, e.g. rider01" value={newStaff.username}
                       onChange={e=>setNewStaff(v=>({...v,username:e.target.value}))} className="border rounded-lg p-2"/>
-                    <input required type="password" minLength={4} aria-label="New staff password" placeholder="Password (min 4 digits)"
+                    <input required type="password" minLength={8} aria-label="New staff password" placeholder="Password (min 8 characters)"
                       value={newStaff.password} onChange={e=>setNewStaff(v=>({...v,password:e.target.value}))} className="border rounded-lg p-2"/>
                     <select aria-label="New staff role" value={newStaff.role} onChange={e=>setNewStaff(v=>({...v,role:e.target.value as StaffRoleName}))} className="border rounded-lg p-2">
-                      {(['admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'] as StaffRoleName[]).map(role=>(
+                      {(identity.role==='super_admin' ? ['admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'] : ['order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'] as StaffRoleName[]).map(role=>(
                         <option key={role} value={role}>{role.replaceAll('_',' ')}</option>
                       ))}
                     </select>
                     <button type="submit" disabled={creatingStaff} className="sm:col-span-2 rounded-xl bg-emerald-800 text-white font-semibold p-3 disabled:opacity-50">
                       {creatingStaff?'Creating…':'Create staff account'}
                     </button>
-                    <p className="text-xs sm:col-span-2 text-slate-500">Share the initial password (min 4 digits) privately with the employee. Staff credentials are never emailed automatically.</p>
+                    <p className="text-xs sm:col-span-2 text-slate-500">Share the initial password (at least 8 characters) privately with the employee. Staff credentials are never emailed automatically.</p>
                   </form>
                 </section>
               )}

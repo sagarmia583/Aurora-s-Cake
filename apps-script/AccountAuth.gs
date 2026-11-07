@@ -170,6 +170,9 @@ function auroraAccountCreateStaff_(actor,input) {
   var role=String(input.role||'');
   if(['super_admin','admin','order_manager','kitchen_manager','delivery_manager','delivery_man','accountant'].indexOf(role)<0)
     auroraReject_('invalid_role','Choose an allowed employee role.');
+  // Admin cannot promote an account to administrator-level privileges.
+  if(actor.role!=='super_admin'&&(role==='super_admin'||role==='admin'))
+    auroraReject_('forbidden','Only Super Admin can create administrator accounts.');
   var name=auroraOrderText_(input.name,'Staff name',2,100),password=auroraAccountStaffPassword_(input.password);
   var lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))auroraReject_('busy','Please retry staff setup.');
@@ -205,7 +208,16 @@ function auroraAccountStaffPost_(input) {
       var t=auroraPrivateTable_(auroraSpreadsheet_(),'staff_accounts');
       var person=t.rows.filter(function(row){return String(row.username)===username;})[0];
       if(!person)auroraReject_('not_found','Staff user was not found.');
-      if(input.action==='staff_account_set_active')person.active=input.active===true;
+      if(actor.role!=='super_admin'&&(person.role==='super_admin'||person.role==='admin'))
+        auroraReject_('forbidden','Only Super Admin can manage administrator accounts.');
+      if(input.action==='staff_account_set_active'){
+        if(typeof input.active!=='boolean')auroraReject_('invalid_request','Staff active status must be true or false.');
+        if(!input.active&&person.role==='super_admin'&&!t.rows.some(function(row){
+          return row.id!==person.id&&row.role==='super_admin'&&
+            (row.active===true||String(row.active).toLowerCase()==='true');
+        }))auroraReject_('last_owner','The last active Super Admin cannot be disabled.');
+        person.active=input.active;
+      }
       else{
         var password=auroraAccountStaffPassword_(input.password),salt=auroraAccountToken_();
         person.password_salt=salt;person.password_hash=auroraAccountHash_(password,salt);
