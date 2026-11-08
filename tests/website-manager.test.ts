@@ -141,6 +141,19 @@ test('server CMS creates omitted optional numeric fields blank and checkout char
   h.create('product_variants',{product_id:'cake',name:'Gift size',price:1000,sale_price:0,is_active:true});assert.equal(h.last('product_variants').sale_price,0);
 });
 
+test('CMS retries the same size ID without creating a duplicate or overwriting changed values',()=>{
+  const h=backendHarness();
+  const first={action:'staff_cms_create',table:'product_variants',create_id:'cms_11111111-1111-4111-8111-111111111111',
+    values:{product_id:'cake',name:'2 lb',price:820,is_active:true}};
+  const attempt=()=>h.ctx.auroraCmsPost_(first);
+  assert.equal(attempt().record_id,first.create_id);
+  assert.equal(attempt().record_id,first.create_id);
+  assert.equal(h.book.getSheetByName('product_variants').values.length,2);
+  assert.throws(()=>h.ctx.auroraCmsPost_({...first,values:{...first.values,price:900}}),/different values/);
+  assert.throws(()=>h.ctx.auroraCmsPost_({...first,create_id:'cms_22222222-2222-4222-8222-222222222222'}),/already has a size/);
+  assert.equal(h.last('product_variants').price,820);
+});
+
 test('CMS product edits preserve computed Sheet formulas and reject manual counter changes',()=>{
   const h=backendHarness(),sheet=h.book.getSheetByName('products');
   const headers=sheet.values[0];

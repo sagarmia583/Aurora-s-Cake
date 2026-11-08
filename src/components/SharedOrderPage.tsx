@@ -94,6 +94,7 @@ function Receipt({ fragment }: { fragment: string }) {
             <div className="flex justify-between gap-4 font-semibold"><span>{item.quantity} × {item.product_name}</span><span>{money(item.subtotal)}</span></div>
             <p className="text-sm text-slate-600">{[item.variant_name, item.flavor_name].filter(Boolean).join(' · ')}</p>
             {item.writing_message && <p className="text-sm">কেকের লেখা · {item.writing_message}</p>}
+            {!!item.free_gift_items?.length && <p className="text-sm text-emerald-900">ফ্রি উপহার · {item.free_gift_items.join(', ')}</p>}
             {item.addons?.map(addon => <p key={addon.addon_id} className="text-sm text-slate-600">+ {addon.addon_name} × {addon.quantity}</p>)}
           </li>)}
         </ul>

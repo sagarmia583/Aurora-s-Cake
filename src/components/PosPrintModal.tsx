@@ -135,6 +135,7 @@ export const PosReceiptSlip: React.FC<PosReceiptSlipProps> = ({
       variant_name: variantName,
       flavor_name: flavorName,
       writing_message: writingMessage,
+      free_gift_items: Array.isArray(it.free_gift_items) ? it.free_gift_items.filter((gift: unknown): gift is string => typeof gift === "string") : [],
       unit_price: unitPrice,
       base_price: finalBasePrice,
       sale_price: finalSalePrice,
@@ -283,6 +284,7 @@ export const PosReceiptSlip: React.FC<PosReceiptSlipProps> = ({
                     <span>{currency}{it.subtotal}</span>
                   </div>
                 )}
+                {!!it.free_gift_items.length && <div className="text-xs">Complimentary: {it.free_gift_items.join(", ")}</div>}
                 {it.writing_message && (
                   <div className="bg-amber-50 border border-amber-300 p-1.5 rounded text-amber-950 font-black text-xs">
                     ✍️ Cake Dedication:<br />
@@ -295,7 +297,7 @@ export const PosReceiptSlip: React.FC<PosReceiptSlipProps> = ({
         </div>
 
         {/* Free Checklist */}
-        {settings.showComplimentaryKit && (
+        {order.id === 'ord-pos-demo' && settings.showComplimentaryKit && (
           <div className="bg-emerald-50 text-emerald-950 p-1.5 rounded-xl border border-emerald-300 text-[10px] font-semibold space-y-0.5">
             <div className="font-bold uppercase">✓ {settings.complimentaryKitTitle || 'Complimentary Kit Inside Box:'}</div>
             {(settings.complimentaryItems && settings.complimentaryItems.length > 0
@@ -375,6 +377,7 @@ export const PosReceiptSlip: React.FC<PosReceiptSlipProps> = ({
                 <div className="text-[10px] text-slate-700 font-mono">
                   Base: {currency}{it.base_price} | Sale: {currency}{it.sale_price ?? it.base_price}
                 </div>
+                {!!it.free_gift_items.length && <div className="text-xs">Complimentary: {it.free_gift_items.join(", ")}</div>}
                 {it.writing_message && (
                   <div className="bg-white p-1.5 border-2 border-black font-black text-sm">
                     ✍️ WRITING ON CAKE:<br />
@@ -586,7 +589,7 @@ export const PosReceiptSlip: React.FC<PosReceiptSlipProps> = ({
       </div>
 
       {/* Complimentary Kit */}
-      {settings.showComplimentaryKit && (
+      {order.id === 'ord-pos-demo' && settings.showComplimentaryKit && (
         <div className="text-[9px] text-slate-600 border-b border-dashed border-slate-400 pb-1.5 space-y-0.5">
           <div className="font-bold text-slate-800 uppercase">✓ {settings.complimentaryKitTitle || 'Included with cake:'}</div>
           {(settings.complimentaryItems && settings.complimentaryItems.length > 0

@@ -234,6 +234,7 @@ export interface CmsSnapshot {
   total:number;
   truncated:boolean;
   can_delete:boolean;
+  retry_safe_create?:boolean;
 }
 export const CMS_TABLE_OPTIONS: {table:CmsTable,label:string}[] = [
   {table:'settings',label:'Shop settings'},{table:'content',label:'Website text'},
@@ -256,9 +257,11 @@ export async function fetchCmsTable(endpoint:string,token:string,table:CmsTable)
   return response as unknown as CmsSnapshot;
 }
 export async function mutateCmsTable(endpoint:string,token:string,table:CmsTable,action:'create'|'update'|'delete',
-  values:Record<string,string|number|boolean>,recordId?:string,key?:string):Promise<void>{
-  await privatePost(endpoint,{action:'staff_cms_'+action,...staffCredential(token),table,
-    ...(recordId?{record_id:recordId}:{}),...(key?{key}:{}),values});
+  values:Record<string,string|number|boolean>,recordId?:string,key?:string,createId?:string):Promise<void>{
+  const result=await privatePost(endpoint,{action:'staff_cms_'+action,...staffCredential(token),table,
+    ...(recordId?{record_id:recordId}:{}),...(key?{key}:{}),...(createId?{create_id:createId}:{}),values});
+  if(createId&&result.record_id!==createId)
+    throw new Error('The save could not be verified. Reload the cake before making another edit.');
 }
 
 export async function uploadCmsImage(endpoint:string,token:string,base64:string):Promise<string> {

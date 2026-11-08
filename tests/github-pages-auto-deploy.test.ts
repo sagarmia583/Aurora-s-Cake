@@ -6,7 +6,7 @@ function read(file:string) {
   return fs.readFileSync(new URL('../'+file,import.meta.url),'utf8');
 }
 
-test('Pages publishes built Vite assets on every main update, never raw source',()=>{
+test('GitHub verifies the static build without publishing Pages',()=>{
   const workflow=read('.github/workflows/github-pages.yml');
   assert.match(workflow,/push:\s*\n\s*branches:\s*\[main\]/);
   assert.match(workflow,/workflow_dispatch:/);
@@ -14,9 +14,8 @@ test('Pages publishes built Vite assets on every main update, never raw source',
   assert.match(workflow,/VITE_GITHUB_PAGES_READ_ONLY: "true"/);
   assert.match(workflow,/run: npm run build/);
   assert.match(workflow,/cp dist\/index\.html dist\/404\.html/);
-  assert.match(workflow,/actions\/upload-pages-artifact@v3/);
-  assert.match(workflow,/actions\/deploy-pages@v4/);
-  assert.match(workflow,/if: github\.event_name != 'pull_request'/);
+  assert.doesNotMatch(workflow,/actions\/(?:configure-pages|upload-pages-artifact|deploy-pages)@/);
+  assert.doesNotMatch(workflow,/pages: write/);
 });
 
 test('Pages-only base path leaves normal Netlify and local builds unchanged',()=>{
@@ -37,7 +36,7 @@ test('Pages can show default and live Sheet images, product detail and order rou
   assert.match(entry,/currentPath===ORDER_TRACKING_PATH/);
 });
 
-test('Pages stays read-only until the verified production Netlify API variable is set',()=>{
+test('Static verification is pinned to read-only and cannot pick up a live API variable',()=>{
   const sheet=read('src/services/googleSheets.ts');
   const app=read('src/App.tsx');
   const dual=read('src/services/dualHosting.ts');
@@ -47,6 +46,6 @@ test('Pages stays read-only until the verified production Netlify API variable i
   assert.match(dual,/https:\/\/aurorascake\.netlify\.app/);
   assert.match(dual,/VITE_GITHUB_PAGES_READ_ONLY/);
   assert.match(dual,/VITE_SHARED_BAKERY_API_ORIGIN/);
-  assert.match(pages,/vars\.AURORA_SHARED_NETLIFY_API_ORIGIN/);
+  assert.match(pages,/VITE_SHARED_BAKERY_API_ORIGIN: ""/);
   assert.match(app,/if \(pagesReadOnly\) \{/);
 });

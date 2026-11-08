@@ -1,4 +1,4 @@
-name: Publish Aurora's Cake to GitHub Pages
+name: Verify Aurora static build (no publishing)
 
 on:
   push:
@@ -22,8 +22,7 @@ jobs:
     env:
       AURORA_GITHUB_PAGES: "true"
       VITE_GITHUB_PAGES_READ_ONLY: "true"
-      # Public Netlify URL only; leave unset until production Functions pass health checks.
-      VITE_SHARED_BAKERY_API_ORIGIN: ${{ vars.AURORA_SHARED_NETLIFY_API_ORIGIN }}
+      VITE_SHARED_BAKERY_API_ORIGIN: ""
       NETLIFY: "false"
       VITE_SHEETS_POST_PROXY: ""
     steps:
@@ -46,28 +45,3 @@ jobs:
         run: cp dist/index.html dist/404.html
       - name: Verify Pages artifact and protect against unsafe writes
         run: node scripts/check-github-pages-build.mjs
-      - name: Configure GitHub Pages
-        if: github.event_name != 'pull_request'
-        uses: actions/configure-pages@v5
-      - name: Upload built site, not raw source
-        if: github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-
-  deploy:
-    name: Deploy GitHub Pages
-    if: github.event_name != 'pull_request'
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - name: Publish
-        id: deploy
-        uses: actions/deploy-pages@v4

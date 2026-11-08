@@ -5,7 +5,7 @@
 // Leave blank when this script is bound to the intended Sheet through Extensions > Apps Script.
 var AURORA_SPREADSHEET_ID = '18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4';
 var AURORA_SCHEMA_VERSION = 1;
-var AURORA_BACKEND_RELEASE = 'aurora-2026-11-03-staff-order-alerts-r5';
+var AURORA_BACKEND_RELEASE = 'aurora-2026-11-08-order-integrity-r6';
 var PUBLIC_TABLE_SCHEMAS = {
   settings: ['key','value'],
   content: ['key','value'],
@@ -196,6 +196,8 @@ function auroraDoPost_(e) {
       return auroraResponse_({success:true,persisted:true,order:auroraCheckoutReceiptSafe_(receipt)});
     }
     if (!request.checkout_proof) auroraReject_('upgrade_required','Refresh the website before placing a new order.');
+    // Validate new orders without changing the fingerprint of historical retries.
+    auroraAccountPhone_(request.customer_phone);
     var order = auroraBuildOrder_(book,request,orders.rows);
     order.order_number=auroraNextOrderNumber_(orders.rows);
     auroraCheckoutRateLimit_(request);
@@ -406,6 +408,7 @@ function auroraCheckSlotCapacity_(slot,request,orders) {
 }
 function auroraBuildOrder_(book,request,orders) {
   var settings = auroraPairs_(auroraRows_(book,'settings'),PUBLIC_SETTINGS_KEYS);
+  var freeGifts = auroraGiftAssignments_(settings.complimentary_kit_items);
   if (!auroraActive_(settings.accepting_orders)) auroraReject_('shop_closed','The shop is not accepting orders right now.');
   if (!auroraActive_(settings.delivery_enabled)) auroraReject_('delivery_unavailable','Delivery is currently unavailable.');
   var now = new Date();
@@ -454,15 +457,8 @@ function auroraBuildOrder_(book,request,orders) {
     } else if (allowedFlavors.some(function(id) { return flavors[id] && auroraActive_(flavors[id].is_active); })) {
       auroraReject_('unavailable_selection','Choose an available flavour for this cake.');
     }
-    var effectiveSalePrice = variant.sale_price;
-    if ((effectiveSalePrice === '' || effectiveSalePrice === undefined || effectiveSalePrice === null) &&
-        product.sale_price !== '' && product.sale_price !== undefined && product.sale_price !== null &&
-        Number(product.sale_price) < Number(product.base_price)) {
-      if (String(variant.id).indexOf('-half') !== -1 || Number(variant.price) <= Number(product.base_price)) {
-        effectiveSalePrice = product.sale_price;
-      }
-    }
-    var basePrice = auroraMoney_(effectiveSalePrice === '' || effectiveSalePrice === undefined || effectiveSalePrice === null ? variant.price : effectiveSalePrice,'variant price');
+    var salePrice = auroraVariantSalePrice_(product,variant);
+    var basePrice = auroraMoney_(salePrice === '' ? variant.price : salePrice,'variant price');
     var selectedAddons = line.addon_ids.map(function(id) {
       if (!allowAllAddons && allowedAddons.indexOf(id) === -1) auroraReject_('unavailable_selection','The selected add-on is not allowed for this cake.');
       var addon = auroraCurrent_(addons,id,'Add-on');
@@ -474,6 +470,7 @@ function auroraBuildOrder_(book,request,orders) {
       id:'item_' + request.request_id + '_' + index,order_id:orderId,product_id:line.product_id,product_name:String(product.name || ''),
       variant_id:line.variant_id,variant_name:String(variant.name || ''),flavor_id:line.flavor_id,flavor_name:flavor ? String(flavor.name || '') : '',
       writing_message:line.writing_message,unit_price:basePrice,quantity:line.quantity,addons:selectedAddons,
+      free_gift_items:freeGifts[line.product_id]||[],
       subtotal:auroraMoneyRound_((basePrice + addonUnit) * line.quantity)
     };
   });
@@ -624,6 +621,33 @@ function auroraList_(value, isUrlList) {
   return input.split(isUrlList ? /\n/ : /[,\n]/).map(function(item) { return item.trim(); }).filter(Boolean);
 }
 
+function auroraGiftAssignments_(value) {
+  var result=Object.create(null), data;
+  try{data=JSON.parse(String(value||''));}catch(_){return result;}
+  if(!data||data.version!==2||!Array.isArray(data.items)||!data.products||typeof data.products!=='object'||Array.isArray(data.products))return result;
+  function names(values){
+    if(!Array.isArray(values))return [];
+    return Array.from(new Set(values.filter(function(item){return typeof item==='string';}).map(function(item){return item.trim();})
+      .filter(function(item){return item&&item.length<=80&&!/[\x00-\x1f\x7f]/.test(item);}))).slice(0,20);
+  }
+  var catalog=names(data.items);
+  Object.keys(data.products).slice(0,500).forEach(function(id){
+    if(/^[A-Za-z0-9_-]{1,100}$/.test(id)&&['__proto__','constructor','prototype'].indexOf(id)<0)
+      result[id]=names(data.products[id]).filter(function(item){return catalog.indexOf(item)>=0;});
+  });
+  return result;
+}
+
+function auroraVariantSalePrice_(product,variant) {
+  var sale=variant.sale_price;
+  if(sale!==''&&sale!==undefined&&sale!==null)return sale;
+  var productSale=product.sale_price;
+  if(productSale!==''&&productSale!==undefined&&productSale!==null&&
+      Number(productSale)<Number(product.base_price)&&Number(productSale)<Number(variant.price)&&
+      (String(variant.id).indexOf('-half')!==-1||Number(variant.price)<=Number(product.base_price)))return productSale;
+  return '';
+}
+
 function auroraPublicData_() {
   var book = auroraSpreadsheet_();
   var settings = auroraPairs_(auroraRows_(book,'settings'),PUBLIC_SETTINGS_KEYS);
@@ -635,28 +659,8 @@ function auroraPublicData_() {
   var allProducts = auroraRows_(book, 'products');
   var products = (allProducts.length ? allProducts : active('products')).map(function(product) {
     product.is_active = auroraActive_(product.is_active);
-    var prodBase = Number(product.base_price);
-    var prodSale = (product.sale_price !== '' && product.sale_price !== undefined && product.sale_price !== null) ? Number(product.sale_price) : undefined;
-    var prodVariants = variants.filter(function(variant) { return String(variant.product_id) === String(product.id); });
-    if (prodSale !== undefined && prodSale < prodBase) {
-      var diff = prodBase - prodSale;
-      prodVariants = prodVariants.map(function(variant, index) {
-        var copy = {};
-        for (var k in variant) copy[k] = variant[k];
-        if (copy.sale_price === '' || copy.sale_price === undefined || copy.sale_price === null) {
-          if (index === 0 || Number(copy.price) <= prodBase || prodVariants.length === 1) {
-            copy.price = Math.max(Number(copy.price) || 0, prodBase);
-            copy.sale_price = prodSale;
-          } else {
-            var orig = Number(copy.price) || 0;
-            copy.price = orig + diff;
-            copy.sale_price = orig;
-          }
-        }
-        return copy;
-      });
-    }
-    product.variants = prodVariants;
+    product.variants = variants.filter(function(variant) { return String(variant.product_id) === String(product.id); })
+      .map(function(variant) { return Object.assign({},variant,{sale_price:auroraVariantSalePrice_(product,variant)}); });
     product.gallery_images = auroraList_(product.gallery_images,true);
     product.allowed_flavor_ids = auroraList_(product.allowed_flavor_ids,false);
     product.allowed_addon_ids = auroraList_(product.allowed_addon_ids,false);

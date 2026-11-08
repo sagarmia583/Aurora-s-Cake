@@ -31,7 +31,7 @@ test('receipt links use the current deployed Apps Script project instead of prod
   assert.equal(sanitized.customer_share_token,undefined);
 });
 
-test('admin cannot dispatch an unassigned order or silently impersonate a rider',()=>{
+test('only admins can explicitly take a ready order without replacing its assigned rider',()=>{
   const ctx:any={
     LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>{}})},
     Utilities:{getUuid:()=> 'fixture-uuid'},
@@ -62,4 +62,14 @@ test('admin cannot dispatch an unassigned order or silently impersonate a rider'
   assert.equal(saved.length,1);
   assert.equal(saved[0].rider_id,'rider@example.test');
   assert.equal(saved[0].status,'out_for_delivery');
+  assert.throws(()=>ctx.auroraOperationsPost_({...input,self_dispatch:true}),/forbidden/);
+
+  record={...record,rider_id:''};
+  assert.equal(ctx.auroraOperationsPost_({...input,self_dispatch:true}).ok,true);
+  assert.equal(saved[1].rider_id,'admin@example.test');
+  assert.equal(saved[1].status,'out_for_delivery');
+
+  ctx.auroraStaffAuthenticate_=()=>({role:'delivery_manager',email:'manager@example.test'});
+  assert.throws(()=>ctx.auroraOperationsPost_({...input,self_dispatch:true}),/forbidden/);
+  assert.equal(saved.length,2);
 });

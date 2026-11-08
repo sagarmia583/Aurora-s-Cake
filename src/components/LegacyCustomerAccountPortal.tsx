@@ -9,7 +9,7 @@ import { getPhoneCustomerProfile, signupPhoneCustomer, loginPhoneCustomer, updat
 import type { PhoneCustomerProfile } from '../services/phoneCustomerApi';
 import { EmailSubscriptionPanel } from './EmailSubscriptionPanel';
 import { normalizeCheckoutPhone } from '../services/customerPhoneLookup';
-import { limitBangladeshiPhoneInput } from '../utils/phoneValidation';
+import { normalizeBangladeshiPhoneInput } from '../utils/phoneValidation';
 
 type GoogleSdk = {
   initialize: (options: { client_id: string; callback: (result:{credential?:string})=>void; ux_mode?:'popup'; use_fedcm_for_button?:boolean;auto_select?:boolean }) => void;
@@ -245,8 +245,8 @@ export const CustomerAccountPortal:React.FC<Props>=({open,onClose,endpoint,local
               {phoneMode==='signup'&&<input required aria-label="Your name" autoComplete="name" placeholder="Your name"
                 value={phoneForm.name} onChange={e=>setPhoneForm(f=>({...f,name:e.target.value}))} className="w-full border rounded-xl p-3"/>}
               <input required aria-label="Bangladesh mobile number" type="tel" autoComplete="tel" placeholder="01XXXXXXXXX"
-                maxLength={13} inputMode="numeric" pattern="01[3-9][0-9]{8}"
-                 value={phoneForm.phone} onChange={e=>setPhoneForm(f=>({...f,phone:limitBangladeshiPhoneInput(e.target.value)}))} className="w-full border rounded-xl p-3"/>
+                inputMode="numeric" pattern="01[3-9][0-9]{8}"
+                 value={phoneForm.phone} onChange={e=>setPhoneForm(f=>({...f,phone:normalizeBangladeshiPhoneInput(e.target.value)}))} className="w-full border rounded-xl p-3"/>
               <input required aria-label="Account password" type="password" minLength={4}
                 autoComplete={phoneMode==='signup'?'new-password':'current-password'} placeholder="Password (at least 4 characters)"
                 value={phoneForm.password} onChange={e=>setPhoneForm(f=>({...f,password:e.target.value}))} className="w-full border rounded-xl p-3"/>

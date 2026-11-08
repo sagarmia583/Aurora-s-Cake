@@ -145,7 +145,7 @@ function auroraCmsPost_(input){
   if(action==='staff_cms_list'){
     var snapshot=auroraCmsRead_(auroraSpreadsheet_(),name);
     return {ok:true,table:name,columns:snapshot.columns,rows:auroraCmsRowsSafe_(snapshot),
-      total:snapshot.rows.length,truncated:snapshot.rows.length>500,can_delete:actor.role==='super_admin'||actor.role==='admin'};
+      total:snapshot.rows.length,truncated:snapshot.rows.length>500,can_delete:actor.role==='super_admin'||actor.role==='admin',retry_safe_create:true};
   }
   if(['staff_cms_create','staff_cms_update','staff_cms_delete'].indexOf(action)===-1)
     auroraReject_('invalid_action','Unsupported website edit.');
@@ -178,9 +178,12 @@ function auroraCmsPost_(input){
       else table.sheet.getRange(previous._row,table.headers.indexOf('value')+1,1,1).setValues([[auroraSheetCell_(val)]]);
     }else{
       if(action!=='staff_cms_create'&&!recordId)auroraReject_('invalid_request','Select a record.');
+      var createId=action==='staff_cms_create'?String(input.create_id||''):'';
+      if(createId&&(['products','product_variants'].indexOf(name)<0||!/^cms_[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(createId)))
+        auroraReject_('invalid_request','Invalid cake edit reference.');
       var existing=action==='staff_cms_create'?null:auroraCmsRow_(table,recordId);
       if(action!=='staff_cms_create'&&!existing)auroraReject_('not_found','Record was not found.');
-      var row={},nowId=action==='staff_cms_create'?'cms_'+Utilities.getUuid():recordId;
+      var row={},nowId=action==='staff_cms_create'?(createId||'cms_'+Utilities.getUuid()):recordId;
       table.columns.forEach(function(field){
         row[field]=existing?existing[field]:field===table.key?nowId:
           AURORA_CMS_BOOLEAN_FIELDS_.indexOf(field)!==-1?false:
@@ -217,6 +220,18 @@ function auroraCmsPost_(input){
       }
       if(name==='product_variants'&&row.sale_price!==''&&Number(row.sale_price)>Number(row.price))
         auroraReject_('invalid_price','Sale price cannot exceed the regular price.');
+      var previousCreate=createId&&auroraCmsRow_(table,createId);
+      if(previousCreate){
+        if(fields.some(function(field){return String(previousCreate[field]===undefined?'':previousCreate[field])!==String(row[field]);}))
+          auroraReject_('edit_conflict','This size or cake was already saved with different values. Reload it before editing.');
+        CacheService.getScriptCache().remove(auroraCacheKey_());
+        return {ok:true,operation:'created',record_id:createId};
+      }
+      if(name==='product_variants'&&action!=='staff_cms_delete'&&(!existing||existing.name!==row.name||existing.product_id!==row.product_id)&&
+          table.rows.some(function(other){
+            return String(other.id)!==nowId&&String(other.product_id)===String(row.product_id)&&
+              String(other.name).trim().toLowerCase()===String(row.name).trim().toLowerCase();
+          }))auroraReject_('duplicate','This cake already has a size with that name.');
       if(action==='staff_cms_create') {
         table.sheet.getRange(table.sheet.getLastRow()+1,1,1,table.headers.length).setValues([table.headers.map(function(field){return auroraSheetCell_(row[field]);})]);
       }else{
@@ -231,6 +246,7 @@ function auroraCmsPost_(input){
     }
     if(name==='products'&&typeof auroraEnsureProductStats_==='function')auroraEnsureProductStats_(book);
     CacheService.getScriptCache().remove(auroraCacheKey_());
-    return {ok:true,operation:action==='staff_cms_delete'?'archived':action==='staff_cms_create'?'created':'updated'};
+    return {ok:true,operation:action==='staff_cms_delete'?'archived':action==='staff_cms_create'?'created':'updated',
+      record_id:isKeyValue?key:nowId};
   }finally{lock.releaseLock();}
 }

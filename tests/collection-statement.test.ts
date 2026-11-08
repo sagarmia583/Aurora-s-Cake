@@ -1,5 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+
+test('booking reports count UTC timestamps on the corresponding Dhaka calendar day',()=>{
+  const overnight=order('overnight',{created_at:'2026-11-07T19:30:00Z'});
+  assert.equal(normalizeDateToYMD(overnight.created_at),'2026-11-08');
+  assert.equal(normalizeDateToYMD('2026-11-07'),'2026-11-07');
+  assert.equal(computeCollectionStatement([overnight],{datePreset:'custom',dateField:'created_at',
+    statusFilter:'all_valid',paymentMethodFilter:'all',startDate:'2026-11-08',endDate:'2026-11-08'}).totalOrders,1);
+});
 import type { Order } from '../src/types';
 import {
   computeCollectionStatement,

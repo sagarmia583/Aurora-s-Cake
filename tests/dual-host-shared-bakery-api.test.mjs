@@ -79,7 +79,7 @@ test('Netlify public catalogue, health and image endpoints support Pages CORS',a
   assert.equal(res.status,200);
   assert.equal(res.headers.get('Access-Control-Allow-Origin'),pages);
   const healthRes=await backendHealth(make('/api/backend-health'),context(async()=>asRemote({
-    ok:true,service:'aurora_public_content',release:'aurora-2026-11-03-staff-order-alerts-r5',
+    ok:true,service:'aurora_public_content',release:'aurora-2026-11-08-order-integrity-r6',
     database_backend:'google_sheets',writes_frozen:false
   })));
   assert.equal(healthRes.status,200);
@@ -88,7 +88,7 @@ test('Netlify public catalogue, health and image endpoints support Pages CORS',a
   assert.equal(imageBad.status,404);
   assert.equal(imageBad.headers.get('Access-Control-Allow-Origin'),pages);
 });
-test('Pages requires approved Netlify origin and stays read-only until configured',()=>{
+test('Pages verification stays read-only and never enables the Netlify relay',()=>{
   const files=(path)=>fs.readFileSync(new URL('../'+path,import.meta.url),'utf8');
   const api=files('src/services/dualHosting.ts');
   const page=files('.github/workflows/github-pages.yml');
@@ -97,7 +97,8 @@ test('Pages requires approved Netlify origin and stays read-only until configure
   assert.match(api,/VITE_SHARED_BAKERY_API_ORIGIN/);
   assert.match(api,/https:\/\/aurorascake\.netlify\.app/);
   assert.match(api,/isGitHubPagesReadOnly/);
-  assert.match(page,/vars\.AURORA_SHARED_NETLIFY_API_ORIGIN/);
+  assert.match(page,/VITE_SHARED_BAKERY_API_ORIGIN: ""/);
+  assert.doesNotMatch(page,/actions\/(?:deploy-pages|upload-pages-artifact)/);
   assert.match(sheet,/getSharedBakeryApiUrl\('\/api\/operations'\)/);
   assert.match(staff,/getSharedBakeryApiUrl\('\/api\/operations'\)/);
   assert.match(sheet,/if\(sharedPublic\)throw new GoogleSheetsError/);

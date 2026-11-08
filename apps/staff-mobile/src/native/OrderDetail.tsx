@@ -40,31 +40,22 @@ export function OrderDetail({
     [rider, setRider] = useState(o.rider_id || ""),
     [cash, setCash] = useState(false),
     [reason, setReason] = useState(""),
-    [cancel, setCancel] = useState(false),
-    [override, setOverride] = useState(false);
+    [cancel, setCancel] = useState(false);
   const [pos,setPos]=useState(false);
   const lock = useRef(false);
   const manager = ["admin", "super_admin", "delivery_manager"].includes(
     session.role,
   );
-  const next =
-    nextOperation(o, session) ||
-    (override && manager
-      ? (
-          {
-            assigned: "pick_up",
-            picked_up: "start_delivery",
-            out_for_delivery: "deliver",
-          } as Record<string, Operation>
-        )[o.status]
-      : null);
-  const action = async (operation: Operation) => {
+  const admin = session.role === "admin" || session.role === "super_admin";
+  const selectedRider = session.riders.some(({ email }) => email === rider);
+  const next = nextOperation(o, session);
+  const action = async (operation: Operation, selfDispatch = false) => {
     if (lock.current) return;
     if (preview) {
       setError("Design preview — live order পরিবর্তন হবে না।");
       return;
     }
-    if (operation === "assign" && !rider) {
+    if (operation === "assign" && !selectedRider) {
       setError("আগে rider বাছুন।");
       return;
     }
@@ -89,7 +80,8 @@ export function OrderDetail({
           ? { cash_collected: cash }
           : {}),
         ...(operation === "cancel" ? { reason: reason.trim() } : {}),
-        ...(override||['super_admin','admin'].includes(session.role) ? { admin_override: true } : {}),
+        ...(selfDispatch ? { self_dispatch: true } : {}),
+        ...(admin ? { admin_override: true } : {}),
       });
       onChanged(updated);
       setCash(false);
@@ -197,6 +189,7 @@ export function OrderDetail({
                 </Text>
               </View>
             )}
+            {!!i.free_gift_items?.length&&<Text style={T.sub}>ফ্রি উপহার · {i.free_gift_items.join(', ')}</Text>}
             {i.addons?.map((a, k) => (
               <Text key={k} style={T.sub}>
                 + {a.addon_name} × {a.quantity}
@@ -278,24 +271,11 @@ export function OrderDetail({
               label="Assign rider"
               kind="ghost"
               busy={busy}
-              disabled={!rider}
+              disabled={!selectedRider}
               onPress={() => void action("assign")}
             />
-          </View>
-        )}
-      {manager && !['super_admin','admin'].includes(session.role) &&
-        ["assigned", "picked_up", "out_for_delivery"].includes(o.status) && (
-          <View style={[T.card, T.between]}>
-            <View style={{ flex: 1 }}>
-              <Text style={T.h3}>Manager handover</Text>
-              <Text style={T.sub}>নিজে delivery যাচাই ও দায়িত্ব নিচ্ছেন</Text>
-            </View>
-            <Switch
-              accessibilityLabel="Manager handover override"
-              value={override}
-              onValueChange={setOverride}
-              trackColor={{ true: C.brand }}
-            />
+            {o.status==="ready"&&!o.rider_id&&admin&&
+              <Button label="নিজে ডেলিভারি শুরু করুন" busy={busy} onPress={()=>void action("start_delivery",true)}/>}
           </View>
         )}
       {next === "deliver" && (

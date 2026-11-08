@@ -113,6 +113,38 @@ function harness(options:{withoutPrivate?:boolean;singleFile?:boolean;supabase?:
   return {tables,reads,writes,rangeReads,debugErrors,context,post,get,records,change,failItems:()=>{failNextItemWrite=true;},failOrderAck:()=>{failAfterOrderWrite=true;},conflictCommit:()=>{conflictCommit=true;},loseCommitAck:()=>{lostCommitAck=true;},lockCount:()=>acquired};
 }
 
+test('legacy cake sale stays on the smaller size even if a larger size appears first',()=>{
+  const h=harness();
+  h.tables.products[0].push('base_price','sale_price');
+  h.tables.products[1].push(450,380);
+  h.tables.product_variants.splice(1,1,['v1','p1','1lb',820,'',true],['p1-half','p1','Half',450,'',true]);
+  const [large,small]=h.get('public').data.products[0].variants;
+  assert.deepEqual([large.price,large.sale_price,small.price,small.sale_price],[820,'',450,380]);
+  const receipt=h.post(request({coupon_code:'',cart_items:[
+    {product_id:'p1',variant_id:'v1',flavor_id:'f1',addon_ids:[],quantity:1,writing_message:''},
+    {product_id:'p1',variant_id:'p1-half',flavor_id:'f1',addon_ids:[],quantity:1,writing_message:''},
+  ],expected_total:1300}));
+  assert.equal(receipt.persisted,true);
+  assert.deepEqual(receipt.order.items.map((item:{unit_price:number})=>item.unit_price),[820,380]);
+});
+
+test('persisted gift assignments survive catalog changes and checkout retry',()=>{
+  const h=harness();
+  const setting=['complimentary_kit_items',JSON.stringify({version:2,items:['Knife','Candle'],products:{p1:['Knife','Unlisted']}})];
+  h.tables.settings.push(setting);
+  const first=h.post(request());
+  assert.equal(first.persisted,true);
+  assert.deepEqual(first.order.items[0].free_gift_items,['Knife']);
+  setting[1]='[]';
+  assert.deepEqual(h.post(request()),first);
+});
+
+test('new checkout rejects extra phone digits before saving an order',()=>{
+  const h=harness();
+  assert.equal(h.post(request({customer_phone:'017123456789'})).code,'invalid_phone');
+  assert.equal(h.records('orders').length,0);
+});
+
 test('active private Supabase adapter commits checkout once, survives lost acknowledgement and preserves receipt compatibility',()=>{
   const h=harness({supabase:true});h.loseCommitAck();const first=h.post(request());
   assert.equal(first.persisted,true);assert.equal(first.order.persistence,'google_sheets');assert.equal(first.order.total_amount,1680);

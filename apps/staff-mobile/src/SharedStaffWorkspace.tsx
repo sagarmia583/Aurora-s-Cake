@@ -6,9 +6,9 @@ import * as Print from 'expo-print';
 import {useKeepAwake} from 'expo-keep-awake';
 import {playNativeOrderSound,stopNativeOrderSound,releaseNativeOrderSound} from './nativeOrderSound';
 import {isStaffCredential,isWorkspaceNavigation,NATIVE_SESSION_KEY,nativeWorkspaceScript,restoredWorkspaceToken,staffWorkspaceUrl} from './workspace';
+import {STAFF_PRODUCTION_OPERATIONS_URL} from './domain';
 
-const DEFAULT_API='https://aurora-s-cake.sagarmia583.workers.dev/api/operations';
-const workspace=staffWorkspaceUrl(process.env.EXPO_PUBLIC_OPERATIONS_URL||DEFAULT_API,
+const workspace=staffWorkspaceUrl(process.env.EXPO_PUBLIC_OPERATIONS_URL||STAFF_PRODUCTION_OPERATIONS_URL,
   __DEV__?process.env.EXPO_PUBLIC_STAFF_WEB_URL:undefined,__DEV__);
 const origin=new URL(workspace).origin;
 const source={uri:workspace};

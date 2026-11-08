@@ -9,6 +9,7 @@ export interface CakeSizeDraft {
 }
 export interface CakeFormDraft {
   id?:string;
+  createId?:string;
   name:string;
   slug:string;
   categoryId:string;
@@ -21,7 +22,7 @@ export interface CakeFormDraft {
 }
 export interface ValidatedCakeForm {
   productValues:Record<string,string|number|boolean>;
-  sizes:{id?:string;values:Record<string,string|number|boolean>}[];
+  sizes:{key:string;id?:string;values:Record<string,string|number|boolean>}[];
 }
 export const STANDARD_CAKE_SIZES=[
   '½ পাউন্ড','১ পাউন্ড','১.৫ পাউন্ড','২ পাউন্ড','বেন্টো','পিস','250 ml','500 ml'
@@ -61,7 +62,7 @@ export function validateCakeEditor(draft:CakeFormDraft,categoryIds:string[],avai
     if(discount!==''&&discount>=regular)throw new Error(sizeName+' — Discount Price অবশ্যই Regular Price-এর কম হতে হবে।');
     const gramsRaw=size.grams.trim();
     if(gramsRaw&&!/^\d{1,7}$/.test(gramsRaw))throw new Error(sizeName+' — Weight (grams) পূর্ণ সংখ্যা হবে।');
-    return {id:size.id,values:{
+    return {key:size.key,id:size.id,values:{
       name:sizeName,weight_grams:gramsRaw?Number(gramsRaw):0,
       price:regular,sale_price:discount,is_active:size.active
     }};

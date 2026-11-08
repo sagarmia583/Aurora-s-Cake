@@ -28,6 +28,7 @@ import {
   computeCollectionStatement,
   getStatementPaymentBreakdown,
   getDateRangeForPreset,
+  normalizeDateToYMD,
   getLocalTodayDateString
 } from '../services/collectionStatementService';
 import { formatShortOrderNumber } from '../utils/orderUtils';
@@ -416,7 +417,7 @@ export const CollectionStatementModal: React.FC<CollectionStatementModalProps> =
                                 </span>
                               </td>
                               <td className="py-2.5 px-3 whitespace-nowrap text-slate-600">
-                                <div>{ord.delivery_date || ord.created_at.slice(0, 10)}</div>
+                                <div>{normalizeDateToYMD(dateField === 'created_at' ? ord.created_at : ord.delivery_date || ord.created_at)}</div>
                                 <div className="text-[10px] text-slate-400">{ord.delivery_slot || 'Any slot'}</div>
                               </td>
                               <td className="py-2.5 px-3">

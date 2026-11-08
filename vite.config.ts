@@ -22,7 +22,7 @@ const githubPagesAssets=()=>({
   },
   transformIndexHtml(html:string){
     if(!githubPagesBuild)return html;
-    return html.replace('https://aurora-s-cake.sagarmia583.workers.dev/','https://sagarmia583.github.io/Aurora-s-Cake/')
+    return html.replace('https://aurorascake.netlify.app/','https://sagarmia583.github.io/Aurora-s-Cake/')
       .replace(/href="\/(favicon\.svg|fonts\/[^"]+)"/g,(_match,asset:string)=>'href="'+githubPagesBase+asset+'"');
   },
 });

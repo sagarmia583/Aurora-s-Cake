@@ -55,7 +55,7 @@ export function useGoogleSheetContent() {
   const refresh = useCallback(async (forceRefresh = false) => {
     if (!forceRefresh && activeRequest.current && !activeRequest.current.signal.aborted) return;
     if (forceRefresh) {
-      try { localStorage.removeItem(CACHE_KEY); } catch {} 
+      lastAppliedSnapshot.current = null;
     }
     lastPublicRefreshAt.current=Date.now();
     activeRequest.current?.abort();
@@ -131,6 +131,7 @@ export function useGoogleSheetContent() {
     if (next === endpoint) { void refresh(); return; }
     activeRequest.current?.abort();
     try { localStorage.setItem(ENDPOINT_KEY, next); } catch { /* Use this session when storage is blocked. */ }
+    lastAppliedSnapshot.current = null;
     setData(EMPTY_SHEET_DATA);
     setStatus({ state: 'loading', source: 'bundled_preview' });
     setEndpoint(next);

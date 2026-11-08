@@ -501,6 +501,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       await changeStaffStatus(endpoint,identity.token,username,active);
       const profile=await checkStaffSession(endpoint,identity.token);
       setStaffProfiles(profile.staff_profiles??[]);
+      setIdentity(previous=>previous?.token===identity.token?{...previous,riders:profile.riders}:previous);
+      setRiderEmail(previous=>profile.riders.some(r=>r.email===previous)?previous:(profile.riders[0]?.email||''));
     }catch(caught){setError(shopErrorMessage(caught, 'Staff status could not be updated.'));}
     finally{setRefreshingStaff(false);}
   };
@@ -522,6 +524,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       const current = await checkStaffSession(endpoint, identity.token);
       if (current.role !== 'super_admin' && current.role !== 'admin') throw new Error('Administrator access is no longer available. Sign in again.');
       setStaffProfiles(current.staff_profiles ?? []);
+      setIdentity(previous=>previous?.token===identity.token?{...previous,riders:current.riders}:previous);
+      setRiderEmail(previous=>current.riders.some(r=>r.email===previous)?previous:(current.riders[0]?.email||''));
       setError('');
     } catch (caught) { setError(shopErrorMessage(caught, 'Unable to refresh staff profiles.')); }
     finally { setRefreshingStaff(false); }
@@ -539,7 +543,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     finally{setBusyOrderId('');}
   };
 
-  const mutate = async (order: StaffOrder, operation: StaffOperation) => {
+  const mutate = async (order: StaffOrder, operation: StaffOperation, selfDispatch = false) => {
     if (!identity || busyOrderId) return;
     if (operation === 'cancel' && !window.confirm('Cancel this order? This cannot be undone.')) return;
     if (operation === 'assign' && (!riderEmail || !identity.riders.some(r=>r.email===riderEmail))) {
@@ -554,7 +558,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       const confirmed = await mutateStaffOrder(endpoint, identity.token, operation, order.id,
         operation === 'assign' ? { rider_email: riderEmail } :
         operation === 'deliver' ? { cash_collected: cashCollected, admin_override: isManager } :
-        (operation === 'pick_up' || operation === 'start_delivery') ? { admin_override: isManager } : {});
+        (operation === 'pick_up' || operation === 'start_delivery') ? { admin_override: isManager, ...(selfDispatch ? {self_dispatch:true} : {}) } : {});
       // Display the server-confirmed stage immediately; don't block the rider
       // for another costly full Sheet list request.
       setOrders(previous=>reconcileStaffOrders(previous,previous.map(item=>item.id===confirmed.id?{...item,...confirmed}:item)));
@@ -1126,6 +1130,9 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                             )}
 
                             {/* Addons if any */}
+                            {!!item.free_gift_items?.length && (
+                              <p className="mt-1 text-xs font-semibold text-emerald-800">ফ্রি উপহার · {item.free_gift_items.join(', ')}</p>
+                            )}
                             {item.addons && item.addons.length > 0 && (
                               <div className="text-xs text-slate-600 pl-3 flex flex-wrap gap-1.5 items-center">
                                 <span className="font-bold text-slate-500">যুক্ত করা আইটেম:</span>
@@ -1176,6 +1183,11 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                     {['super_admin','admin','order_manager','delivery_manager'].includes(identity.role)&&<CustomerOrderLink endpoint={endpoint} token={identity.token} orderId={order.id} initialUrl={order.customer_share_url}/>}
                     <div className="flex w-full min-w-0 flex-wrap gap-2.5 items-center pt-2 border-t border-slate-100">
                       {/* Workflow action button */}
+                      {order.status==='ready'&&!order.rider_id&&['super_admin','admin'].includes(identity.role)&&
+                        <button type="button" disabled={!!busyOrderId} onClick={()=>void mutate(order,'start_delivery',true)}
+                          className="min-h-10 rounded-xl border border-emerald-800 px-4 py-2 text-xs font-bold text-emerald-950">
+                          নিজে ডেলিভারি শুরু করুন
+                        </button>}
                       {next && canOperate(identity.role, next.operation) && next.operation !== 'deliver' && (
                         <>
                           {next.operation === 'assign' && (

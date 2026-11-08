@@ -78,6 +78,24 @@ test('tracking reads fail closed when Netlify has no backend, and work with its 
   assert.equal(calls,1);
 });
 
+test('production builds customer links from the configured deployment after its URL changes', async () => {
+  const id='ord_11111111-1111-4111-8111-111111111111';
+  const key='a'.repeat(72);
+  const scriptUrl='https://script.google.com/macros/s/new_deployment/exec';
+  const rawLink=scriptUrl+'?action=receipt&ref='+id+'&access='+key;
+  const req=new Request(endpoint,{method:'POST',headers:{Origin:origin},
+    body:JSON.stringify({action:'staff_order_link',order_id:id})});
+  const fetcher=(async()=>({
+    ok:true,url:scriptUrl,text:async()=>JSON.stringify({ok:true,order_id:id,share_url:rawLink}),
+  } as Response)) as typeof fetch;
+  const result=await relay(req,{scriptUrl,fetcher});
+  const shareUrl=(await result.json()).share_url;
+  assert.equal(result.status,200);
+  assert.equal(shareUrl,origin+'/track-order#ref='+id+'&access='+key);
+  assert.equal(websiteOrderTrackingLink(shareUrl,id),shareUrl);
+  assert.equal(websiteOrderTrackingLink(rawLink,id),'');
+});
+
 test('Netlify Deploy Preview blocks all POST actions before any production Apps Script request',async()=>{
   let calls=0;
   const scriptUrl=configured;

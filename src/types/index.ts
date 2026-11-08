@@ -179,6 +179,8 @@ export interface CartItem {
 }
 
 export interface OrderItem {
+  /** Complimentary items promised when this line was ordered. */
+  free_gift_items?: string[];
   id: string;
   order_id: string;
   product_id: string;

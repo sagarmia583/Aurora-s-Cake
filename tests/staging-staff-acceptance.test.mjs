@@ -252,7 +252,7 @@ test('consolidated Windows wizard checks only existing staging project, uses hid
 
 
 test('fresh ZIP wizard creates only an explicit existing staging clasp link',()=>{
-  const wizard=readFileSync(new URL('../scripts/aurora-staging-one-command.ps1',import.meta.url),'utf8');
+  const wizard=readFileSync(new URL('../scripts/aurora-staging-one-command.ps1',import.meta.url),'utf8').replace(/\r\n/g,'\n');
   const start=wizard.indexOf('function Initialize-ExistingStagingLink {');
   const end=wizard.indexOf('function Assert-StagingTarget {');
   assert.ok(start>=0&&end>start,'staging link function must precede target assertion');

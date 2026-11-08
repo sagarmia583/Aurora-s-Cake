@@ -207,16 +207,17 @@ export function normalizePublicSiteData(input: unknown, defaults: PublicSiteData
     const id=text(row.id).trim();
     const variantRows = flatVariants ? flatVariants.filter(v=>text(v.product_id).trim()===id) : unique(records(row.variants,'products.variants'),'products.variants');
     const rawVariants = variantRows.filter(v=>bool(v.is_active)).map(v=>variant(v,id));
-    const base = row.base_price === '' || row.base_price === undefined || row.base_price === null ? (rawVariants.length?Math.min(...rawVariants.map(v=>v.sale_price??v.price)):undefined) : row.base_price;
+    const configuredBase = optionalNumber(row.base_price,'products.base_price');
+    const base = configuredBase ?? (rawVariants.length ? Math.min(...rawVariants.map(v=>v.sale_price??v.price)) : undefined);
     const categoryId=text(row.category_id).trim();
     const rating=number(row.rating,'products.rating',0);
     if(rating>5)throw invalid('products.rating','must be at most 5');
     const basePrice = number(base,'products.base_price');
     const salePrice = optionalNumber(row.sale_price,'products.sale_price');
-    const hasProdDiscount = salePrice !== undefined && salePrice < basePrice;
+    const hasProdDiscount = salePrice !== undefined && configuredBase !== undefined && salePrice < configuredBase;
     // Match authoritative Apps Script pricing. Never invent variant IDs,
     // regular prices or discounts for sizes the server prices independently.
-    const variants = rawVariants.map(v => hasProdDiscount && v.sale_price === undefined &&
+    const variants = rawVariants.map(v => hasProdDiscount && salePrice < v.price && v.sale_price === undefined &&
       (v.id.includes('-half') || v.price <= basePrice) ? {...v,sale_price:salePrice} : v);
     return {
       id,category_id:categoryId,category_name:categories.find(c=>c.id===categoryId)?.name||text(row.category_name),name:text(row.name),slug:text(row.slug),

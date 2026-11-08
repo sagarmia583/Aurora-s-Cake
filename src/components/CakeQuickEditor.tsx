@@ -14,9 +14,10 @@ const list=(input:unknown):string[]=>{
   try{const parsed=JSON.parse(str(input)||'[]');return Array.isArray(parsed)?parsed.map(str).filter(Boolean):[];}
   catch{return [];}
 };
-const blankSize=():CakeSizeDraft=>({key:'new-'+Date.now()+'-'+Math.random().toString(36).slice(2,9),
+const newRecordId=()=> 'cms_'+crypto.randomUUID();
+const blankSize=():CakeSizeDraft=>({key:newRecordId(),
   name:'½ পাউন্ড',grams:'',regular:'',discount:'',active:true});
-const blankCake=():CakeFormDraft=>({name:'',slug:'cake-'+Date.now().toString(36),
+const blankCake=():CakeFormDraft=>({createId:newRecordId(),name:'',slug:'cake-'+Date.now().toString(36),
   categoryId:'',description:'',imageUrl:'',active:true,featured:false,flavorIds:[],sizes:[blankSize()]});
 const active=(value:unknown)=>value===true||str(value).toLowerCase()==='true';
 const money=(value:unknown)=>str(value??'');
@@ -135,22 +136,25 @@ export const CakeQuickEditor:React.FC<Props>=({endpoint,token,onUpdated})=>{
   };
   const save=async()=>{
     if(!snapshots||saving||loading)return;
+    if((!draft.id||draft.sizes.some(size=>!size.id))&&
+        (!snapshots.products.retry_safe_create||!snapshots.variants.retry_safe_create)){
+      setError('নতুন কেক বা সাইজ নিরাপদে সেভ করতে দোকানের সর্বশেষ সার্ভার আপডেট প্রয়োজন।');return;
+    }
     let plan:ReturnType<typeof validateCakeEditor>;
     try{
       plan=validateCakeEditor(draft,categories.map(r=>str(r.id)),flavorRows.map(r=>str(r.id)));
     }catch(caught){setError(shopErrorMessage(caught,'Check the cake details and prices.'));return;}
     setSaving(true);setError('');setNotice('');
-    let createdId='';let saved=0;
+    let saved=0;
     try{
       let productId=draft.id;
       if(!productId){
         // An incomplete NEW cake must not appear on the public storefront.
+        if(!draft.createId)throw new Error('Reload the cake editor before creating a cake.');
         await mutateCmsTable(endpoint,token,'products','create',
-          {...plan.productValues,is_active:false});
-        const products=await fetchCmsTable(endpoint,token,'products');
-        const created=products.rows.find(row=>str(row.slug)===draft.slug);
-        if(!created)throw new Error('Cake was created but its identifier could not be found. Refresh before retrying.');
-        productId=createdId=str(created.id);
+          {...plan.productValues,is_active:false},undefined,undefined,draft.createId);
+        productId=draft.createId;
+        change({id:productId});
       }
       if(!productId)throw new Error('Missing cake ID.');
       // Variant writes before product price flags: on a partial failure
@@ -158,23 +162,19 @@ export const CakeQuickEditor:React.FC<Props>=({endpoint,token,onUpdated})=>{
       for(const size of plan.sizes){
         const values={...size.values,...(!size.id?{product_id:productId}:{})};
         await mutateCmsTable(endpoint,token,'product_variants',
-          size.id?'update':'create',values,size.id);
+          size.id?'update':'create',values,size.id,undefined,size.id?undefined:size.key);
+        if(!size.id)setDraft(previous=>({...previous,sizes:previous.sizes.map(row=>
+          row.key===size.key?{...row,id:size.key}:row)}));
         saved++;
       }
       await mutateCmsTable(endpoint,token,'products','update',
         {...plan.productValues,is_active:draft.active},productId);
-      const [products,variants]=await Promise.all([
-        fetchCmsTable(endpoint,token,'products'),fetchCmsTable(endpoint,token,'product_variants')
-      ]);
-      setSnapshots(previous=>previous?{...previous,products,variants}:previous);
-      const updated=products.rows.find(p=>str(p.id)===productId);
-      if(updated){setDraft(readCake(updated,variants.rows,snapshots.flavors.rows));setSelectedId(productId);}
+      setSelectedId(productId);
       setNotice('সেভ হয়েছে। কেক, Flavour এবং প্রতিটি Size-এর Regular/Discount Price আপডেট হয়েছে।');
       onUpdated();
+      await reload(productId);
     }catch(caught){
-      const extra=createdId
-        ?' নতুন কেকটি নিরাপদে Hidden আছে। Refresh করে সেটি খুলে বাকি Size সম্পন্ন করুন।'
-        :saved?' '+saved+'টি Size আগে Save হয়েছে। Refresh করে অবশিষ্ট পরিবর্তন যাচাই করুন।':'';
+      const extra=saved?' '+saved+'টি সাইজ নিশ্চিত হয়েছে। একই ফর্ম থেকে আবার সেভ করতে পারেন।':'';
       setError(shopErrorMessage(caught,'Cake save could not be completed.')+extra);
     }finally{setSaving(false);}
   };

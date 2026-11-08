@@ -1,7 +1,7 @@
 import React from 'react';
 import {Linking, Pressable, StyleSheet, Text, View} from 'react-native';
 
-const STAFF_WEB = 'https://aurora-s-cake.sagarmia583.workers.dev/?staff=1';
+const STAFF_WEB = 'https://aurorascake.netlify.app/?staff=1';
 type StartupCode = 'STARTUP_MODULE' | 'STARTUP_RENDER';
 
 let Workspace: React.ComponentType | undefined;

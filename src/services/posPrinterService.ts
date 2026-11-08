@@ -43,7 +43,7 @@ export const DEFAULT_POS_SETTINGS: PosPrinterSettings = {
   showQrCode: true,
   showWebQr: true,
   showFacebookQr: true,
-  websiteUrl: 'https://aurora-s-cake.sagarmia583.workers.dev/',
+  websiteUrl: 'https://aurorascake.netlify.app/',
   facebookUrl: 'https://www.facebook.com/aurorascake26',
   showComplimentaryKit: true,
   complimentaryKitTitle: 'Complimentary Kit Inside Box:',

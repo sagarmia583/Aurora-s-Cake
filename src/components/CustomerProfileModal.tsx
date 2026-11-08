@@ -32,7 +32,7 @@ import { Order, OrderStatus, Product, CartItem, Review } from '../types';
 import { mockDb } from '../services/mockDatabase';
 import { getPhoneCustomerProfile, updatePhoneCustomerProfile, loginPhoneCustomer, phoneCustomerOrders, linkPhoneCustomerReceipt } from '../services/phoneCustomerApi';
 import { normalizeCheckoutPhone } from '../services/customerPhoneLookup';
-import { limitBangladeshiPhoneInput, validateBangladeshiPhone } from '../utils/phoneValidation';
+import { normalizeBangladeshiPhoneInput, validateBangladeshiPhone } from '../utils/phoneValidation';
 import { loadConfirmedSheetOrders } from '../services/googleSheetOrders';
 import { getSavedCustomer, getSavedCustomerDirectory, saveCustomerInfo, findCustomerOrders, fetchCustomerOrdersFromEndpoint } from '../services/customerDirectory';
 import { privatePost } from '../services/sheetStaffApi';
@@ -584,8 +584,8 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
            {!serverProfile&&<form onSubmit={handleAccountSignIn} className="space-y-2">
              <div className="grid sm:grid-cols-[1fr_1fr_auto] gap-2 items-center">
                <input aria-label="Mobile number" required type="tel" autoComplete="tel" inputMode="tel"
-                 maxLength={13} pattern="01[3-9][0-9]{8}"
-                 value={accountPhone} onChange={e=>setAccountPhone(limitBangladeshiPhoneInput(e.target.value))}
+                 pattern="01[3-9][0-9]{8}"
+                 value={accountPhone} onChange={e=>setAccountPhone(normalizeBangladeshiPhoneInput(e.target.value))}
                  placeholder="01XXXXXXXXX (কাস্টমারের ফোন নম্বর)" className="rounded-xl border bg-white p-3 text-sm focus:outline-rose-500 font-medium text-slate-900"/>
                <input aria-label="Mobile account password" type="password" autoComplete="current-password"
                  value={accountPassword} onChange={e=>setAccountPassword(e.target.value)}
@@ -940,8 +940,8 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
                     type="tel"
                     disabled={!isEditingProfile}
                     aria-label="Mobile phone" value={customerPhone}
-                    maxLength={13} inputMode="numeric" pattern="01[3-9][0-9]{8}"
-                    onChange={(e) => setCustomerPhone(limitBangladeshiPhoneInput(e.target.value))}
+                    inputMode="numeric" pattern="01[3-9][0-9]{8}"
+                    onChange={(e) => setCustomerPhone(normalizeBangladeshiPhoneInput(e.target.value))}
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 disabled:bg-slate-50 disabled:text-slate-600 font-semibold text-slate-900"
                   />
                 </div>

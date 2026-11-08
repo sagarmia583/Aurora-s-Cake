@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {checkNetlifySheetsRelease,validateSiteOrigin}
  from '../scripts/check-netlify-sheets-release.mjs';
 const site='https://aurora-check.netlify.app';
-const release='aurora-2026-11-03-staff-order-alerts-r5';
+const release='aurora-2026-11-08-order-integrity-r6';
 const health={ok:true,expected_release:release,installed_release:release,up_to_date:true,
  database_backend:'google_sheets',writes_frozen:false};
 const catalog={ok:true,schema_version:1,data:{settings:{shop_name:'Aurora'},

@@ -27,6 +27,17 @@ test('flat variant rows join products and keep zero sale price and active flags'
   assert.deepEqual(result.products[0].allowed_flavor_ids,product.allowed_flavor_ids);
 });
 
+test('an inferred display base price does not activate a legacy product offer',()=>{
+  const fixture=clone();
+  const product=fixture.products[0];
+  const result=normalizePublicSiteData({...fixture,products:[{
+    ...product,base_price:'',sale_price:380,
+    variants:[{...product.variants[0],price:450,sale_price:''}],
+  }]});
+  assert.equal(result.products[0].base_price,450);
+  assert.equal(result.products[0].variants[0].sale_price,undefined);
+});
+
 test('unsafe URL schemes are rejected and public Drive images are normalized',()=>{
   assert.throws(()=>normalizePublicUrl('javascript:alert(1)'),GoogleSheetsError);
   assert.throws(()=>normalizePublicUrl('data:image/svg+xml,anything','logo',true),GoogleSheetsError);

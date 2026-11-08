@@ -113,7 +113,7 @@ export const operationLabels:Record<Operation,string>={
 };
 export function nextOperation(order:StaffOrder,session:StaffSession):Operation|null{
   const admin=session.role==='super_admin'||session.role==='admin';
-  const next=admin&&order.status==='ready'?'start_delivery':nextByStatus[order.status];
+  const next=nextByStatus[order.status];
   if(!next||!canOperate(session.role,next))return null;
   if(!admin&&(next==='pick_up'||next==='start_delivery'||next==='deliver') &&
     String(order.rider_id||'').toLowerCase()!==session.email.toLowerCase())return null;
@@ -198,11 +198,10 @@ export function validateBangladeshiPhone(input: string | undefined | null): Phon
 
   return { isValid: true, phone: digits, digits };
 }
-export const STAFF_PRODUCTION_OPERATIONS_URL = 'https://aurora-s-cake.sagarmia583.workers.dev/api/operations';
-const STAFF_API_ORIGINS = new Set([
+export const STAFF_PRODUCTION_OPERATIONS_URL = 'https://aurorascake.netlify.app/api/operations';
+const RETIRED_STAFF_API_ORIGINS = new Set([
   'https://aurora-s-cake.sagarmia583.workers.dev',
   'https://aurora-s-cake.pages.dev',
-  // Retained for an existing owner-configured build; retired hosting is not re-enabled.
   'https://aurora-s-cake.vercel.app',
 ]);
 // A Netlify origin is accepted only when it matches the build owner's explicit
@@ -221,7 +220,10 @@ export function validateStaffOperationsUrl(raw:string):string {
   let url:URL;
   try{url=new URL(raw);}catch{throw new Error('Invalid staff API URL.');}
   if(url.protocol!=='https:'||url.username||url.password||raw.includes('@')||/[?#]/.test(raw)||
-      url.pathname!=='/api/operations'||!(STAFF_API_ORIGINS.has(url.origin)||url.origin===configuredNetlifyOrigin()))
+      url.pathname!=='/api/operations')
+    throw new Error('Use the approved Aurora’s Cake HTTPS /api/operations endpoint.');
+  if(RETIRED_STAFF_API_ORIGINS.has(url.origin))return STAFF_PRODUCTION_OPERATIONS_URL;
+  if(url.origin!==new URL(STAFF_PRODUCTION_OPERATIONS_URL).origin&&url.origin!==configuredNetlifyOrigin())
     throw new Error('Use the approved Aurora’s Cake HTTPS /api/operations endpoint.');
   return url.href;
 }
