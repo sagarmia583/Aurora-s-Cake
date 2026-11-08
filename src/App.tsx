@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { Navbar, ViewMode } from './components/Navbar';
 import { ArrowRight } from 'lucide-react';
 import { CustomerStorefront } from './components/CustomerStorefront';
@@ -30,7 +30,7 @@ import { loadConfirmedSheetOrders, rememberConfirmedSheetOrder, removeConfirmedS
 import { fetchCustomerOrderStatus, redeemLegacyReceiptAccess } from './services/sheetStaffApi';
 import { isConfirmedDeletedSheetOrder, verifyStoredOrderHistory } from './services/sheetOrderHistorySync';
 import { syncPhoneCustomerConfirmedOrder } from './services/phoneCustomerApi';
-import { getBrowserWorkspaceStorage, isStaffWorkspaceOpen, setStaffWorkspaceOpen } from './services/staffWorkspaceSession';
+import { getBrowserWorkspaceStorage, isStaffWorkspaceOpen, saveStaffTab, setStaffWorkspaceOpen } from './services/staffWorkspaceSession';
 import { reconcilePublicCart, reorderFromPublicOrder } from './services/reconcilePublicCart';
 import { inspectPendingCheckout, loadCheckoutCart, saveCheckoutCart, settleCheckoutCart } from './services/checkoutRecovery';
 import type { CheckoutCompletion } from './services/checkoutRecovery';
@@ -70,6 +70,13 @@ export default function App() {
   const staffPage = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('staff') === '1';
   const [isStaffPortalOpen, setIsStaffPortalOpen] = useState(() => staffPage || isStaffWorkspaceOpen(getBrowserWorkspaceStorage()));
   const openStaffPortal = () => { setStaffWorkspaceOpen(getBrowserWorkspaceStorage(),true); setIsStaffPortalOpen(true); };
+  const openLiveDeliveryFromAdmin = () => {
+    // Use the authenticated Staff Orders queue rather than a mock rider
+    // identity. The existing staff session is validated by Apps Script.
+    saveStaffTab(getBrowserWorkspaceStorage(),'orders');
+    setStaffWorkspaceOpen(getBrowserWorkspaceStorage(),true);
+    setIsStaffPortalOpen(true);
+  };
   const closeStaffPortal = () => { setStaffWorkspaceOpen(getBrowserWorkspaceStorage(),false); setIsStaffPortalOpen(false); };
   const [isCustomerAccountOpen, setIsCustomerAccountOpen] = useState(false);
   const [customerGoogleToken, setCustomerGoogleToken] = useState('');
@@ -138,6 +145,12 @@ export default function App() {
   const [isCustomCakeOpen, setIsCustomCakeOpen] = useState(false);
   const [isCacheHubOpen, setIsCacheHubOpen] = useState(false);
   const [isDbViewerOpen, setIsDbViewerOpen] = useState(false);
+  // Stable storefront handlers let React skip an unchanged 15-card catalogue
+  // when cart, checkout, tracking and customer workspace state is updated.
+  const showStorefrontTrackOrder = useCallback(() => setIsTrackOrderOpen(true), []);
+  const showStorefrontCustomCake = useCallback(() => setIsCustomCakeOpen(true), []);
+  const showStorefrontProfile = useCallback(() => setIsProfileOpen(true), []);
+  const showStorefrontCart = useCallback(() => setIsCartOpen(true), []);
   const [searchQuery, setSearchQuery] = useState('');
   const [latestOrderId, setLatestOrderId] = useState<string | undefined>(undefined);
   const [trackingRefreshKey,setTrackingRefreshKey]=useState(0);
@@ -176,9 +189,26 @@ export default function App() {
 
   useEffect(() => {
     mockDb.applyPublicSnapshot(publicData, { authoritative: true });
-    const reconciled = reconcilePublicCart(cartRef.current, publicData);
-    cartRef.current = reconciled.items;
-    setCartItems(reconciled.items);
+    const previousCart=cartRef.current;
+    const reconciled = reconcilePublicCart(previousCart, publicData);
+    // Reconciliation constructs new objects. Reuse existing CartItem references
+    // when the entire current cart is semantically unchanged, avoiding an
+    // unnecessary localStorage write and all dependent cart re-renders.
+    const reusable = !reconciled.changed && previousCart.length === reconciled.items.length &&
+      reconciled.items.every((item, index) => {
+        const old=previousCart[index];
+        return old.cart_item_id===item.cart_item_id &&
+          old.product===item.product &&
+          old.selected_variant===item.selected_variant &&
+          old.selected_flavor===item.selected_flavor &&
+          old.quantity===item.quantity && old.unit_price===item.unit_price &&
+          old.total_price===item.total_price && old.writing_message===item.writing_message &&
+          old.selected_addons.length===item.selected_addons.length &&
+          old.selected_addons.every((addon,i)=>addon===item.selected_addons[i]);
+      });
+    const nextCart=reusable?previousCart:reconciled.items;
+    cartRef.current=nextCart;
+    if(!reusable)setCartItems(nextCart);
     if (reconciled.changed) setCartNotice('Your cake bag was updated to match the latest prices and available options. Please review it before checkout.');
     
     // Public business data is authoritative in Sheets, including empty tables.
@@ -235,23 +265,23 @@ export default function App() {
   }, []);
 
   // Cart operations
-  const handleAddToCart = (item: CartItem) => {
+  const handleAddToCart = useCallback((item: CartItem) => {
     setCartItems((prev) => [item, ...prev]);
-  };
+  }, []);
 
   const handleAddReview = async (newReview: Omit<Review, 'id' | 'status' | 'created_at'>) => {
     await submitSheetReview(sheetContent.endpoint,newReview);
     await sheetContent.refresh(true);
   };
 
-  const selectCake = (product: Product | null) => {
+  const selectCake = useCallback((product: Product | null) => {
     if (product && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(product.slug)) {
       window.history?.replaceState(null, '', sitePrefix+'/cake/'+product.slug);
     } else if (!product && sitePath().startsWith('/cake/')) {
       window.history?.replaceState(null, '', siteBase);
     }
     setSelectedProductForDetail(product);
-  };
+  }, []);
 
   const handleOrderNow = (item: CartItem) => {
     setCartItems((prev) => [item, ...prev]);
@@ -545,7 +575,7 @@ export default function App() {
         </div>
       </div>}
       {/* Main Content Area: Responsive Website vs Mobile App */}
-      <main id="main-content" className={viewMode === 'web' && activeRole === 'customer' ? 'ac-main' : 'ac-main ac-main--portal'}>
+      <main id="main-content" className={'w-full min-w-0 max-w-full ' + (viewMode === 'web' && activeRole === 'customer' ? 'ac-main' : 'ac-main ac-main--portal')}>
         <Suspense fallback={<div className="py-20 text-center text-rose-700" role="status">Loading cakes…</div>}>
         {viewMode === 'mobile_app' ? (
           /* DEDICATED MOBILE APP VIEW */
@@ -587,12 +617,12 @@ export default function App() {
                 coupons={coupons}
                 currency={settings.currency}
                 onSelectProduct={selectCake}
-                onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
-                onOpenCustomCake={() => setIsCustomCakeOpen(true)}
-                onOpenProfile={() => setIsProfileOpen(true)}
+                onOpenTrackOrder={showStorefrontTrackOrder}
+                onOpenCustomCake={showStorefrontCustomCake}
+                onOpenProfile={showStorefrontProfile}
                 searchQuery={searchQuery}
                 onAddToCart={handleAddToCart}
-                onOpenCart={() => setIsCartOpen(true)}
+                onOpenCart={showStorefrontCart}
               />
             )}
 
@@ -622,6 +652,7 @@ export default function App() {
                 endpoint={sheetContent.endpoint}
                 addons={addons}
                 flavors={flavors}
+                onOpenLiveDelivery={openLiveDeliveryFromAdmin}
               />
             )}
           </>

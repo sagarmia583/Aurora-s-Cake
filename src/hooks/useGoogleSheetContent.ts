@@ -48,7 +48,12 @@ export function useGoogleSheetContent() {
   const [status, setStatus] = useState<SheetContentStatus>(initial.status);
   const activeRequest = useRef<AbortController | null>(null);
   const lastPublicRefreshAt=useRef(0);
+  // Avoid repeatedly stringifying old snapshots and writing identical content
+  // to synchronous localStorage during the twelve-second live refresh cycle.
+  const lastAppliedSnapshot=useRef<string | null>(null);
+  const lastStatusPublishedAt=useRef(0);
   const refresh = useCallback(async (forceRefresh = false) => {
+    if (!forceRefresh && activeRequest.current && !activeRequest.current.signal.aborted) return;
     if (forceRefresh) {
       try { localStorage.removeItem(CACHE_KEY); } catch {} 
     }
@@ -58,21 +63,35 @@ export function useGoogleSheetContent() {
     activeRequest.current = controller;
     // A background refresh must not make a connected storefront look
     // disconnected or replace its content with placeholders.
-    setStatus(previous => ({ ...previous,
-      state: previous.lastSyncedAt && previous.source==='google_sheets' ? 'connected' : 'loading',
-      error: undefined,
-    }));
+    setStatus(previous => {
+      if (previous.state === 'connected' && previous.source === 'google_sheets' && !previous.error)
+        return previous;
+      return {...previous,
+        state: previous.lastSyncedAt && previous.source === 'google_sheets' ? 'connected' : 'loading',
+        error: undefined,
+      };
+    });
     try {
       const next = await loadGoogleSheetData(endpoint, controller.signal);
       if (controller.signal.aborted) return;
       const savedAt = new Date().toISOString();
-      // Avoid replacing the entire storefront model when nothing actually
-      // changed. Stable references prevent the cart, banners and product
-      // picker from remounting during an otherwise successful auto-refresh.
-      console.info("[GoogleSheets] Live data synced:", next.products.length, "products,", next.categories.length, "categories");
-      setData(previous => JSON.stringify(previous)===JSON.stringify(next)?previous:next);
-      setStatus({ state: 'connected', source: 'google_sheets', lastSyncedAt: savedAt });
-      try { localStorage.setItem(CACHE_KEY, JSON.stringify({ endpoint, savedAt, data: next })); } catch { /* Content still renders when browser storage is unavailable. */ }
+      // One serialization per public response. Unchanged content must not
+      // trigger a storefront render or synchronously rewrite browser storage.
+      const serialized = JSON.stringify(next);
+      if (lastAppliedSnapshot.current !== serialized) {
+        lastAppliedSnapshot.current = serialized;
+        setData(next);
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify({ endpoint, savedAt, data: next })); }
+        catch { /* Content still renders when browser storage is unavailable. */ }
+      }
+      // Publish a heartbeat at most once per minute. Every successful poll
+      // still occurs on the existing 12-second cadence; no backend changes.
+      const now = Date.now();
+      const publishHeartbeat = now - lastStatusPublishedAt.current >= 60_000;
+      if (publishHeartbeat) lastStatusPublishedAt.current = now;
+      setStatus(previous => previous.state === 'connected' && previous.source === 'google_sheets' &&
+        !previous.error && !publishHeartbeat
+        ? previous : { state: 'connected', source: 'google_sheets', lastSyncedAt: savedAt });
     } catch (error) {
       if (controller.signal.aborted) return;
       console.warn("[GoogleSheets] Content sync warning:", error);
@@ -84,6 +103,8 @@ export function useGoogleSheetContent() {
         source: previous.lastSyncedAt ? previous.source : 'bundled_preview',
         error: error instanceof Error ? error.message : 'The Google Sheets content could not be loaded.',
       }));
+    } finally {
+      if (activeRequest.current === controller) activeRequest.current = null;
     }
   }, [endpoint]);
   useEffect(() => {

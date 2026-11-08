@@ -100,6 +100,8 @@ interface AdminPanelProps {
   endpoint?: string;
   addons?: ProductAddon[];
   flavors?: Flavor[];
+  /** Opens the authenticated, Google Sheets-backed staff delivery queue. */
+  onOpenLiveDelivery?: () => void;
 }
 
 type TabKey = 
@@ -136,6 +138,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   endpoint,
   addons: propAddons,
   flavors: propFlavors,
+  onOpenLiveDelivery,
 }) => {
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const [beepEnabled, setBeepEnabled] = useState(() => isOrderBeepEnabled());
@@ -694,9 +697,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const canAssignRider = hasPerm('delivery.assign');
 
   return (
-    <div className="space-y-4 sm:space-y-6">
+    <div className="w-full min-w-0 max-w-full overflow-x-clip space-y-4 sm:space-y-6" data-testid="responsive-admin-panel">
       {/* Top Banner */}
-      <div className="bg-slate-900 text-white p-3.5 sm:p-6 rounded-2xl sm:rounded-3xl shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div className="w-full min-w-0 max-w-full bg-slate-900 text-white p-3.5 sm:p-6 rounded-2xl sm:rounded-3xl shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex items-center gap-3.5 sm:gap-4 w-full md:w-auto">
           <div className="relative group shrink-0">
             <img
@@ -726,6 +729,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
         <div className="w-full md:w-auto">
           <div className="flex items-center gap-1.5 sm:gap-2 mt-1 md:mt-0 flex-wrap">
+            {onOpenLiveDelivery && (
+              <button type="button" onClick={onOpenLiveDelivery}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-700 px-3 py-2 text-xs font-bold text-white min-h-11"
+                data-testid="admin-open-live-delivery">
+                <Bike className="w-4 h-4"/>
+                <span>Live Rider & Delivery</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={toggleBeep}
@@ -1304,27 +1315,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </button>
                       )}
 
-                      {/* 4. Ready: Assign Rider */}
+                      {/* 4. Ready: Assign Rider in authenticated live Staff Orders */}
                       {o.status === 'ready' && !o.rider_name && canAssignRider && (
                         <button
-                          onClick={() => {
-                            mockDb.assignRider(o.id, 'Rahim Mia (Rider #1)', (role === 'super_admin' || role === 'admin') ? (role === 'super_admin' ? 'Super Admin' : 'Admin') : 'Delivery Manager');
-                            syncOrderToBackend(o.id, 'assign', { rider_email: 'rider@auroracake.com' });
-                          }}
+                          onClick={() => onOpenLiveDelivery?.()}
                           className="px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1 cursor-pointer min-h-[36px]"
                         >
                           <Bike className="w-3.5 h-3.5" />
-                          <span>Assign Rider (Rahim)</span>
+                          <span>Assign Rider (Live)</span>
                         </button>
                       )}
 
                       {/* 5. Assigned: Pick Up Cake */}
                       {o.status === 'assigned' && (hasPerm('delivery.dispatch') || role === 'super_admin' || role === 'admin') && (
                         <button
-                          onClick={() => {
-                            mockDb.updateOrderStatus(o.id, 'picked_up', 'Picked up from bakery counter', (role === 'super_admin' || role === 'admin') ? (role === 'super_admin' ? 'Super Admin' : 'Admin') : 'Rider');
-                            syncOrderToBackend(o.id, 'pick_up');
-                          }}
+                          onClick={() => onOpenLiveDelivery?.()}
                           className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1 cursor-pointer min-h-[36px]"
                           title="কাউন্টার থেকে কেক গ্রহণ করুন"
                         >
@@ -1336,10 +1341,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       {/* 6. Picked Up: Start Delivery */}
                       {o.status === 'picked_up' && (hasPerm('delivery.dispatch') || role === 'super_admin' || role === 'admin') && (
                         <button
-                          onClick={() => {
-                            mockDb.updateOrderStatus(o.id, 'out_for_delivery', 'Rider is out for express delivery', (role === 'super_admin' || role === 'admin') ? (role === 'super_admin' ? 'Super Admin' : 'Admin') : 'Rider');
-                            syncOrderToBackend(o.id, 'start_delivery');
-                          }}
+                          onClick={() => onOpenLiveDelivery?.()}
                           className="px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1 cursor-pointer min-h-[36px]"
                           title="ডেলিভারিতে বের হোন"
                         >
@@ -1351,18 +1353,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       {/* 7. Assigned / Picked Up / Out for Delivery: Deliver */}
                       {['assigned', 'picked_up', 'out_for_delivery'].includes(o.status) && (
                         <button
-                          onClick={() => {
-                            const due = o.due_amount !== undefined 
-                              ? o.due_amount 
-                              : (o.payment_method === 'cod' ? (o.total_amount - (o.advance_paid_amount || 0)) : 0);
-                            const confirmed = due > 0 
-                              ? window.confirm(`গ্রাহকের কাছ থেকে নগদ ৳${due} ক্যাশ বুঝে পাওয়া হয়েছে কি? কনফার্ম করলে ডেলিভারি সফল হবে।`)
-                              : true;
-                            if (confirmed) {
-                              mockDb.confirmDelivery(o.id, true, (role === 'super_admin' || role === 'admin') ? (role === 'super_admin' ? 'Super Admin' : 'Admin Delivery Manager') : 'Admin Delivery Manager');
-                              syncOrderToBackend(o.id, 'deliver', { cash_collected: true });
-                            }
-                          }}
+                          onClick={() => onOpenLiveDelivery?.()}
                           className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-xs min-h-[36px]"
                           title="ডেলিভারি সম্পন্ন করুন ও ক্যাশ কালেকশন নিশ্চিত করুন"
                         >
@@ -1446,21 +1437,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         />
       )}
 
-      {/* DELIVERY & RIDERS MODULE */}
+      {/* DELIVERY & RIDERS MODULE — live state changes require authenticated staff session */}
       {activeTab === 'delivery' && (
         <DeliveryRiderModule
           orders={orders}
           currency={currency}
           staffName={role === 'super_admin' ? 'Super Admin' : 'Admin'}
           role={role}
-          onAssignRider={(orderId, email, name) => {
-            mockDb.assignRider(orderId, name, role === 'super_admin' ? 'Super Admin' : 'Admin');
-            syncOrderToBackend(orderId, 'assign', { rider_email: email, rider_name: name });
-          }}
-          onUpdateStatus={(orderId, st) => {
-            mockDb.updateOrderStatus(orderId, st, `Status updated to ${st}`, role === 'super_admin' ? 'Super Admin' : 'Admin');
-            syncOrderToBackend(orderId, st === 'out_for_delivery' ? 'start_delivery' : 'deliver');
-          }}
+          onOpenLiveDelivery={onOpenLiveDelivery}
         />
       )}
 

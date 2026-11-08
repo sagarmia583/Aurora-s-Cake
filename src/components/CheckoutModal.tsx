@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { CartItem, DeliveryZone, DeliverySlot, Order, PaymentMethod } from '../types';
 import { mockDb, validateCoupon } from '../services/mockDatabase';
+import { CheckoutProductGiftNote } from './CheckoutProductGiftNote';
 import { calculateSheetOrderEstimate, createSheetOrderAttempt, submitSheetOrder, SheetOrderSubmissionError, loadConfirmedSheetOrders } from '../services/googleSheetOrders';
 import { getPhoneCustomerProfile } from '../services/phoneCustomerApi';
 import { matchCheckoutCustomer, normalizeCheckoutPhone } from '../services/customerPhoneLookup';
@@ -27,7 +28,7 @@ import { getSavedCustomer, saveCustomerInfo } from '../services/customerDirector
 import type { SheetOrderAttempt, SheetOrderDraft } from '../services/googleSheetOrders';
 import { captureCheckoutCart, inspectPendingCheckout, preservePendingCheckout, releasePendingCheckout, PendingCheckoutConflict } from '../services/checkoutRecovery';
 import type { CheckoutCompletion, CheckoutRecovery, PendingCheckout } from '../services/checkoutRecovery';
-import { validateBangladeshiPhone } from '../utils/phoneValidation';
+import { limitBangladeshiPhoneInput, validateBangladeshiPhone } from '../utils/phoneValidation';
 import { deliverySlotOpen, deliveryToday as localDate } from '../../apps/staff-mobile/src/deliverySlot';
 
 
@@ -68,11 +69,9 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const isLiveOrder = !!liveOrderEndpoint;
   const liveOrderingPaused = isLiveOrder && (orderingPaused || !sheetOrderEndpoint);
 
-  const shopSettings = useMemo(() => mockDb.getShopSettingsSync(), [isOpen]);
-
   // Form State
   const [customerName, setCustomerName] = useState(recoveredDraft?.customer_name || '');
-  const [customerPhone, setCustomerPhone] = useState(recoveredDraft?.customer_phone || '');
+  const [customerPhone, setCustomerPhone] = useState(limitBangladeshiPhoneInput(recoveredDraft?.customer_phone || ''));
   const currentPhoneRef = useRef(customerPhone);
   currentPhoneRef.current=customerPhone;
   const [autofillNotice, setAutofillNotice] = useState('');
@@ -87,9 +86,9 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   // Gift & Surprise Delivery State
   const [isGift, setIsGift] = useState(recoveredDraft?.is_gift === true);
   const [recipientName, setRecipientName] = useState(recoveredDraft?.recipient_name || '');
-  const [recipientPhone, setRecipientPhone] = useState(recoveredDraft?.recipient_phone || '');
+  const [recipientPhone, setRecipientPhone] = useState(limitBangladeshiPhoneInput(recoveredDraft?.recipient_phone || ''));
   const [senderName, setSenderName] = useState(recoveredDraft?.sender_name || '');
-  const [senderPhone, setSenderPhone] = useState(recoveredDraft?.sender_phone || '');
+  const [senderPhone, setSenderPhone] = useState(limitBangladeshiPhoneInput(recoveredDraft?.sender_phone || ''));
   const [hidePriceOnBox, setHidePriceOnBox] = useState(recoveredDraft?.hide_price_on_box !== false);
   const [giftCardMessage, setGiftCardMessage] = useState(recoveredDraft?.gift_card_message || '');
 
@@ -115,8 +114,8 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const adoptPending = (pending: PendingCheckout) => {
     const original = JSON.parse(pending.attempt.body) as SheetOrderDraft;
     pendingCheckoutRef.current = pending; orderAttemptRef.current = pending.attempt;
-    setCustomerName(original.customer_name); setCustomerPhone(original.customer_phone);
-    currentPhoneRef.current = original.customer_phone;
+    setCustomerName(original.customer_name); setCustomerPhone(limitBangladeshiPhoneInput(original.customer_phone));
+    currentPhoneRef.current = limitBangladeshiPhoneInput(original.customer_phone);
     setDeliveryAddress(original.delivery_address); setSelectedZoneId(original.delivery_zone_id);
     setSelectedSlot(original.delivery_slot); setDeliveryDate(original.delivery_date);
     setOrderNote(original.order_note || ''); setAppliedCoupon(original.coupon_code || null);
@@ -173,7 +172,8 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     currentPrefillRef.current = { name: customer.name, address: customer.address };
     setAutofillNotice('স্বাগতম! আপনার ফোন নম্বরের বিপরীতে সংরক্ষিত তথ্য অটোফিল করা হয়েছে। প্রয়োজনে যেকোনো তথ্য পরিবর্তন করতে পারেন।');
   };
-  const onPhoneChanged = (value:string) => {
+  const onPhoneChanged = (raw:string) => {
+    const value = limitBangladeshiPhoneInput(raw);
     const previous=normalizeCheckoutPhone(customerPhone), next=normalizeCheckoutPhone(value);
     if(previous!==next){
       // An authenticated phone profile is only valid for the original number.
@@ -202,7 +202,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     ownedCustomerRef.current=null;
     const fillLocal=()=>{
       const phone=currentPhoneRef.current||device?.phone||recent?.customer_phone||'';
-      if(phone){setCustomerPhone(previous=>previous||phone);fillFromPhone(phone);}
+      if(phone){const limited=limitBangladeshiPhoneInput(phone);setCustomerPhone(previous=>previous||limited);fillFromPhone(limited);}
     };
     if(!token){fillLocal();return;}
     let active=true;
@@ -210,8 +210,8 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
       if(!active||submissionInFlight.current)return;
       const verified={name:profile.name,phone:profile.phone,address:profile.address,source:'account' as const};
       ownedCustomerRef.current=verified;
-      const phone=currentPhoneRef.current||profile.phone;
-      setCustomerPhone(previous=>previous||profile.phone);
+      const phone=limitBangladeshiPhoneInput(currentPhoneRef.current||profile.phone);
+      setCustomerPhone(previous=>previous||limitBangladeshiPhoneInput(profile.phone));
       fillFromPhone(phone,verified);
     }).catch(()=>{if(active&&!submissionInFlight.current)fillLocal();});
     return()=>{active=false;};
@@ -320,6 +320,14 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     const originalAttempt = orderAttemptRef.current;
     const pending = pendingCheckoutRef.current;
     if (!originalAttempt || !pending || submissionInFlight.current) return;
+    if (isGift && senderPhone.trim() && !validateBangladeshiPhone(senderPhone).isValid) {
+      setErrorMessage('প্রেরকের মোবাইল নম্বরটি সঠিক ১১ ডিজিটের হতে হবে।');
+      return;
+    }
+    if (paymentMethod !== 'cod' && !validateBangladeshiPhone(paymentSenderPhone).isValid) {
+      setErrorMessage('পেমেন্ট প্রেরকের মোবাইল নম্বরটি সঠিক ১১ ডিজিটের হতে হবে।');
+      return;
+    }
     submissionInFlight.current = true;
     setIsSubmitting(true);
     setErrorMessage(null);
@@ -514,6 +522,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
                             "{it.writing_message}"
                           </div>
                         )}
+                        <CheckoutProductGiftNote product={it.product} />
                       </div>
                     </div>
                     <div className="text-right shrink-0">
@@ -536,23 +545,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
               })}
             </div>
 
-            {/* Complimentary Free Bakery Kit */}
-            <div className="bg-emerald-50/80 border border-emerald-200/80 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-2 text-xs text-emerald-950">
-              <span className="font-bold flex items-center gap-1.5 text-emerald-900">
-                <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>{shopSettings?.complimentary_kit_title || 'প্রতিটি কেকের সাথে পাচ্ছেন:'}</span>
-              </span>
-              <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold text-emerald-800">
-                {(shopSettings?.complimentary_kit_items && shopSettings.complimentary_kit_items.length > 0
-                  ? shopSettings.complimentary_kit_items
-                  : ['ফ্রি কেক কাটার ছুরি', 'ফ্রি মোমবাতি', 'প্রিমিয়াম বক্স ও রিবন']
-                ).map((it, idx) => (
-                  <span key={idx} className="bg-white px-2 py-0.5 rounded-lg border border-emerald-200 shadow-2xs">
-                    ✓ {it}
-                  </span>
-                ))}
-              </div>
-            </div>
+
           </div>
 
           {/* Customer Info */}
@@ -585,10 +578,10 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
                 <input
                   type="tel"
                   required
-                  maxLength={14}
+                  maxLength={13} inputMode="numeric" pattern="01[3-9][0-9]{8}"
                   aria-label="Mobile number" autoComplete="tel" placeholder="017XXXXXXXX"
                   value={customerPhone}
-                  onChange={(e) => onPhoneChanged(e.target.value.replace(/[^\d+]/g, ''))}
+                  onChange={(e) => onPhoneChanged(e.target.value)}
                   className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 focus:outline-rose-500 text-slate-800"
                 />
               </div>
@@ -659,8 +652,9 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
                       <input
                         type="tel"
                         required={isGift}
+                        maxLength={13} inputMode="numeric" pattern="01[3-9][0-9]{8}"
                         value={recipientPhone}
-                        onChange={(e) => setRecipientPhone(e.target.value)}
+                        onChange={(e) => setRecipientPhone(limitBangladeshiPhoneInput(e.target.value))}
                         placeholder="01XXXXXXXXX"
                         className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-rose-500"
                       />
@@ -686,8 +680,9 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
                       </label>
                       <input
                         type="tel"
+                        maxLength={13} inputMode="numeric" pattern="01[3-9][0-9]{8}"
                         value={senderPhone}
-                        onChange={(e) => setSenderPhone(e.target.value)}
+                        onChange={(e) => setSenderPhone(limitBangladeshiPhoneInput(e.target.value))}
                         placeholder="01XXXXXXXXX"
                         className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-rose-500"
                       />
@@ -696,7 +691,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
 
                   <div>
                     <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                      💌 ফ্রি গ্রিটিং কার্ডে আপনার শুভেচ্ছা বার্তা (Gift Card Message)
+                      💌 আপনার শুভেচ্ছা বার্তা (Gift Message)
                     </label>
                     <textarea
                       rows={2}
@@ -892,8 +887,9 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
                         <input
                           type="tel"
                           required
+                          maxLength={13} inputMode="numeric" pattern="01[3-9][0-9]{8}"
                           value={paymentSenderPhone}
-                          onChange={(e) => setPaymentSenderPhone(e.target.value)}
+                          onChange={(e) => setPaymentSenderPhone(limitBangladeshiPhoneInput(e.target.value))}
                           placeholder="017XXXXXXXX"
                           className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-rose-500 text-slate-800"
                         />

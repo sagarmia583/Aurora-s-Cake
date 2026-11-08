@@ -238,7 +238,7 @@ test('App preserves an unrelated bag line added while its original checkout is u
     './services/sheetStaffApi': `export const fetchCustomerOrderStatus=async(_e,o)=>({...o});export const redeemLegacyReceiptAccess=async()=>({});export const getStaffOrders=async()=>[];export const staffOrderToOrder=o=>o;`,
     './services/sheetOrderHistorySync': `export const isConfirmedDeletedSheetOrder=()=>false;export const verifyStoredOrderHistory=async()=>({current:[],deletedIds:[],failedIds:[]});`,
     './services/phoneCustomerApi': `export const syncPhoneCustomerConfirmedOrder=async()=> 'linked_only';`,
-    './services/staffWorkspaceSession': `export const getBrowserWorkspaceStorage=()=>null;export const isStaffWorkspaceOpen=()=>false;export const setStaffWorkspaceOpen=()=>{};export const loadStaffCredential=()=>'';`,
+    './services/staffWorkspaceSession': `export const getBrowserWorkspaceStorage=()=>null;export const isStaffWorkspaceOpen=()=>false;export const setStaffWorkspaceOpen=()=>{};export const saveStaffTab=()=>{};export const loadStaffCredential=()=>'';`,
     './services/reconcilePublicCart': `export const reconcilePublicCart=items=>({items,changed:false});export const reorderFromPublicOrder=()=>({items:[],changed:false});`,
     './services/checkoutRecovery': `export const {inspectPendingCheckout,loadCheckoutCart,saveCheckoutCart,settleCheckoutCart}=globalThis.__checkoutAudit.recovery;`,
   };

@@ -55,7 +55,7 @@ export function StorefrontProductPhoto({ product }: { product: Product }) {
   const [index,setIndex] = useState(0);
   useEffect(() => { setIndex(0); }, [product.id, product.image_url, product.gallery_images]);
   return candidates[index]
-    ? <img src={candidates[index]} alt={product.name} loading="lazy"
+    ? <img src={candidates[index]} alt={product.name} loading="lazy" decoding="async"
         width="800" height="800" onError={() => setIndex(current => current + 1)} />
     : <span className="flex w-full h-full min-h-44 sm:min-h-56 items-center justify-center gap-2 bg-emerald-50 text-emerald-900/80 text-xs font-bold px-4 text-center">
         <CakeSlice size={22} aria-hidden="true" /> {product.name}
@@ -91,7 +91,7 @@ function HighlightIcon({ name, size = 20 }: { name?: string; size?: number }) {
   return <Icon size={size} strokeWidth={1.3} aria-hidden="true" />;
 }
 
-export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
+export const CustomerStorefront: React.FC<CustomerStorefrontProps> = React.memo(({
   settings: suppliedSettings, products, categories, flavors = [], currency, onSelectProduct, onOpenCustomCake, reviews: suppliedReviews,
   coupons: suppliedCoupons,
   onOpenTrackOrder, onOpenProfile, searchQuery, publicData,
@@ -251,7 +251,7 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
       {heroImage && <div className="ac-hero-visual">
         <div className="ac-hero-backdrop" />
         <div className="ac-hero-image-wrap">
-          <img className="ac-hero-image" src={heroImage} alt={slide.image_alt} fetchPriority="high" width="1000" height="1200" />
+          <img className="ac-hero-image" src={heroImage} alt={slide.image_alt} fetchPriority="high" decoding="async" width="1000" height="1200" />
           <div className="ac-hero-image-shade" />
           {(text('hero_image_label') || text('hero_image_caption')) && <div className="ac-hero-image-caption"><span>{text('hero_image_label')}</span><span>{text('hero_image_caption')}</span></div>}
         </div>
@@ -740,4 +740,4 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = ({
     {facebookUrl && <aside aria-label="Customer support" className="fixed bottom-6 right-6 z-40 pointer-events-auto"><a href={facebookUrl} target="_blank" rel="noopener noreferrer" className="ac-facebook-button" title="আমাদের Facebook page দেখুন"><span className="ac-facebook-mark">f</span><span>Facebook page</span><span aria-hidden="true">↗</span></a></aside>}
   </div>
   );
-};
+});

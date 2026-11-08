@@ -3,7 +3,7 @@ import { useCakeDialog } from './useCakeDialog';
 import { X, Sparkles, Image, CheckCircle, AlertCircle, Send } from 'lucide-react';
 import { prepareCustomCakeAttempt, submitCustomCake, getCustomCakeRequestStatus } from '../services/sheetCustomCake';
 import type { CustomCakeAttempt } from '../services/sheetCustomCake';
-import { validateBangladeshiPhone } from '../utils/phoneValidation';
+import { limitBangladeshiPhoneInput, validateBangladeshiPhone } from '../utils/phoneValidation';
 import { shopErrorMessage } from '../utils/shopErrorMessage';
 
 interface CustomCakeModalProps {
@@ -163,10 +163,10 @@ const CustomCakeModalDialog: React.FC<CustomCakeModalProps> = ({
                 <input
                   type="tel"
                   required
-                  maxLength={14}
+                  maxLength={13} inputMode="numeric" pattern="01[3-9][0-9]{8}"
                   placeholder="017XXXXXXXX"
                   aria-label="Mobile contact" value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value.replace(/[^\d+]/g, ''))}
+                  onChange={(e) => setCustomerPhone(limitBangladeshiPhoneInput(e.target.value))}
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-slate-800"
                 />
               </div>
