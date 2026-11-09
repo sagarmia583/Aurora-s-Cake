@@ -8,7 +8,7 @@ import {STAFF_SESSION_KEY} from '../src/services/staffWorkspaceSession';
 Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});
 const employeeToken='12345678-1234-4234-8234-123456789abc'.repeat(2);
 const endpoint='https://script.google.com/macros/s/FIXTURE/exec';
-async function mount(t:TestContext,token=employeeToken){
+async function mount(t:TestContext,token=employeeToken,orders:Record<string,unknown>[]=[]){
   const storage=new Map<string,string>([[STAFF_SESSION_KEY,token]]),calls:Record<string,unknown>[]=[];
   const savedWindow=Object.getOwnPropertyDescriptor(globalThis,'window'),savedDocument=Object.getOwnPropertyDescriptor(globalThis,'document');
   const windowStub={location:{hostname:'localhost',origin:'http://localhost:3000'},sessionStorage:{getItem:(key:string)=>storage.get(key)??null,setItem:(key:string,value:string)=>storage.set(key,value),removeItem:(key:string)=>storage.delete(key)},
@@ -21,7 +21,7 @@ async function mount(t:TestContext,token=employeeToken){
     if(url==='/api/backend-health')return Response.json(health.body,{status:health.status});
     const input=JSON.parse(String(options.body));calls.push(input);
     if(input.action==='staff_session')return new Response(JSON.stringify({ok:true,role:'kitchen_manager',name:'Fixture baker',email:'fixture_baker',riders:[]}));
-    if(input.action==='staff_orders')return new Response(JSON.stringify({ok:true,snapshot_complete:true,orders:[]}));
+    if(input.action==='staff_orders')return new Response(JSON.stringify({ok:true,snapshot_complete:true,orders}));
     assert.equal(input.action,'staff_password_logout');assert.equal(input.auth_token,employeeToken);return logout();
   });
   let renderer!:ReactTestRenderer;
@@ -32,6 +32,32 @@ async function mount(t:TestContext,token=employeeToken){
   return {renderer,storage,calls,signout,setLogout:(handler:()=>Promise<Response>)=>{logout=handler;},
     setHealth:(status:number,body:Record<string,unknown>)=>{health={status,body};}};
 }
+
+test('order summaries hide customer details until a single order is expanded',async t=>{
+  const order=(id:string,order_number:string,customer_name:string)=>({
+    id,order_number,customer_name,status:'confirmed',created_at:'2026-11-09T08:00:00Z',
+    updated_at:'2026-11-09T08:00:00Z',total_amount:500,payment_method:'cod',payment_status:'pending',
+    delivery_date:'2026-11-10',delivery_slot:'10 AM',items:[],
+  });
+  const {renderer}=await mount(t,employeeToken,[
+    order('order-a','3117','Customer One'),order('order-b','3118','Customer Two'),
+  ]);
+  const summary=()=>JSON.stringify(renderer.toJSON());
+  const details=(number:string)=>renderer.root.findAllByType('button').find(button=>
+    button.props['aria-controls']&&button.props['aria-label'].includes(number))!;
+  assert.equal(details('3117').props['aria-expanded'],false);
+  assert.doesNotMatch(summary(),/Customer One|Customer Two/);
+  await act(async()=>details('3117').props.onClick());
+  assert.equal(details('3117').props['aria-expanded'],true);
+  assert.match(summary(),/Customer One/);
+  assert.doesNotMatch(summary(),/Customer Two/);
+  await act(async()=>details('3118').props.onClick());
+  assert.equal(details('3117').props['aria-expanded'],false);
+  assert.doesNotMatch(summary(),/Customer One/);
+  assert.match(summary(),/Customer Two/);
+  await act(async()=>details('3118').props.onClick());
+  assert.doesNotMatch(summary(),/Customer Two/);
+});
 
 test('staff health retry distinguishes a write freeze from a version mismatch and clears on recovery',async t=>{
   const h=await mount(t);

@@ -65,6 +65,21 @@ test('new editor variants leave optional numeric values blank, while explicit ze
   assert.equal(writes[1][4].sale_price,0);
 });
 
+test('Website Manager shortcuts open the right section and keep the edit when switching tools',async()=>{
+  const settings=snapshot('settings',['key','value'],[{key:'logo_url',value:'https://fixture.invalid/logo.jpg'}]);
+  const h=editorHarness({fetchCmsTable:async(_endpoint:string,_token:string,table:string)=>table==='settings'?settings:products});
+  h.render();await tick();h.render();
+  h.button('ওয়েবসাইট সেটিংস').props.onClick();h.render();
+  h.button('দোকানের তথ্য ও লোগো').props.onClick();h.render();await tick();h.render();
+  assert.equal(h.state.table,'settings');
+  h.button('দোকানের লোগো').props.onClick();h.render();
+  h.state.setDraft({value:'https://fixture.invalid/updated.jpg'});h.render();
+  h.button('ফ্রি উপহার').props.onClick();h.render();
+  h.button('ওয়েবসাইট সেটিংস').props.onClick();h.render();
+  assert.equal(h.state.selected,'logo_url');
+  assert.equal(h.state.draft.value,'https://fixture.invalid/updated.jpg');
+});
+
 test('late section responses cannot replace current rows or save a shared key into the wrong section',async()=>{
   const old=deferred(),latest=deferred(),writes:any[]=[];let contentCalls=0;
   const h=editorHarness({fetchCmsTable:async(_e:string,_t:string,table:string)=>table==='settings'?old.promise:table==='content'&&++contentCalls===1?latest.promise:snapshot(table,['key','value'],[{key:'hero_title',value:'CURRENT_CONTENT'}]),mutateCmsTable:async(...args:any[])=>writes.push(args)});

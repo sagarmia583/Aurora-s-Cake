@@ -121,7 +121,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [customerLookupResult,setCustomerLookupResult]=useState<StaffCustomerMatch|null>(null);
   const [customerLookupMessage,setCustomerLookupMessage]=useState('');
   const [customerLookupBusy,setCustomerLookupBusy]=useState(false);
-  const [expandedOrders,setExpandedOrders]=useState<string[]>([]);
+  const [expandedOrderId,setExpandedOrderId]=useState('');
   const [loginChoice,setLoginChoice]=useState<'employee'|'owner'>('employee');
   const [username,setUsername]=useState('');
   const [password,setPassword]=useState('');
@@ -358,7 +358,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       if(liveIdentityToken.current!==token)return;
       liveIdentityToken.current=undefined;
       clearStaffCredential(getBrowserWorkspaceStorage());clearStaffOrdersSnapshot(getBrowserWorkspaceStorage());
-      setIdentity(null);setOrders([]);setStaffProfiles([]);setActiveTab('overview');setError('');setSnapshotWarning('');
+      setIdentity(null);setOrders([]);setStaffProfiles([]);setExpandedOrderId('');setActiveTab('overview');setError('');setSnapshotWarning('');
     }catch{
       if(liveIdentityToken.current===token)setError('Sign out could not be confirmed. Retry before leaving this device.');
     }finally{setSigningOut(false);}
@@ -970,56 +970,51 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                   const next = actionForStatus[order.status] || null;
                   const canCancel = canOperate(identity.role, 'cancel') && ['pending','confirmed','preparing','ready','assigned'].includes(order.status);
                   const shortNum = formatShortOrderNumber(order.order_number);
-                  return <article key={order.id} onClick={()=>{setUnreadOrderAlerts([]);acknowledgeOrderAlert();}} className="w-full min-w-0 max-w-full bg-white rounded-3xl border border-slate-200 hover:border-slate-300 p-3 sm:p-5 space-y-4 transition-all shadow-xs hover:shadow-md">
-                    {/* Top Header Bar: 4-digit order number, status, slot, and total price */}
-                    <div className="flex flex-wrap justify-between items-start gap-3 border-b border-slate-100 pb-3">
-                      <div className="flex items-start gap-3 min-w-0">
-                        <div className="shrink-0 h-11 w-11 rounded-2xl bg-slate-100 text-slate-700 grid place-items-center shadow-2xs font-black">
-                          <PackageCheck size={22} />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="inline-flex items-center gap-1 bg-slate-900 text-white font-mono font-black text-base sm:text-lg px-3 py-1 rounded-xl shadow-xs tracking-wider border border-slate-800" title={`পুরো অর্ডার আইডি: #${formatShortOrderNumber(order.order_number)}`}>
-                              <span className="text-amber-400">#</span>{shortNum}
-                            </span>
-                            <span className={'rounded-full px-3 py-1 text-xs font-black ring-1 uppercase tracking-wide '+stageClass(order.status)}>
-                              {stageNames[order.status] || order.status.replaceAll('_', ' ')}
-                            </span>
-                          </div>
-                          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs sm:text-sm font-semibold text-slate-700">
-                            <span className="flex items-center gap-1.5 text-slate-700 font-semibold">
-                              <Clock3 size={13} className="shrink-0 text-slate-500" />
-                              <span>{order.delivery_date || 'তারিখ নির্ধারিত নেই'}</span>
-                              <span>·</span>
-                              <span className="text-slate-900 font-bold">{order.delivery_slot || 'যেকোনো সময়'}</span>
-                            </span>
-                            <span className="text-[11px] text-slate-400 font-mono" title={formatShortOrderNumber(order.order_number)}>
-                              
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex sm:flex-col items-center sm:items-end justify-between w-full sm:w-auto gap-1">
-                        <span className="text-xl sm:text-2xl font-black text-slate-900 font-mono">
-                          ৳{Number(order.total_amount || 0).toLocaleString()}
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
-                            {order.payment_method === 'cod' ? '💵 ক্যাশ অন ডেলিভারি (COD)' : `💳 ${order.payment_method?.toUpperCase() || 'অনলাইন'}`}
+                  const isExpanded = expandedOrderId === order.id;
+                  const detailsId = 'staff-order-details-' + order.id;
+                  const toggleDetails = () => {
+                    setExpandedOrderId(isExpanded ? '' : order.id);
+                    setDeliveryConfirmOrderId('');
+                    setCashCollected(false);
+                    if (!isExpanded && unreadOrderAlerts.length) {
+                      setUnreadOrderAlerts([]);
+                      acknowledgeOrderAlert();
+                    }
+                  };
+                  return <article key={order.id} className="min-w-0 rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-x-5 gap-y-3 px-3 py-3 sm:px-4">
+                      <div className="min-w-0 grow">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <strong className="rounded-lg bg-slate-900 px-2.5 py-1 font-mono text-sm text-white">#{shortNum}</strong>
+                          <span className={'rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 '+stageClass(order.status)}>
+                            {stageNames[order.status] || order.status.replaceAll('_', ' ')}
                           </span>
-                          {order.payment_status === 'paid' ? (
-                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
-                              পরিশোধিত
-                            </span>
-                          ) : (
-                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-900">
-                              বকেয়া
-                            </span>
-                          )}
                         </div>
+                        <p className="mt-1.5 flex items-start gap-1.5 break-words text-xs text-slate-600">
+                          <Clock3 size={13} className="mt-0.5 shrink-0" aria-hidden="true"/>
+                          <span>{[order.delivery_date, order.delivery_slot].filter(Boolean).join(' · ') || 'সময় নির্ধারিত নেই'}</span>
+                        </p>
+                      </div>
+                      <div className="flex w-full items-center justify-between gap-3 sm:w-auto">
+                        <div>
+                          <p className="font-mono text-base font-black text-slate-900">৳{Number(order.total_amount || 0).toLocaleString()}</p>
+                          <p className={'text-xs font-semibold '+(order.payment_status === 'paid' ? 'text-emerald-700' : 'text-amber-800')}>
+                            {order.payment_status === 'paid' ? 'পরিশোধিত' : 'বকেয়া'}
+                          </p>
+                        </div>
+                        <button type="button" onClick={toggleDetails} aria-expanded={isExpanded} aria-controls={detailsId}
+                          aria-label={'অর্ডার #' + shortNum + (isExpanded ? ' বিস্তারিত বন্ধ করুন' : ' বিস্তারিত দেখুন')}
+                          className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-950 hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700">
+                          {isExpanded ? 'বন্ধ করুন' : 'বিস্তারিত দেখুন'}
+                          <ChevronDown size={16} aria-hidden="true" className={isExpanded ? 'rotate-180' : undefined}/>
+                        </button>
                       </div>
                     </div>
+                    <div id={detailsId} hidden={!isExpanded}>
+                    {isExpanded && <div className="space-y-4 border-t border-slate-200 px-3 py-4 sm:px-4">
+                    <p className="text-xs font-semibold text-slate-600">
+                      পেমেন্ট · {order.payment_method === 'cod' ? 'ক্যাশ অন ডেলিভারি (COD)' : order.payment_method?.toUpperCase() || 'অনলাইন'}
+                    </p>
 
                     {/* Customer & Delivery Address Grid */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-50/90 p-4 rounded-2xl border border-slate-200">
@@ -1372,6 +1367,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                         </div>
                       )}
                     </div>
+                    </div>}
+                    </div>
                   </article>;
                 })}
                   </div>
@@ -1409,6 +1406,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
             setActiveTab('orders');
             setOrderFilter('all');
             setOrderSearch(String(selectedOrderForDetails.order_number));
+            setExpandedOrderId(selectedOrderForDetails.id);
           } : undefined}
           onTriggerPosPrint={(ord) => {
             setSelectedOrderForDetails(null);
