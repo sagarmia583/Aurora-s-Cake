@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import React,{act} from 'react';
 import {create,type ReactTestRenderer} from 'react-test-renderer';
 import {StorefrontProductPhoto} from '../src/components/CustomerStorefront';
-import {DEFAULT_PUBLIC_SITE_DATA} from '../src/content/defaultSiteData';
+import {DEFAULT_PUBLIC_SITE_DATA} from './catalog-fixture';
 
 Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});
 const product={

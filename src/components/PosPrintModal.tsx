@@ -1,3 +1,4 @@
+import type { Product } from '../types';
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { 
@@ -18,12 +19,10 @@ import {
   PosPrinterSettings, 
   getPosPrinterSettings, 
   savePosPrinterSettings,
-  DEFAULT_COMPLIMENTARY_ITEMS
 } from '../services/posPrinterService';
 import { PosPrinterSettingsModal } from './PosPrinterSettingsModal';
 import { formatShortOrderNumber } from '../utils/orderUtils';
 import { PosDualQrCodes, resolvePublicWebUrl } from './PosQrCodes';
-import { mockDb } from '../services/mockDatabase';
 
 export interface PosReceiptSlipProps {
   order: Order;
@@ -35,6 +34,7 @@ export interface PosReceiptSlipProps {
   shopPhone?: string;
   shopAddress?: string;
   shopLogoUrl?: string;
+  products?: Product[];
   resolvedWebUrl: string;
   resolvedFacebookUrl: string;
   copyTitle?: string;
@@ -54,12 +54,13 @@ export const PosReceiptSlip: React.FC<PosReceiptSlipProps> = ({
   shopPhone = '+880 1700-000000',
   shopAddress = 'Tangail, Bangladesh',
   shopLogoUrl,
+  products = [],
   resolvedWebUrl,
   resolvedFacebookUrl,
   copyTitle,
 }) => {
   const isNarrow = activePaper === '58mm';
-  const effectiveLogoUrl = shopLogoUrl || (typeof mockDb !== 'undefined' ? mockDb.getShopSettingsSync()?.logo_url : '') || '/images/aurora-logo.png';
+  const effectiveLogoUrl = shopLogoUrl || '/images/aurora-logo.png';
   const customerName = order.customer_name || (order as any).name || 'Customer';
   const customerPhone = order.customer_phone || (order as any).phone || '';
   const recipientName = order.recipient_name || customerName;
@@ -105,7 +106,7 @@ export const PosReceiptSlip: React.FC<PosReceiptSlipProps> = ({
 
     if (basePrice === undefined || salePrice === undefined) {
       try {
-        const prods = mockDb.getProductsSync();
+        const prods = products;
         const prod = prods.find((p) =>
           (it.product_id && p.id === it.product_id) ||
           (p.name && productName && p.name.trim().toLowerCase() === String(productName).trim().toLowerCase())
@@ -296,18 +297,6 @@ export const PosReceiptSlip: React.FC<PosReceiptSlipProps> = ({
           )}
         </div>
 
-        {/* Free Checklist */}
-        {order.id === 'ord-pos-demo' && settings.showComplimentaryKit && (
-          <div className="bg-emerald-50 text-emerald-950 p-1.5 rounded-xl border border-emerald-300 text-[10px] font-semibold space-y-0.5">
-            <div className="font-bold uppercase">✓ {settings.complimentaryKitTitle || 'Complimentary Kit Inside Box:'}</div>
-            {(settings.complimentaryItems && settings.complimentaryItems.length > 0
-              ? settings.complimentaryItems
-              : DEFAULT_COMPLIMENTARY_ITEMS
-            ).map((item, idx) => (
-              <div key={idx}>[✓] {item}</div>
-            ))}
-          </div>
-        )}
 
         {/* COD Notice */}
         <div className="border-t-2 border-black pt-2 flex justify-between items-center">
@@ -588,18 +577,6 @@ export const PosReceiptSlip: React.FC<PosReceiptSlipProps> = ({
         </div>
       </div>
 
-      {/* Complimentary Kit */}
-      {order.id === 'ord-pos-demo' && settings.showComplimentaryKit && (
-        <div className="text-[9px] text-slate-600 border-b border-dashed border-slate-400 pb-1.5 space-y-0.5">
-          <div className="font-bold text-slate-800 uppercase">✓ {settings.complimentaryKitTitle || 'Included with cake:'}</div>
-          {(settings.complimentaryItems && settings.complimentaryItems.length > 0
-            ? settings.complimentaryItems
-            : DEFAULT_COMPLIMENTARY_ITEMS
-          ).map((item, idx) => (
-            <div key={idx}>[✓] {item}</div>
-          ))}
-        </div>
-      )}
 
       {/* Web & Facebook QR Codes */}
       {(settings.showWebQr || settings.showFacebookQr) && (
@@ -635,7 +612,6 @@ export const PosReceiptSlip: React.FC<PosReceiptSlipProps> = ({
 
 interface Props {
   order: Order | null;
-  demo?: boolean;
   onClose: () => void;
   currency?: string;
   initialType?: PosReceiptType;
@@ -643,13 +619,13 @@ interface Props {
   shopPhone?: string;
   shopAddress?: string;
   shopLogoUrl?: string;
+  products?: Product[];
   websiteUrl?: string;
   facebookUrl?: string;
 }
 
 export const PosPrintModal: React.FC<Props> = ({
   order,
-  demo = false,
   onClose,
   currency = '৳',
   initialType,
@@ -657,6 +633,7 @@ export const PosPrintModal: React.FC<Props> = ({
   shopPhone = '+880 1700-000000',
   shopAddress = 'Tangail, Bangladesh',
   shopLogoUrl,
+  products = [],
   websiteUrl,
   facebookUrl,
 }) => {
@@ -685,6 +662,7 @@ export const PosPrintModal: React.FC<Props> = ({
       shopPhone={shopPhone}
       shopAddress={shopAddress}
       shopLogoUrl={shopLogoUrl}
+      products={products}
       resolvedWebUrl={resolvedWebUrl}
       resolvedFacebookUrl={resolvedFacebookUrl}
       copyTitle={copyTitle}
@@ -816,7 +794,7 @@ export const PosPrintModal: React.FC<Props> = ({
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 pt-2 border-t border-slate-100 shrink-0">
           <div className="text-[11px] text-slate-500 items-center gap-1.5 hidden sm:flex">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
-            <span>{demo ? 'নমুনা রসিদ · Print dialog খুলুন' : 'Print dialog থেকে printer বাছুন'}</span>
+            <span>Print dialog থেকে printer বাছুন</span>
           </div>
 
           <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -863,7 +841,6 @@ export const PosPrintModal: React.FC<Props> = ({
           <div className="ac-print-portal">
             <PosPaperStyle paper={activePaper}/>
             <div id="printable-pos-slip" className="w-full">
-              {demo && <p className="text-center text-xs font-bold">DEMO · SAMPLE RECEIPT</p>}
               {renderSingleSlip(settings.copiesCount === 2 ? 'Customer Copy' : undefined)}
               {settings.copiesCount === 2 && activeType === 'customer_memo' && (
                 <>

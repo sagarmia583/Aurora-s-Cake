@@ -6,10 +6,9 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { build } from 'esbuild';
 import { CheckoutModal } from '../src/components/CheckoutModal';
-import { mockDb } from '../src/services/mockDatabase';
 import { createSheetOrderAttempt } from '../src/services/googleSheetOrders';
 import * as recovery from '../src/services/checkoutRecovery';
-import { DEFAULT_PUBLIC_SITE_DATA } from '../src/content/defaultSiteData';
+import { DEFAULT_PUBLIC_SITE_DATA } from './catalog-fixture';
 import type { CartItem, Order } from '../src/types';
 import type { SheetOrderDraft } from '../src/services/googleSheetOrders';
 
@@ -201,23 +200,6 @@ test('a stale tab cannot resubmit fulfilled IDs or overwrite a later unsent part
   assert.deepEqual(recovery.loadCheckoutCart(), residual);
 });
 
-test('local demo completion supplies original cart proof and preserves unsent additions without a live POST', async t => {
-  const f = fixture(), later = { ...f.item, cart_item_id: 'demo-later-item', quantity: 1, total_price: f.item.unit_price };
-  storage.setItem('cake_cart_items_v1', JSON.stringify([f.item, later]));
-  t.mock.method(mockDb, 'createSecureOrder', async () => ({ success: true, order: f.order }));
-  const network = t.mock.method(globalThis, 'fetch', async () => { throw new Error('A demo must never become a live order'); });
-  const success = t.mock.fn((order: Order, completion?: recovery.CheckoutCompletion) => {
-    assert.equal(order.persistence, 'local_demo'); assert.ok(completion);
-    assert.deepEqual(completion.cart_lines.map(line => line.cart_item_id), [f.item.cart_item_id]);
-    recovery.settleCheckoutCart(recovery.loadCheckoutCart(), completion);
-  });
-  const close = t.mock.fn();
-  const view = await mount(t, { isOpen: true, onClose: close, onOrderSuccess: success, items: [f.item], currency: '৳', zones: [f.zone], slots: [f.slot] });
-  await fill(view.renderer, f.draft); await act(async () => view.renderer.root.findByType('form').props.onSubmit({ preventDefault() {} }));
-  assert.equal(success.mock.callCount(), 1); assert.equal(close.mock.callCount(), 1); assert.equal(network.mock.callCount(), 0);
-  assert.deepEqual(recovery.loadCheckoutCart().map(item => item.cart_item_id), ['demo-later-item']);
-});
-
 // Render the actual App state and event handlers. Only external APIs and
 // peripheral UI are replaced; durable bag settlement remains real.
 test('App preserves an unrelated bag line added while its original checkout is unconfirmed', async t => {
@@ -231,8 +213,6 @@ test('App preserves an unrelated bag line added while its original checkout is u
   const stubs: Record<string, string> = {
     './services/sheetReviews': `export const submitSheetReview=async()=>({review_id:'review-test',status:'pending'});`,
     './hooks/useGoogleSheetContent': `export const useGoogleSheetContent=()=>({data:globalThis.__checkoutAudit.data,endpoint:${JSON.stringify(endpoint)},status:{state:'connected',source:'google_sheets'},refresh:async()=>{},updateEndpoint(){}});`,
-    './services/mockDatabase': `export const mockDb={applyPublicSnapshot(){},subscribe:()=>()=>{},getOrders:()=>[],getCustomCakes:()=>[],getAuditLogs:()=>[]};`,
-    './services/backendDatabaseStatus': `export const unknownBackendDatabaseStatus={available:false,backend:'unknown'};export const loadBackendDatabaseStatus=async()=>unknownBackendDatabaseStatus;`,
     './services/dualHosting': `export const isGitHubPagesReadOnly=()=>false;export const getSharedBakeryApiOrigin=()=>null;export const getSharedBakeryApiUrl=()=>null;`,
     './services/googleSheetOrders': `export const loadConfirmedSheetOrders=()=>globalThis.__checkoutAudit.receipts;export const rememberConfirmedSheetOrder=o=>{globalThis.__checkoutAudit.receipts.push(o);return true};export const removeConfirmedSheetOrdersById=()=>{};`,
     './services/sheetStaffApi': `export const fetchCustomerOrderStatus=async(_e,o)=>({...o});export const redeemLegacyReceiptAccess=async()=>({});export const getStaffOrders=async()=>[];export const staffOrderToOrder=o=>o;`,

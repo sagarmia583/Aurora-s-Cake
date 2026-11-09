@@ -70,9 +70,8 @@ function auroraCustomerSharedOrder_(input){
 }
 /** Public HtmlService RPC; the private bearer key is still checked before any order read. */
 function customerSharedOrder(input){
-  try{if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();return auroraCustomerSharedOrder_(input||{});}
+  try{return auroraCustomerSharedOrder_(input||{});}
   catch(_){return {ok:false,error:'এই private order link পাওয়া যায়নি। দোকান থেকে নতুন link নিন।'};}
-  finally{if(typeof auroraSupabaseDiscard_==='function')auroraSupabaseDiscard_();}
 }
 function auroraReceiptHtml_(params){
   var proof={order_id:String(params.ref||''),share_token:String(params.access||'')};

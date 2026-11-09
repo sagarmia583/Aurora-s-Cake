@@ -3,7 +3,6 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useCakeDialog } from './useCakeDialog';
 import { X, Check, Plus, Minus, ShoppingBag, Sparkles, Zap, Star, Camera, Flame, SlidersHorizontal } from 'lucide-react';
 import { Product, Flavor, ProductAddon, CartItem, Review } from '../types';
-import { mockDb } from '../services/mockDatabase';
 import { getProductDisplayStats, isProductNew } from '../services/productStats';
 import { StorefrontPrice } from './StorefrontPrice';
 import { cleanFreeGiftItems, formatFreeGiftList } from '../utils/freeGifts';
@@ -52,7 +51,7 @@ const ProductDetailDialog: React.FC<Omit<ProductDetailModalProps, 'product'> & {
   const stats = useMemo(() => getProductDisplayStats(product), [product]);
 
   const productReviews = useMemo(() => {
-    const list = reviews || mockDb.getReviews();
+    const list = reviews || [];
     return list.filter((r) => r.product_id === product.id && r.status === 'approved');
   }, [reviews, product.id]);
 

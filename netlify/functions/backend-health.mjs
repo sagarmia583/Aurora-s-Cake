@@ -1,7 +1,7 @@
 import { withBakeryCors } from './shared-cors.mjs';
 /** Netlify-only read-only health metadata from authoritative Google Apps Script. */
 const SCRIPT_RE=/^\/macros\/s\/[A-Za-z0-9_-]+\/exec$/;
-const EXPECTED_RELEASE='aurora-2026-11-08-order-integrity-r6';
+const EXPECTED_RELEASE='aurora-2026-11-09-sheets-only-r7';
 const headers={'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
 const json=(status,body)=>new Response(JSON.stringify(body),{status,headers});
 async function health(request,{scriptUrl=process.env.AURORA_SCRIPT_POST_URL,fetcher=globalThis.fetch}={}){

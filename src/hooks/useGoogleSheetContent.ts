@@ -17,7 +17,7 @@ const EMPTY_SHEET_DATA: PublicSiteData = {
 const ENDPOINT_KEY = 'aurora_google_sheets_endpoint_v1';
 export interface SheetContentStatus {
   state: 'loading' | 'connected' | 'error';
-  source: 'google_sheets' | 'saved_snapshot' | 'bundled_preview';
+  source: 'google_sheets' | 'saved_snapshot' | 'unavailable';
   lastSyncedAt?: string;
   error?: string;
 }
@@ -32,14 +32,14 @@ function bootstrap() {
   try {
     const cache = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
     if (cache?.endpoint === endpoint && typeof cache?.savedAt === 'string') {
-      const preview=normalizePublicSiteData(cache.data);
+      const snapshot=normalizePublicSiteData(cache.data);
       // Old/local cached data remains visible but cannot initiate new COD
       // orders or profile changes until a fresh server snapshot is confirmed.
-      const data={...preview,order_submission_enabled:false,customer_order_profile_sync_enabled:false};
+      const data={...snapshot,order_submission_enabled:false,customer_order_profile_sync_enabled:false};
       return { endpoint, data, status: { state: 'loading', source: 'saved_snapshot', lastSyncedAt: cache.savedAt } as SheetContentStatus };
     }
   } catch { /* Invalid snapshots are never trusted. */ }
-  return { endpoint, data: EMPTY_SHEET_DATA, status: { state: 'loading', source: 'bundled_preview' } as SheetContentStatus };
+  return { endpoint, data: EMPTY_SHEET_DATA, status: { state: 'loading', source: 'unavailable' } as SheetContentStatus };
 }
 export function useGoogleSheetContent() {
   const [initial] = useState(bootstrap);
@@ -100,7 +100,7 @@ export function useGoogleSheetContent() {
         // Keep the last valid storefront connected while reporting temporary
         // refresh problems; no destructive fallback to bundled demo data.
         state: previous.lastSyncedAt && previous.source==='google_sheets' ? 'connected' : 'error',
-        source: previous.lastSyncedAt ? previous.source : 'bundled_preview',
+        source: previous.lastSyncedAt ? previous.source : 'unavailable',
         error: error instanceof Error ? error.message : 'The Google Sheets content could not be loaded.',
       }));
     } finally {
@@ -133,7 +133,7 @@ export function useGoogleSheetContent() {
     try { localStorage.setItem(ENDPOINT_KEY, next); } catch { /* Use this session when storage is blocked. */ }
     lastAppliedSnapshot.current = null;
     setData(EMPTY_SHEET_DATA);
-    setStatus({ state: 'loading', source: 'bundled_preview' });
+    setStatus({ state: 'loading', source: 'unavailable' });
     setEndpoint(next);
   };
   return { data, status, endpoint, refresh, updateEndpoint };

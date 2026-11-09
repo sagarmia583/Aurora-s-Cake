@@ -126,7 +126,6 @@ export function CmsScreen({
   catalog,
   onClose,
   onChanged,
-  preview = false,
 }: {
   table: string;
   title: string;
@@ -134,7 +133,6 @@ export function CmsScreen({
   catalog: Catalog;
   onClose: () => void;
   onChanged: () => void;
-  preview?: boolean;
 }) {
   const [snapshot, setSnapshot] = useState<{ columns: string[]; rows: Row[] }>({
       columns: [],
@@ -154,10 +152,6 @@ export function CmsScreen({
     setLoading(true);
     setError("");
     try {
-      if (preview) {
-        setSnapshot({ columns: [], rows: [] });
-        return;
-      }
       const d = await cmsList(token, table);
       if (alive.current) setSnapshot(d);
     } catch (e) {
@@ -169,7 +163,7 @@ export function CmsScreen({
   useEffect(() => {
     alive.current = true;
     void load();
-    if (table === "products" && !preview)
+    if (table === "products")
       void cmsList(token, "categories")
         .then((d) => {
           if (alive.current) setCategories(d.rows);
@@ -200,10 +194,6 @@ export function CmsScreen({
   };
   const save = async (archive = false) => {
     if (saving.current || !editing) return;
-    if (preview) {
-      setError("Design preview — live পরিবর্তন বন্ধ।");
-      return;
-    }
     saving.current = true;
     setBusy(true);
     setError("");
@@ -249,7 +239,7 @@ export function CmsScreen({
     }
   };
   const upload = async (field: string) => {
-    if (saving.current || preview) return;
+    if (saving.current) return;
     saving.current = true;
     setBusy(true);
     setError("");
@@ -303,7 +293,7 @@ export function CmsScreen({
         !editing && !["settings", "content"].includes(table) ? (
           <Button
             label="+ নতুন record"
-            disabled={loading || preview}
+            disabled={loading}
             onPress={() => choose({})}
           />
         ) : undefined
@@ -367,12 +357,8 @@ export function CmsScreen({
         ))}
       {!loading && !snapshot.rows.length && (
         <Empty
-          title={preview ? "Design preview" : "এখনও কোনো record নেই"}
-          detail={
-            preview
-              ? "এই preview থেকে real Sheet পরিবর্তন করা যায় না।"
-              : "Sheet-এ নতুন record যোগ করুন বা refresh করুন।"
-          }
+          title="এখনও কোনো record নেই"
+          detail="Sheet-এ নতুন record যোগ করুন বা refresh করুন।"
         />
       )}
       {editing && (
@@ -542,7 +528,6 @@ export function CmsScreen({
                     <Button
                       label="ফোন থেকে ছবি বাছুন"
                       busy={busy}
-                      disabled={preview}
                       kind="ghost"
                       onPress={() => void upload(field)}
                     />

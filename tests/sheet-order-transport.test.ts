@@ -172,13 +172,12 @@ test('receipt validation accepts picked_up and private receipt cache survives bl
   }
 });
 
-test('live checkout has COD-only copy while inactive live ordering remains an explicit device-only demo', () => {
+test('live checkout has COD-only copy and checkout without a Sheet endpoint is paused', () => {
   const props = { isOpen: true, onClose() {}, items: [], currency: '৳', zones: [], slots: [], onOrderSuccess() {} };
-  const demo = renderToStaticMarkup(React.createElement(CheckoutModal, props));
+  const paused = renderToStaticMarkup(React.createElement(CheckoutModal, props));
   const live = renderToStaticMarkup(React.createElement(CheckoutModal, { ...props, sheetOrderEndpoint: endpoint }));
-  assert.ok(demo.includes('Live ordering is not activated yet.'));
-  assert.ok(demo.includes('Save demo order'));
-  assert.ok(demo.includes('bKash'));
+  assert.match(paused, /Online ordering is temporarily paused/);
+  assert.doesNotMatch(paused, /Save demo order|bKash/);
   assert.ok(live.includes('the bakery confirms your order was saved'));
   assert.ok(live.includes('Place cash-on-delivery order'));
   assert.ok(live.includes('Estimated total'));

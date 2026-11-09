@@ -1,53 +1,30 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowRight, ArrowUpRight, ChevronDown, Clock, Database, Menu, Search, ShoppingBag, UserRound, X, Zap } from 'lucide-react';
-import { ShopSettings, StaffRole } from '../types';
+import { ArrowRight, ArrowUpRight, Clock, Menu, Search, ShoppingBag, UserRound, X } from 'lucide-react';
+import { ShopSettings } from '../types';
 import type { PublicSiteData } from '../types/siteContent';
 import { DEFAULT_PUBLIC_SITE_DATA } from '../content/defaultSiteData';
 import { BrandImage } from './BrandImage';
-import { databaseBackendLabel, type DatabaseBackend } from '../services/backendDatabaseStatus';
-
-export type ViewMode = 'web' | 'mobile_app';
 
 interface NavbarProps {
   settings: ShopSettings;
   publicData?: PublicSiteData;
-  onOpenSheetSettings?: () => void;
   onOpenStaffPortal?: () => void;
   onOpenCustomerAccount?: () => void;
-  isSheetConnected?: boolean;
-  activeRole: StaffRole | 'customer';
-  onRoleChange: (role: StaffRole | 'customer') => void;
-  viewMode: ViewMode;
-  onViewModeChange: (mode: ViewMode) => void;
   cartCount: number;
   onOpenCart: () => void;
   onOrderNow: () => void;
   onOpenProfile: () => void;
-  onOpenCacheHub: () => void;
-  onOpenDbViewer: () => void;
-  databaseBackend?: DatabaseBackend;
   onOpenTrackOrder: () => void;
   onOpenCustomCake: () => void;
   searchQuery: string;
   onSearchChange: (q: string) => void;
 }
 
-const staffRoles: { value: StaffRole | 'customer'; label: string }[] = [
-  { value: 'customer', label: 'Customer storefront' },
-  { value: 'super_admin', label: 'Super admin' },
-  { value: 'admin', label: 'Admin' },
-  { value: 'order_manager', label: 'Order manager' },
-  { value: 'kitchen_manager', label: 'Kitchen display' },
-  { value: 'delivery_manager', label: 'Delivery manager' },
-  { value: 'delivery_man', label: 'Delivery rider' },
-  { value: 'accountant', label: 'Accountant' },
-];
-
 export const Navbar: React.FC<NavbarProps> = ({
-  settings: suppliedSettings, activeRole, onRoleChange, viewMode, onViewModeChange, cartCount,
-  onOpenCart, onOrderNow, onOpenProfile, onOpenCacheHub, onOpenDbViewer,
-  databaseBackend, onOpenTrackOrder, onOpenCustomCake, searchQuery, onSearchChange,
-  publicData, onOpenSheetSettings, isSheetConnected, onOpenStaffPortal,
+  settings: suppliedSettings, cartCount,
+  onOpenCart, onOrderNow, onOpenProfile,
+  onOpenTrackOrder, onOpenCustomCake, searchQuery, onSearchChange,
+  publicData, onOpenStaffPortal,
 }) => {
   const data: PublicSiteData = publicData ?? DEFAULT_PUBLIC_SITE_DATA;
   const settings = publicData?.settings ?? suppliedSettings;
@@ -88,8 +65,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   }, [searchOpen]);
 
   const openStorefront = () => {
-    onRoleChange('customer');
-    onViewModeChange('web');
     setMobileOpen(false);
   };
   const customerAction = (action: () => void) => {
@@ -108,7 +83,6 @@ export const Navbar: React.FC<NavbarProps> = ({
         .ac-nav button:focus-visible,.ac-nav a:focus-visible,.ac-nav input:focus-visible,.ac-nav select:focus-visible{outline:2px solid #174B3B;outline-offset:5px}
         .ac-nav-top{height:32px;background:#174B3B;color:#FFF9EE;display:flex;align-items:center;justify-content:center;font-size:11px;letter-spacing:.08em;text-align:center;padding:0 50px;position:relative}
         .ac-nav-top span{opacity:.95}
-        .ac-nav-studio-toggle{position:absolute;right:max(28px,calc((100vw - 1220px)/2));top:0;height:32px;display:flex;align-items:center;gap:4px;border:0;background:none;color:#E4EFCF;font-size:10px!important;letter-spacing:.04em}
         .ac-nav-main{width:min(1220px,calc(100% - 80px));margin:auto;min-height:96px;padding:18px 0;display:flex;align-items:center;justify-content:space-between;gap:32px;border-bottom:1px solid #174b3b24}
         .ac-nav-brand{display:flex;align-items:center;gap:12px;flex-shrink:0}
         .ac-nav-brand-symbol{width:39px;height:45px;color:#174B3B}
@@ -136,14 +110,6 @@ export const Navbar: React.FC<NavbarProps> = ({
         .ac-nav-search-input{flex:1;min-width:0;border:0;background:transparent;outline:none;color:#24352E;font-size:14px!important;padding:8px 0}
         .ac-nav-search-input::placeholder{color:#174B3B}
         .ac-nav-search-submit{border:0;background:none;color:#174B3B;display:flex;align-items:center;gap:7px;font-size:11px!important;white-space:nowrap}
-        .ac-nav-studio{position:absolute;top:38px;right:max(24px,calc((100vw - 1220px)/2));width:282px;border:1px solid #174b3b24;background:#FFF9EE;padding:22px;box-shadow:0 16px 40px #174b3b1c;z-index:51}
-        .ac-nav-studio-title{font-family:'Roboto', 'Noto Sans Bengali', Arial, sans-serif;font-size:21px;font-weight:700;letter-spacing:-.5px;margin:0 0 17px}
-        .ac-nav-studio label{font-size:9px;letter-spacing:.12em;text-transform:uppercase;display:block;margin-bottom:7px;color:#174B3B}
-        .ac-nav-studio select{width:100%;padding:10px 8px;border:1px solid #174b3b24;background:#FFF9EE;color:#24352E;font-size:12px;margin-bottom:18px}
-        .ac-nav-view-switch{display:flex;border:1px solid #174b3b24;margin-bottom:17px}
-        .ac-nav-view-switch button{flex:1;background:none;border:0;padding:9px 3px;font-size:11px;color:#174B3B}
-        .ac-nav-view-switch button[aria-pressed=true]{background:#E4EFCF;color:#174B3B}
-        .ac-nav-studio-action{width:100%;display:flex;align-items:center;gap:9px;background:none;border:0;border-top:1px solid #174b3b24;color:#24352E;font-size:11px!important;padding:12px 0;text-align:left}
         .ac-nav-status{width:6px;height:6px;border-radius:50%;background:#F2B691;margin-left:auto}
         .ac-nav-status[data-connected=true]{background:#174B3B}
         .ac-nav-staff-notice{display:flex;align-items:center;justify-content:center;gap:14px;background:#E4EFCF;padding:9px 20px;font-size:11px;color:#24352E}

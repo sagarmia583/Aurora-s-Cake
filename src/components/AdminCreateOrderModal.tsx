@@ -37,10 +37,12 @@ import {
   Order, 
   CartItem 
 } from '../types';
-import { mockDb, validateCoupon } from '../services/mockDatabase';
+import { validateCoupon } from '../services/couponValidation';
+import { lookupStaffCustomer } from '../services/sheetStaffApi';
+import type { ShopSettings } from '../types';
 import { saveCustomerInfo } from '../services/customerDirectory';
 import { formatShortOrderNumber } from '../utils/orderUtils';
-import { validateBangladeshiPhone } from '../utils/phoneValidation';
+import { normalizeBangladeshiPhoneInput, validateBangladeshiPhone } from '../utils/phoneValidation';
 import { loadStaffCredential, getBrowserWorkspaceStorage } from '../services/staffWorkspaceSession';
 import { PosPrintModal } from './PosPrintModal';
 
@@ -83,6 +85,7 @@ interface AdminCreateOrderModalProps {
   currency: string;
   role: StaffRole;
   endpoint?: string;
+  shopSettings?: ShopSettings;
   staffIdentity?: string;
   onCatalogUpdated?: () => void;
   initialCartItems?: CartItem[];
@@ -101,6 +104,7 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
   currency,
   role,
   endpoint,
+  shopSettings,
   staffIdentity,
   onCatalogUpdated,
   initialCartItems,
@@ -207,10 +211,6 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
   const [cartItems, setCartItems] = useState<CartItem[]>(initialCartItems || []);
 
   // Payment & Billing Settings
-  const [paymentMethod, setPaymentMethod] = useState<'cod' | 'bkash' | 'nagad'>('cod');
-  const [advancePaidAmount, setAdvancePaidAmount] = useState(0);
-  const [bkashNumber, setBkashNumber] = useState('');
-  const [bkashTrxId, setBkashTrxId] = useState('');
   const [couponInput, setCouponInput] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
   const [couponError, setCouponError] = useState('');
@@ -229,25 +229,20 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
   const [createdOrder, setCreatedOrder] = useState<Order | null>(pendingRecord?.receipt||null);
   const [posPrintOrder, setPosPrintOrder] = useState<Order | null>(null);
 
-  // Auto-detect matching previous customer by phone number
   useEffect(() => {
-    const cleanPhone = customerPhone.replace(/\D/g, '');
-    if (cleanPhone.length >= 11) {
-      const allOrders = mockDb.getOrders();
-      const match = allOrders.find((o) => o.customer_phone?.replace(/\D/g, '') === cleanPhone);
-      if (match && (match.customer_name || match.delivery_address)) {
-        setMatchedCustomer({
-          name: match.customer_name || '',
-          address: match.delivery_address || '',
-          zone_id: match.delivery_zone?.id,
-        });
-      } else {
-        setMatchedCustomer(null);
-      }
-    } else {
-      setMatchedCustomer(null);
-    }
-  }, [customerPhone]);
+    setMatchedCustomer(null);
+    const phone = normalizeBangladeshiPhoneInput(customerPhone);
+    if (!endpoint || !staffIdentity || !validateBangladeshiPhone(phone).isValid) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      const token = loadStaffCredential(getBrowserWorkspaceStorage());
+      if (!token) return;
+      void lookupStaffCustomer(endpoint, token, phone).then(match => {
+        if (active && match) setMatchedCustomer({ name: match.name, address: match.delivery_address });
+      }).catch(() => {});
+    }, 350);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [customerPhone, endpoint, staffIdentity]);
 
   const handleApplyMatchedCustomer = () => {
     if (!matchedCustomer) return;
@@ -399,12 +394,7 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
   }, [appliedCoupon, itemsSubtotal]);
 
   const grandTotal = Math.max(0, itemsSubtotal - couponDiscount + deliveryFee);
-  const remainingDue = Math.max(0, grandTotal - advancePaidAmount);
-
-  // Set quick advance payment
-  const handleSetFullPayment = () => {
-    setAdvancePaidAmount(grandTotal);
-  };
+  const remainingDue = grandTotal;
 
   const handleResetForm = () => {
     if(endpoint&&staffIdentity){clearCompletedStaffOrder(endpoint,staffIdentity);setPendingRecord(null);}
@@ -417,10 +407,6 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
     setSelectedSlot(slots[0]?.slot_label || '');
     setEditingCartItemId(null);
     setCartItems([]);
-    setPaymentMethod('cod');
-    setAdvancePaidAmount(0);
-    setBkashNumber('');
-    setBkashTrxId('');
     setCouponInput('');
     setAppliedCoupon(null);
     setCouponError('');
@@ -465,66 +451,29 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
     setSubmitError('');
 
     try {
-      const creatorTitle = role === 'super_admin' ? 'Super Admin' : 'Admin Operations';
-
-      const draft:Parameters<typeof mockDb.createSecureOrder>[0] = {
-        customer_name: isGift && recipientName.trim() ? recipientName.trim() : customerName.trim(),
-        customer_phone: isGift && recipientPhone.trim() ? recipientPhone.trim() : customerPhone.trim(),
-        delivery_address: deliveryAddress.trim(),
-        delivery_zone_id: selectedZoneId,
-        delivery_slot: selectedSlot,
-        delivery_date: deliveryDate,
-        cart_items: cartItems,
-        coupon_code: appliedCoupon?.code,
-        order_note: orderNote.trim() || undefined,
-        payment_method: paymentMethod,
-        is_gift: isGift,
-        recipient_name: isGift ? recipientName.trim() : undefined,
-        recipient_phone: isGift ? recipientPhone.trim() : undefined,
-        sender_name: isGift ? customerName.trim() : undefined,
-        sender_phone: isGift ? customerPhone.trim() : undefined,
-        hide_price_on_box: isGift ? hidePriceOnBox : false,
-        gift_card_message: isGift ? giftCardMessage.trim() : undefined,
-        advance_paid_amount: advancePaidAmount,
-        bkash_number: paymentMethod !== 'cod' ? bkashNumber.trim() : undefined,
-        bkash_trx_id: paymentMethod !== 'cod' ? bkashTrxId.trim() : undefined,
-        initial_status: 'confirmed',
-        created_by: creatorTitle,
-      };
-      let res:{success:boolean;order:Order;error?:string};
-      if(endpoint) {
-        if(!staffIdentity)throw new Error('Staff session যাচাই হয়নি। আবার login করুন।');
-        if(paymentMethod!=='cod'||advancePaidAmount>0)throw new Error('এই live order form-এ cash on delivery ব্যবহার করুন। অগ্রিম পেমেন্ট এখানে সংরক্ষিত হয় না।');
-        const result=await createLiveStaffOrder(endpoint,loadStaffCredential(getBrowserWorkspaceStorage()),staffIdentity,{
-          customer_name:draft.customer_name,customer_phone:draft.customer_phone,delivery_address:draft.delivery_address,
-          delivery_zone_id:selectedZoneId,delivery_slot:selectedSlot,delivery_date:deliveryDate,payment_method:'cod',
-          coupon_code:appliedCoupon?.code,order_note:[orderNote.trim(),isGift?[
-            'Gift delivery',recipientName.trim()?'Recipient: '+recipientName.trim():'',
-            recipientPhone.trim()?'Recipient phone: '+recipientPhone.trim():'',
-            hidePriceOnBox?'Hide price on box':'',giftCardMessage.trim()?'Gift card: '+giftCardMessage.trim():''
-          ].filter(Boolean).join('\n'):''].filter(Boolean).join('\n'),expected_total:grandTotal,
-          cart_items:cartItems.map(item=>({product_id:item.product.id,variant_id:item.selected_variant.id,
-            flavor_id:item.selected_flavor?.id,addon_ids:item.selected_addons.map(a=>a.id),writing_message:item.writing_message,quantity:item.quantity})),
-        });
-        setCreationWarning(result.warning);setPendingRecord(savedStaffOrder(endpoint,staffIdentity));
-        res={success:true,order:result.order};
-      } else res=await mockDb.createSecureOrder(draft);
-
-      if (!res.success || !res.order) {
-        throw new Error(res.error || 'অর্ডার তৈরি করা সম্ভব হয়নি।');
-      }
-
+      if (!endpoint || !staffIdentity) throw new Error('Sign in before creating an order.');
+      const result=await createLiveStaffOrder(endpoint,loadStaffCredential(getBrowserWorkspaceStorage()),staffIdentity,{
+        customer_name:customerName.trim(),customer_phone:customerPhone.trim(),delivery_address:deliveryAddress.trim(),
+        delivery_zone_id:selectedZoneId,delivery_slot:selectedSlot,delivery_date:deliveryDate,payment_method:'cod',
+        coupon_code:appliedCoupon?.code, order_note:orderNote.trim() || undefined, expected_total:grandTotal,
+        ...(isGift ? { is_gift:true, recipient_name:recipientName.trim(), recipient_phone:recipientPhone.trim(),
+          sender_name:customerName.trim(), sender_phone:customerPhone.trim(),
+          hide_price_on_box:hidePriceOnBox, gift_card_message:giftCardMessage.trim() } : {}),
+        cart_items:cartItems.map(item=>({product_id:item.product.id,variant_id:item.selected_variant.id,
+          flavor_id:item.selected_flavor?.id,addon_ids:item.selected_addons.map(a=>a.id),writing_message:item.writing_message,quantity:item.quantity})),
+      });
+      setCreationWarning(result.warning);setPendingRecord(savedStaffOrder(endpoint,staffIdentity));
       // Save customer info locally for future auto-fill
       saveCustomerInfo({
         name: customerName.trim(),
         phone: customerPhone.trim(),
         address: deliveryAddress.trim(),
         zone_id: selectedZoneId,
-        last_order_id: res.order.id,
+        last_order_id: result.order.id,
       });
 
-      setCreatedOrder(res.order);
-      onOrderCreated?.(res.order);
+      setCreatedOrder(result.order);
+      onOrderCreated?.(result.order);
     } catch (err: unknown) {
       setSubmitError(err instanceof Error ? err.message : 'অর্ডার তৈরিতে সমস্যা হয়েছে।');
     } finally {
@@ -1293,96 +1242,7 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                {/* Payment Method */}
-                <div>
-                  <label className="text-[11px] font-bold text-slate-700 block mb-1">পেমেন্ট মেথড *</label>
-                  <select
-                    value={paymentMethod}
-                    onChange={(e) => setPaymentMethod(e.target.value as 'cod' | 'bkash' | 'nagad')}
-                    className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 bg-white text-slate-900 font-bold cursor-pointer"
-                  >
-                    <option value="cod">💵 ক্যাশ অন ডেলিভারি (COD / Counter)</option>
-                    {!endpoint&&<option value="bkash">📱 বিকাশ (bKash)</option>}
-                    {!endpoint&&<option value="nagad">📱 নগদ (Nagad)</option>}
-                  </select>
-                </div>
-
-                {/* Advance Paid Amount */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-[11px] font-bold text-slate-700">অগ্রিম পরিশোধিত টাকা (৳)</label>
-                    <button
-                      type="button"
-                      onClick={handleSetFullPayment}
-                      disabled={!!endpoint}
-                      className="text-[10px] text-emerald-800 font-bold hover:underline cursor-pointer"
-                    >
-                      সম্পূর্ণ পেইড
-                    </button>
-                  </div>
-                  <input
-                    type="number"
-                    min={0}
-                    max={grandTotal}
-                    value={advancePaidAmount}
-                    disabled={!!endpoint}
-                    onChange={(e) => setAdvancePaidAmount(Math.max(0, parseInt(e.target.value) || 0))}
-                    className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 bg-white text-slate-900 font-bold"
-                  />
-                  <div className="flex gap-1.5 mt-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setAdvancePaidAmount(0)}
-                      className="text-[10px] font-semibold px-2 py-0.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100"
-                    >
-                      ৳০ (বকেয়া)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAdvancePaidAmount(500)}
-                      disabled={!!endpoint}
-                      className="text-[10px] font-semibold px-2 py-0.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100"
-                    >
-                      ৳৫০০ অগ্রিম
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAdvancePaidAmount(grandTotal)}
-                      disabled={!!endpoint}
-                      className="text-[10px] font-semibold px-2 py-0.5 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-900"
-                    >
-                      ৳{grandTotal} (পেইড)
-                    </button>
-                  </div>
-                </div>
-
-                {/* TrxID if bKash/Nagad */}
-                {paymentMethod !== 'cod' && (
-                  <>
-                    <div>
-                      <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                        যে নম্বর থেকে টাকা এসেছে
-                      </label>
-                      <input
-                        type="tel"
-                        value={bkashNumber}
-                        onChange={(e) => setBkashNumber(e.target.value)}
-                        placeholder="01XXXXXXXXX"
-                        className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 bg-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[11px] font-bold text-slate-700 block mb-1">TrxID (ট্রানজ্যাকশন আইডি)</label>
-                      <input
-                        type="text"
-                        value={bkashTrxId}
-                        onChange={(e) => setBkashTrxId(e.target.value.toUpperCase())}
-                        placeholder="যেমন: BL89K7M2"
-                        className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 bg-white font-mono uppercase"
-                      />
-                    </div>
-                  </>
-                )}
+                <p className="text-sm font-semibold">Cash on delivery (COD)</p>
 
                 {/* Coupon Code */}
                 <div>
@@ -1392,7 +1252,7 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
                       type="text"
                       value={couponInput}
                       onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
-                      placeholder="যেমন: WELCOME100"
+                      placeholder="Coupon code"
                       className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 bg-white uppercase font-mono font-bold"
                     />
                     <button
@@ -1504,11 +1364,13 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
           onClose={() => setPosPrintOrder(null)}
           order={posPrintOrder}
           currency={currency}
-          shopName={mockDb.getShopSettingsSync().shop_name}
-          shopPhone={mockDb.getShopSettingsSync().phone}
-          shopAddress={mockDb.getShopSettingsSync().address}
-          websiteUrl={mockDb.getShopSettingsSync().website_url}
-          facebookUrl={mockDb.getShopSettingsSync().facebook_url}
+          shopName={shopSettings?.shop_name}
+          shopPhone={shopSettings?.phone}
+          shopAddress={shopSettings?.address}
+          shopLogoUrl={shopSettings?.logo_url}
+          products={products}
+          websiteUrl={shopSettings?.website_url}
+          facebookUrl={shopSettings?.facebook_url}
         />
       )}
     </div>

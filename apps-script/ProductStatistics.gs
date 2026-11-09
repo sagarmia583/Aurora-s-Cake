@@ -9,7 +9,6 @@ function auroraProductStatFormulas_(row,columns){
   };
 }
 function auroraEnsureProductStats_(book){
-  if(typeof auroraSupabaseEnabled_==='function'&&auroraSupabaseEnabled_())return;
   // Real Sheets expose getFormulas; legacy database adapters/test tables may not.
   var products=book.getSheetByName('products');
   if(!products||typeof products.getRange(1,1,1,1).getFormulas!=='function')return;

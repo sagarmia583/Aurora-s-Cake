@@ -11,8 +11,6 @@ import {
   QrCode, 
   Layers, 
   SlidersHorizontal,
-  Plus,
-  Trash2
 } from 'lucide-react';
 import { 
   PosPaperSize, 
@@ -20,7 +18,6 @@ import {
   PosPrinterSettings, 
   getPosPrinterSettings, 
   savePosPrinterSettings,
-  DEFAULT_COMPLIMENTARY_ITEMS
 } from '../services/posPrinterService';
 
 interface Props {
@@ -265,16 +262,6 @@ export const PosPrinterSettingsModal: React.FC<Props> = ({
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input
                   type="checkbox"
-                  checked={settings.showComplimentaryKit}
-                  onChange={(e) => setSettings((s) => ({ ...s, showComplimentaryKit: e.target.checked }))}
-                  className="rounded text-rose-600 focus:ring-rose-500 w-4 h-4"
-                />
-                <span className="text-slate-700">ফ্রি ছুরি ও মোমবাতি চেকলিস্ট</span>
-              </label>
-
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
                   checked={settings.showWebQr}
                   onChange={(e) => setSettings((s) => ({ ...s, showWebQr: e.target.checked }))}
                   className="rounded text-rose-600 focus:ring-rose-500 w-4 h-4"
@@ -303,96 +290,6 @@ export const PosPrinterSettingsModal: React.FC<Props> = ({
               </label>
             </div>
 
-            {/* Complimentary Kit Editor */}
-            {settings.showComplimentaryKit && (
-              <div className="pt-3 border-t border-slate-200 space-y-2 text-xs bg-emerald-50/50 p-3 rounded-2xl border border-emerald-200">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-emerald-950 flex items-center gap-1.5 text-[11px]">
-                    <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>কমপ্লিমেন্টারি ফ্রি কিট আইটেম এডিট করুন:</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSettings((s) => ({
-                        ...s,
-                        complimentaryKitTitle: 'Complimentary Kit Inside Box:',
-                        complimentaryItems: [...DEFAULT_COMPLIMENTARY_ITEMS],
-                      }))
-                    }
-                    className="text-[10px] text-slate-500 hover:text-slate-800 underline cursor-pointer"
-                  >
-                    ডিফল্ট সেট করুন
-                  </button>
-                </div>
-
-                <div>
-                  <label className="block text-slate-600 font-medium text-[10px] mb-0.5">
-                    রিসিট হেডিং টাইটেল:
-                  </label>
-                  <input
-                    type="text"
-                    value={settings.complimentaryKitTitle || ''}
-                    placeholder="Complimentary Kit Inside Box:"
-                    onChange={(e) =>
-                      setSettings((s) => ({ ...s, complimentaryKitTitle: e.target.value }))
-                    }
-                    className="w-full text-xs p-1.5 border border-slate-300 rounded-lg bg-white"
-                  />
-                </div>
-
-                <div className="space-y-1.5 pt-1">
-                  <label className="block text-slate-600 font-medium text-[10px]">
-                    আইটেমসমূহ (রিসিট ও স্টিকারে আসবে):
-                  </label>
-                  {(settings.complimentaryItems || DEFAULT_COMPLIMENTARY_ITEMS).map((item, idx) => (
-                    <div key={idx} className="flex items-center gap-1.5">
-                      <span className="text-[11px] font-mono text-emerald-700">[✓]</span>
-                      <input
-                        type="text"
-                        value={item}
-                        onChange={(e) => {
-                          const next = [...(settings.complimentaryItems || DEFAULT_COMPLIMENTARY_ITEMS)];
-                          next[idx] = e.target.value;
-                          setSettings((s) => ({ ...s, complimentaryItems: next }));
-                        }}
-                        className="flex-1 text-xs p-1.5 border border-slate-300 rounded-lg bg-white"
-                        placeholder="যেমন: Free Cake Knife (ছুরি)"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const next = (settings.complimentaryItems || DEFAULT_COMPLIMENTARY_ITEMS).filter(
-                            (_, i) => i !== idx
-                          );
-                          setSettings((s) => ({ ...s, complimentaryItems: next }));
-                        }}
-                        className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded cursor-pointer"
-                        title="মুছুন"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const current = settings.complimentaryItems || DEFAULT_COMPLIMENTARY_ITEMS;
-                      setSettings((s) => ({
-                        ...s,
-                        complimentaryItems: [...current, ''],
-                      }));
-                    }}
-                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] rounded-lg flex items-center gap-1 cursor-pointer mt-1"
-                  >
-                    <Plus className="w-3 h-3" />
-                    <span>নতুন আইটেম যোগ করুন</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
             {/* Custom URL Links for QR */}
             {(settings.showWebQr || settings.showFacebookQr) && (
               <div className="pt-3 border-t border-slate-200 space-y-2 text-xs">
@@ -403,7 +300,7 @@ export const PosPrinterSettingsModal: React.FC<Props> = ({
                     <input
                       type="url"
                       value={settings.websiteUrl || ''}
-                      placeholder="https://aurorascake.com (ফাঁকা রাখলে বর্তমান ডোমেইন)"
+                      placeholder="https://aurorascake.netlify.app (ফাঁকা রাখলে বর্তমান ডোমেইন)"
                       onChange={(e) => setSettings((s) => ({ ...s, websiteUrl: e.target.value }))}
                       className="w-full text-xs p-2 border border-slate-300 rounded-xl focus:ring-1 focus:ring-rose-500 outline-none"
                     />
@@ -436,14 +333,14 @@ export const PosPrinterSettingsModal: React.FC<Props> = ({
 
           {/* Modal Action Buttons */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-100">
-            <button
+            {onTestPrint && (<button
               type="button"
               onClick={handleTest}
               className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
             >
               <Printer className="w-4 h-4 text-slate-600" />
               <span>🖨️ টেস্ট প্রিন্ট করুন (Test Print)</span>
-            </button>
+            </button>)}
 
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <button

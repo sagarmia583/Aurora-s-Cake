@@ -4,7 +4,6 @@ import { X, RefreshCw, ShieldCheck, Truck, PackageCheck, LayoutDashboard, Shoppi
 import { checkStaffSession, getStaffOrderSnapshot, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, signOutStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword, lookupStaffCustomer } from '../services/sheetStaffApi';
 import type { StaffCustomerMatch, StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
-import { getSharedBakeryApiUrl } from '../services/dualHosting';
 import { getBrowserWorkspaceStorage, loadStaffCredential, saveStaffCredential, clearStaffCredential, loadStaffTab, saveStaffTab } from '../services/staffWorkspaceSession';
 import { reconcileStaffOrders, reconcileStaffOrderSnapshot, loadStaffOrdersSnapshot, saveStaffOrdersSnapshot, clearStaffOrdersSnapshot } from '../services/staffOrderSnapshot';
 import { activeStaffOrderAlertIds, detectNewStaffOrderAlerts } from '../services/staffOrderAlerts';
@@ -18,7 +17,9 @@ import {
   acknowledgeOrderAlert,
   stopOrderAlertLoop,
 } from '../services/orderSound';
-import { mockDb } from '../services/mockDatabase';
+import { DEFAULT_ROLE_PERMISSIONS } from '../services/staffPermissions';
+import { DEFAULT_PUBLIC_SITE_DATA } from '../content/defaultSiteData';
+import type { PublicSiteData } from '../types/siteContent';
 import { StaffPermissionCode, OrderStatus, Order } from '../types';
 import { PosPrintModal } from './PosPrintModal';
 import { PosPrinterSettingsModal } from './PosPrinterSettingsModal';
@@ -26,7 +27,6 @@ import { CollectionStatementModal } from './CollectionStatementModal';
 import { AdminCreateOrderModal } from './AdminCreateOrderModal';
 import { CustomerOrderLink } from './CustomerOrderLink';
 import { OrderDetailsModal } from './OrderDetailsModal';
-import { createDemoReceiptOrder } from '../services/posPrinterService';
 import { formatShortOrderNumber } from '../utils/orderUtils';
 // Download the larger forms only if the user opens those workspaces.
 const WebsiteManager=React.lazy(()=>import('./WebsiteManager').then(m=>({default:m.WebsiteManager})));
@@ -40,6 +40,9 @@ type GoogleSdk = {
 const googleSdk = (): GoogleSdk | undefined =>
   (window as Window & { google?: { accounts?: { id?: GoogleSdk } } }).google?.accounts?.id;
 
+const hasRolePermission = (role: StaffRoleName, permission: StaffPermissionCode) =>
+  DEFAULT_ROLE_PERMISSIONS[role]?.includes(permission) ?? false;
+
 function canOperate(role: StaffRoleName, operation: StaffOperation): boolean {
   // Super Admin and Admin can do ANY operation across the bakery without restriction
   if (role === 'super_admin' || role === 'admin') return true;
@@ -47,7 +50,7 @@ function canOperate(role: StaffRoleName, operation: StaffOperation): boolean {
   // Rider actions
   if (['pick_up', 'start_delivery', 'deliver'].includes(operation)) {
     // Delivery managers dispatch; only assigned riders and administrators complete deliveries.
-    return role === 'delivery_man' || (role !== 'delivery_manager' && (mockDb.hasPermission(role, 'delivery.complete') || mockDb.hasPermission(role, 'delivery.dispatch')));
+    return role === 'delivery_man' || (role !== 'delivery_manager' && (hasRolePermission(role, 'delivery.complete') || hasRolePermission(role, 'delivery.dispatch')));
   }
 
   const operationPermMap: Partial<Record<StaffOperation, StaffPermissionCode>> = {
@@ -62,7 +65,7 @@ function canOperate(role: StaffRoleName, operation: StaffOperation): boolean {
   };
 
   const neededPerm = operationPermMap[operation];
-  if (neededPerm && mockDb.hasPermission(role, neededPerm)) {
+  if (neededPerm && hasRolePermission(role, neededPerm)) {
     return true;
   }
 
@@ -95,9 +98,10 @@ interface StaffPortalProps {
   isOpen: boolean;
   onClose: () => void;
   endpoint: string;
+  catalog?: PublicSiteData;
   onCatalogUpdated?: () => void;
 }
-export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpoint, onCatalogUpdated }) => {
+export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpoint, catalog = DEFAULT_PUBLIC_SITE_DATA, onCatalogUpdated }) => {
   const oauthClientId = getAuroraGoogleClientId();
   const signinRef = useRef<HTMLDivElement>(null);
   const [identity, setIdentity] = useState<(StaffSession & { token: string }) | null>(null);
@@ -175,10 +179,9 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [backendWarning,setBackendWarning]=useState('');
   // Health is a read-only Netlify check, never an external database mirror.
   useEffect(()=>{
-    const sharedHealth=getSharedBakeryApiUrl('/api/backend-health');
-    if(!isOpen||typeof window==='undefined'||(!sharedHealth&&!window.location.hostname.endsWith('.netlify.app')))return;
+    if(!isOpen||typeof window==='undefined')return;
     const controller=new AbortController();
-    void fetch(sharedHealth||'/api/backend-health',{credentials:sharedHealth?'omit':'same-origin',cache:'no-store',signal:controller.signal})
+    void fetch('/api/backend-health',{credentials:'same-origin',cache:'no-store',signal:controller.signal})
       .then(async response=>{
         const data=await response.json().catch(()=>null);
         if(controller.signal.aborted)return;
@@ -228,10 +231,10 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const roleTabs:{id:StaffTab;label:string;icon:typeof LayoutDashboard;show:boolean}[]=[
     {id:'overview',label:'Overview',icon:LayoutDashboard,show:true},
     {id:'orders',label:'Orders & delivery',icon:ShoppingBag,show:true},
-    {id:'cakes',label:'Custom cake requests',icon:CakeSlice,show:['super_admin','admin','order_manager'].includes(identity?.role||'') || Boolean(identity && mockDb.hasPermission(identity.role, 'custom_cakes.manage'))},
-    {id:'costing',label:'Costing & Profit (কস্টিং ও লাভ)',icon:Calculator,show:['super_admin','admin','order_manager','accountant'].includes(identity?.role||'') || Boolean(identity && mockDb.hasPermission(identity.role, 'costing.view'))},
-    {id:'team',label:'Staff & access',icon:UsersRound,show:['super_admin','admin'].includes(identity?.role||'') || Boolean(identity && mockDb.hasPermission(identity.role, 'staff.manage'))},
-    {id:'website',label:'Website manager',icon:Store,show:identity?.role==='super_admin'||identity?.role==='admin' || Boolean(identity && mockDb.hasPermission(identity.role, 'settings.manage'))},
+    {id:'cakes',label:'Custom cake requests',icon:CakeSlice,show:['super_admin','admin','order_manager'].includes(identity?.role||'') || Boolean(identity && hasRolePermission(identity.role, 'custom_cakes.manage'))},
+    {id:'costing',label:'Costing & Profit (কস্টিং ও লাভ)',icon:Calculator,show:['super_admin','admin','order_manager','accountant'].includes(identity?.role||'') || Boolean(identity && hasRolePermission(identity.role, 'costing.view'))},
+    {id:'team',label:'Staff & access',icon:UsersRound,show:['super_admin','admin'].includes(identity?.role||'') || Boolean(identity && hasRolePermission(identity.role, 'staff.manage'))},
+    {id:'website',label:'Website manager',icon:Store,show:identity?.role==='super_admin'||identity?.role==='admin' || Boolean(identity && hasRolePermission(identity.role, 'settings.manage'))},
   ];
   const tabs=roleTabs.filter(tab=>tab.show);
   const pipeline=['pending','confirmed','preparing','ready','assigned','picked_up','out_for_delivery','delivered'];
@@ -676,7 +679,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                 <div className="flex items-center gap-3 rounded-2xl bg-[#eff5f0] p-3">
                   <div className="relative shrink-0">
                     <img
-                      src={mockDb.getShopSettingsSync().profile_image_url || mockDb.getShopSettingsSync().logo_url || '/images/aurora-logo.png'}
+                      src={catalog.settings.profile_image_url || catalog.settings.logo_url || '/images/aurora-logo.png'}
                       alt={identity.name}
                       className="h-11 w-11 rounded-xl object-cover border border-emerald-900/15 shadow-2xs bg-white"
                       onError={(e) => {
@@ -1363,7 +1366,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
               )}
               <React.Suspense fallback={<div className="rounded-2xl bg-white border p-8 text-center text-slate-500" role="status">Opening your workspace…</div>}>
                 {activeTab==='cakes'&&(['super_admin','admin','order_manager'] as string[]).includes(identity.role) && <CustomCakeQueue endpoint={endpoint} token={identity.token} />}
-                {activeTab==='costing'&&(['super_admin','admin','order_manager','accountant'] as string[]).includes(identity.role) && <ItemCostingManager products={mockDb.getProductsSync()} orders={orders} endpoint={endpoint} token={identity.token} onProductCostingUpdated={() => onCatalogUpdated?.()} />}
+                {activeTab==='costing'&&(['super_admin','admin','order_manager','accountant'] as string[]).includes(identity.role) && <ItemCostingManager products={catalog.products} orders={orders} endpoint={endpoint} token={identity.token} onProductCostingUpdated={() => onCatalogUpdated?.()} />}
                 {activeTab==='website'&&(identity.role === 'super_admin' || identity.role === 'admin') && <WebsiteManager endpoint={endpoint} token={identity.token}
                   role={identity.role} onUpdated={() => onCatalogUpdated?.()} />}
               </React.Suspense>
@@ -1379,17 +1382,16 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
           isOpen={!!selectedOrderForDetails}
           order={selectedOrderForDetails as Order}
           onClose={() => setSelectedOrderForDetails(null)}
-          currency={mockDb.getShopSettingsSync().currency}
-          shopName={mockDb.getShopSettingsSync().shop_name}
-          shopPhone={mockDb.getShopSettingsSync().phone}
-          shopAddress={mockDb.getShopSettingsSync().address}
-          websiteUrl={mockDb.getShopSettingsSync().website_url}
-          facebookUrl={mockDb.getShopSettingsSync().facebook_url}
+          currency={catalog.settings.currency}
+          shopName={catalog.settings.shop_name}
+          shopPhone={catalog.settings.phone}
+          shopAddress={catalog.settings.address}
+          shopLogoUrl={catalog.settings.logo_url}
+          products={catalog.products}
+          websiteUrl={catalog.settings.website_url}
+          facebookUrl={catalog.settings.facebook_url}
           userRole={identity?.role || 'staff'}
           endpoint={endpoint}
-          onOrderUpdated={(updatedOrder) => {
-            setSelectedOrderForDetails({ ...updatedOrder });
-          }}
           onStatusChange={(orderId, newStatus) => {
             const op =
               newStatus === 'confirmed'
@@ -1418,12 +1420,14 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
         <PosPrintModal
           order={selectedOrderForPosPrint as Order}
           onClose={() => setSelectedOrderForPosPrint(null)}
-          currency={mockDb.getShopSettingsSync().currency}
-          shopName={mockDb.getShopSettingsSync().shop_name}
-          shopPhone={mockDb.getShopSettingsSync().phone}
-          shopAddress={mockDb.getShopSettingsSync().address}
-          websiteUrl={mockDb.getShopSettingsSync().website_url}
-          facebookUrl={mockDb.getShopSettingsSync().facebook_url}
+          currency={catalog.settings.currency}
+          shopName={catalog.settings.shop_name}
+          shopPhone={catalog.settings.phone}
+          shopAddress={catalog.settings.address}
+          shopLogoUrl={catalog.settings.logo_url}
+          products={catalog.products}
+          websiteUrl={catalog.settings.website_url}
+          facebookUrl={catalog.settings.facebook_url}
         />
       )}
 
@@ -1432,10 +1436,6 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
         <PosPrinterSettingsModal
           isOpen={isPosSettingsOpen}
           onClose={() => setIsPosSettingsOpen(false)}
-          onTestPrint={() => {
-            setIsPosSettingsOpen(false);
-            setSelectedOrderForPosPrint(createDemoReceiptOrder('৳'));
-          }}
         />
       )}
 
@@ -1453,13 +1453,14 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
         <AdminCreateOrderModal
           isOpen={isCreateOrderModalOpen}
           onClose={() => setIsCreateOrderModalOpen(false)}
-          products={mockDb.getProductsSync()}
-          zones={mockDb.getDeliveryZones()}
-          slots={mockDb.getDeliverySlots()}
-          flavors={mockDb.getFlavors()}
-          addons={mockDb.getAddons()}
-          coupons={mockDb.getCoupons()}
-          currency={mockDb.getShopSettingsSync().currency}
+          products={catalog.products}
+          shopSettings={catalog.settings}
+          zones={catalog.zones}
+          slots={catalog.slots}
+          flavors={catalog.flavors}
+          addons={catalog.addons}
+          coupons={catalog.coupons}
+          currency={catalog.settings.currency}
           role={identity.role as any}
           endpoint={endpoint}
           staffIdentity={identity.email}

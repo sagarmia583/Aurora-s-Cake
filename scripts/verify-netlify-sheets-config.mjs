@@ -28,6 +28,14 @@ console.log('Netlify/Sheets-only preflight PASS:',release);
 for(const path of ['vercel.json','wrangler.toml','wrangler.pages.toml','firebase.json','public/_routes.json','cloudflare/worker.js','api/operations.js','functions/api/operations.js'])
  assert.ok(!existsSync(new URL('../'+path,import.meta.url)),path+' must be absent');
 
+for(const context of ['deploy-preview','branch-deploy']){
+ const settings=netlify.split('[context.'+context+']')[1]?.split(/\n\[/)[0];
+ assert.match(settings??'',/ignore\s*=\s*"exit 0"/,context+' must skip publishing.');
+}
+for(const path of ['.github/workflows/github-pages.yml','scripts/vite-order-preview.mjs',
+  'src/components/PosDesignPreview.tsx','src/services/mockDatabase.ts','apps-script/SupabaseStore.gs'])
+ assert.ok(!existsSync(new URL('../'+path,import.meta.url)),path+' must be absent');
+
 const mapped = [
  ['public','/api/public'],
  ['backend-health','/api/backend-health'],

@@ -25,7 +25,6 @@ export function OrderDetail({
   catalog,
   onClose,
   onChanged,
-  preview = false,
 }: {
   order: StaffOrder;
   session: StaffSession;
@@ -33,7 +32,6 @@ export function OrderDetail({
   catalog: Catalog;
   onClose: () => void;
   onChanged: (o: StaffOrder) => void;
-  preview?: boolean;
 }) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -51,10 +49,6 @@ export function OrderDetail({
   const next = nextOperation(o, session);
   const action = async (operation: Operation, selfDispatch = false) => {
     if (lock.current) return;
-    if (preview) {
-      setError("Design preview — live order পরিবর্তন হবে না।");
-      return;
-    }
     if (operation === "assign" && !selectedRider) {
       setError("আগে rider বাছুন।");
       return;
@@ -161,7 +155,7 @@ export function OrderDetail({
           })}
         </View>
       </View>
-      {['super_admin','admin','order_manager','delivery_manager'].includes(session.role)&&<CustomerLink token={token} orderId={o.id} orderNumber={formatOrderNumber(o.order_number)} initialUrl={o.customer_share_url} preview={preview}/>}
+      {['super_admin','admin','order_manager','delivery_manager'].includes(session.role)&&<CustomerLink token={token} orderId={o.id} orderNumber={formatOrderNumber(o.order_number)} initialUrl={o.customer_share_url}/>}
       <View style={T.card}>
         <Text style={T.eyebrow}>MAKE IT JUST RIGHT</Text>
         {richItems(o).map((i, index) => (
@@ -380,7 +374,7 @@ export function OrderDetail({
           )}
         </View>
       )}
-      {pos&&<PosSheet order={o} catalog={catalog} demo={preview} onClose={()=>setPos(false)}/>}
+      {pos&&<PosSheet order={o} catalog={catalog} onClose={()=>setPos(false)}/>}
     </Sheet>
   );
 }

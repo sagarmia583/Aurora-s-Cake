@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DEFAULT_PUBLIC_SITE_DATA } from '../src/content/defaultSiteData';
+import { DEFAULT_PUBLIC_SITE_DATA } from './catalog-fixture';
 import { reconcilePublicCart, reorderFromPublicOrder } from '../src/services/reconcilePublicCart';
 import type { CartItem, Order } from '../src/types';
 

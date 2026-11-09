@@ -18,7 +18,6 @@ import {
   Camera
 } from 'lucide-react';
 import { Order, OrderStatus, Review } from '../types';
-import { mockDb } from '../services/mockDatabase';
 
 interface OrderTrackingModalProps {
   isOpen: boolean;
@@ -101,7 +100,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
 
   const handleTrackReviewSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedOrder || !reviewComment.trim()) return;
+    if (!onAddReview || !selectedOrder || !reviewComment.trim()) return;
     const firstItem = selectedOrder.items[0];
     const reviewData = {
       product_id: firstItem?.product_id || 'prod-custom',
@@ -112,11 +111,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
       image_url: reviewImage.trim() || undefined,
       verified_purchase: true,
     };
-    if (onAddReview) {
-      onAddReview(reviewData);
-    } else {
-      mockDb.addReview(reviewData);
-    }
+    onAddReview(reviewData);
     setReviewSuccess(true);
     setTimeout(() => {
       setShowReviewModal(false);
@@ -362,27 +357,11 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
             </div>
           )}
 
-          {/* Complimentary Kit Guarantee */}
-          {(() => {
-            const compSettings = mockDb.getShopSettingsSync();
-            const compItems = compSettings?.complimentary_kit_items;
-            const itemsText = compItems && compItems.length > 0
-              ? compItems.join(' + ')
-              : 'কেক কাটার ছুরি + রঙিন মোমবাতি + প্রিমিয়াম বক্স';
-            return (
-              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3 text-xs flex items-center justify-between text-emerald-950 font-semibold">
-                <span className="flex items-center gap-1.5">
-                  <span>🎂</span>
-                  <span>
-                    {compSettings?.complimentary_kit_title || 'ফ্রি কমপ্লিমেন্টারি কিট:'} {itemsText}
-                  </span>
-                </span>
-                <span className="text-emerald-800 text-[10px] bg-emerald-200/80 px-2 py-0.5 rounded-full font-bold">
-                  ইনক্লুডেড ✓
-                </span>
-              </div>
-            );
-          })()}
+          {selectedOrder.items.some(item => item.free_gift_items?.length) && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3 text-xs text-emerald-950">
+              Complimentary items: {[...new Set(selectedOrder.items.flatMap(item => item.free_gift_items || []))].join(', ')}
+            </div>
+          )}
 
           {/* Delivery & Rider Info */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

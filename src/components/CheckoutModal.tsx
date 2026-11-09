@@ -14,11 +14,9 @@ import {
   Sparkles,
   ShoppingBag,
   Gift,
-  Copy,
-  Check
 } from 'lucide-react';
-import { CartItem, DeliveryZone, DeliverySlot, Order, PaymentMethod } from '../types';
-import { mockDb, validateCoupon } from '../services/mockDatabase';
+import { CartItem, DeliveryZone, DeliverySlot, Order, Coupon } from '../types';
+import { validateCoupon } from '../services/couponValidation';
 import { CheckoutProductGiftNote } from './CheckoutProductGiftNote';
 import { calculateSheetOrderEstimate, createSheetOrderAttempt, submitSheetOrder, SheetOrderSubmissionError, loadConfirmedSheetOrders } from '../services/googleSheetOrders';
 import { getPhoneCustomerProfile } from '../services/phoneCustomerApi';
@@ -39,6 +37,7 @@ interface CheckoutModalProps {
   currency: string;
   zones: DeliveryZone[];
   slots: DeliverySlot[];
+  coupons?: Coupon[];
   onOrderSuccess: (order: Order, completion?: CheckoutCompletion) => void;
   sheetOrderEndpoint?: string;
   orderingPaused?: boolean;
@@ -54,6 +53,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   currency,
   zones,
   slots,
+  coupons = [],
   onOrderSuccess,
   sheetOrderEndpoint,
   orderingPaused = false,
@@ -61,13 +61,11 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const [initialRecovery] = useState<CheckoutRecovery>(() => sheetOrderEndpoint ? inspectPendingCheckout(sheetOrderEndpoint) : { status: 'empty' });
   const recovered = initialRecovery.status === 'ready' ? initialRecovery.pending : null;
   const recoveredDraft = recovered ? JSON.parse(recovered.attempt.body) as SheetOrderDraft : null;
-  // Capture the intent on first opening. Losing the public enabled flag must never
-  // turn an existing real order into a successful device-only demo.
+  // Keep the same Sheet target across changes to public ordering availability.
   const checkoutTargetRef = useRef<{ endpoint?: string } | null>(null);
   if (isOpen && !checkoutTargetRef.current) checkoutTargetRef.current = { endpoint: sheetOrderEndpoint };
   const liveOrderEndpoint = checkoutTargetRef.current?.endpoint;
-  const isLiveOrder = !!liveOrderEndpoint;
-  const liveOrderingPaused = isLiveOrder && (orderingPaused || !sheetOrderEndpoint);
+  const liveOrderingPaused = orderingPaused || !liveOrderEndpoint || !sheetOrderEndpoint;
 
   // Form State
   const [customerName, setCustomerName] = useState(recoveredDraft?.customer_name || '');
@@ -81,7 +79,6 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const [selectedSlot, setSelectedSlot] = useState(recoveredDraft?.delivery_slot || '');
   const [deliveryDate, setDeliveryDate] = useState(() => recoveredDraft?.delivery_date || localDate());
   const [orderNote, setOrderNote] = useState(recoveredDraft?.order_note || '');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cod');
 
   // Gift & Surprise Delivery State
   const [isGift, setIsGift] = useState(recoveredDraft?.is_gift === true);
@@ -91,12 +88,6 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   const [senderPhone, setSenderPhone] = useState(normalizeBangladeshiPhoneInput(recoveredDraft?.sender_phone || ''));
   const [hidePriceOnBox, setHidePriceOnBox] = useState(recoveredDraft?.hide_price_on_box !== false);
   const [giftCardMessage, setGiftCardMessage] = useState(recoveredDraft?.gift_card_message || '');
-
-  // bKash / Nagad Advance Payment State
-  const [paymentMode, setPaymentMode] = useState<'full' | 'advance'>('advance');
-  const [paymentSenderPhone, setPaymentSenderPhone] = useState('');
-  const [paymentTrxId, setPaymentTrxId] = useState('');
-  const [copiedNumber, setCopiedNumber] = useState(false);
 
   // Coupon
   const [couponInput, setCouponInput] = useState('');
@@ -231,19 +222,11 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
   }, 0);
   const cakeDiscountTotal = Math.max(0, originalSubtotal - itemsSubtotal);
 
-  const coupon = mockDb.getCoupons().find((item) => item.code.toUpperCase() === appliedCoupon && item.is_active);
-  const liveEstimate = isLiveOrder ? calculateSheetOrderEstimate(itemsSubtotal, selectedZone?.delivery_fee ?? 0, coupon) : undefined;
-  let estimatedDiscount = liveEstimate?.discount ?? 0;
-  if (!isLiveOrder && coupon) {
-    const val = validateCoupon(coupon, itemsSubtotal);
-    if (val.isValid) {
-      estimatedDiscount = val.discount;
-    }
-  }
-  const estimatedTotal = liveEstimate?.total ?? Math.max(0, itemsSubtotal - estimatedDiscount + (selectedZone?.delivery_fee || 0));
+  const coupon = coupons.find((item) => item.code.toUpperCase() === appliedCoupon && item.is_active);
+  const { discount: estimatedDiscount, total: estimatedTotal } = calculateSheetOrderEstimate(itemsSubtotal, selectedZone?.delivery_fee ?? 0, coupon);
 
   const availableCoupons = useMemo(() => {
-    const list = mockDb.getCoupons();
+    const list = coupons;
     const now = new Date();
     return list.filter((c) => {
       if (!c.is_active) return false;
@@ -258,13 +241,13 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
       if (c.usage_limit && c.usage_limit > 0 && (c.usage_count || 0) >= c.usage_limit) return false;
       return true;
     });
-  }, [itemsSubtotal]);
+  }, [coupons]);
 
   const handleApplyCoupon = (targetCode?: string) => {
     setCouponError(null);
     const code = (targetCode ?? couponInput).trim().toUpperCase();
     if (!code) return;
-    const match = mockDb.getCoupons().find((item) => item.code.toUpperCase() === code && item.is_active);
+    const match = coupons.find((item) => item.code.toUpperCase() === code && item.is_active);
     if (!match) {
       setCouponError('This coupon is not available.');
       return;
@@ -324,10 +307,6 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
       setErrorMessage('প্রেরকের মোবাইল নম্বরটি সঠিক ১১ ডিজিটের হতে হবে।');
       return;
     }
-    if (paymentMethod !== 'cod' && !validateBangladeshiPhone(paymentSenderPhone).isValid) {
-      setErrorMessage('পেমেন্ট প্রেরকের মোবাইল নম্বরটি সঠিক ১১ ডিজিটের হতে হবে।');
-      return;
-    }
     submissionInFlight.current = true;
     setIsSubmitting(true);
     setErrorMessage(null);
@@ -347,7 +326,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     if (submissionInFlight.current) return;
     // An uncertain original write must be retried unchanged before consulting refreshed form or catalog data.
     if (unconfirmed && orderAttemptRef.current) { await retryOriginalOrder(); return; }
-    if (liveOrderingPaused) {
+    if (liveOrderingPaused || !liveOrderEndpoint) {
       setErrorMessage('Online ordering is temporarily paused. Your bag and checkout details have been kept.');
       return;
     }
@@ -380,71 +359,35 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
     submissionInFlight.current = true;
     setIsSubmitting(true);
     try {
-      if (liveOrderEndpoint) {
-        orderAttemptRef.current = createSheetOrderAttempt(liveOrderEndpoint, {
-          customer_name: customerName,
-          customer_phone: customerPhone,
-          delivery_address: deliveryAddress,
-          delivery_zone_id: selectedZone.id,
-          delivery_slot: selectedDeliverySlot,
-          delivery_date: deliveryDate,
-          cart_items: items.map(item => ({
-            product_id: item.product.id,
-            variant_id: item.selected_variant.id,
-            ...(item.selected_flavor ? { flavor_id: item.selected_flavor.id } : {}),
-            addon_ids: item.selected_addons.map(addon => addon.id),
-            writing_message: item.writing_message,
-            quantity: item.quantity,
-          })),
-          ...(appliedCoupon ? { coupon_code: appliedCoupon } : {}),
-          ...(orderNote.trim() ? { order_note: orderNote } : {}),
-          payment_method: 'cod',
-          ...(isGift ? {
-            is_gift: true, recipient_name: recipientName.trim(), recipient_phone: recipientPhone.trim(),
-            sender_name: senderName.trim() || customerName.trim(), sender_phone: senderPhone.trim(),
-            hide_price_on_box: hidePriceOnBox, gift_card_message: giftCardMessage.trim(),
-          } : {}),
-          expected_total: estimatedTotal,
-        }, orderAttemptRef.current);
-        const pending = await preservePendingCheckout(orderAttemptRef.current, captureCheckoutCart(items));
-        pendingCheckoutRef.current = pending;
-        const confirmedOrder = await submitSheetOrder(pending.attempt);
-        await finishLiveOrder(confirmedOrder, pending);
-      } else {
-        const advanceAmount = paymentMethod !== 'cod' ? (paymentMode === 'full' ? estimatedTotal : Math.min(estimatedTotal, 500)) : 0;
-        const result = await mockDb.createSecureOrder({
-          customer_name: (isGift && recipientName.trim() ? recipientName.trim() : customerName.trim()),
-          customer_phone: (isGift && recipientPhone.trim() ? recipientPhone.trim() : customerPhone.trim()),
-          delivery_address: deliveryAddress.trim(),
-          delivery_zone_id: selectedZone.id,
-          delivery_slot: selectedDeliverySlot,
-          delivery_date: deliveryDate,
-          cart_items: items,
-          coupon_code: appliedCoupon || undefined,
-          order_note: orderNote || undefined,
-          payment_method: paymentMethod,
-          is_gift: isGift,
-          recipient_name: isGift ? recipientName.trim() : undefined,
-          recipient_phone: isGift ? recipientPhone.trim() : undefined,
-          sender_name: isGift ? (senderName.trim() || customerName.trim()) : undefined,
-          sender_phone: isGift ? (senderPhone.trim() || customerPhone.trim()) : undefined,
-          hide_price_on_box: isGift ? hidePriceOnBox : false,
-          gift_card_message: isGift ? giftCardMessage.trim() : undefined,
-          advance_paid_amount: advanceAmount,
-          bkash_number: paymentMethod !== 'cod' ? paymentSenderPhone.trim() : undefined,
-          bkash_trx_id: paymentMethod !== 'cod' ? paymentTrxId.trim() : undefined,
-        });
-        if (!result.success) throw new Error(result.error || 'The demo order could not be saved on this device.');
-        saveCustomerInfo({
-          phone: customerPhone,
-          name: customerName,
-          address: deliveryAddress,
-          zone_id: selectedZone?.id,
-          last_order_id: result.order.id,
-        });
-        onOrderSuccess({ ...result.order, persistence: 'local_demo' }, { request_id: 'demo-' + result.order.id, cart_lines: captureCheckoutCart(items) });
-        onClose();
-      }
+      orderAttemptRef.current = createSheetOrderAttempt(liveOrderEndpoint, {
+        customer_name: customerName,
+        customer_phone: customerPhone,
+        delivery_address: deliveryAddress,
+        delivery_zone_id: selectedZone.id,
+        delivery_slot: selectedDeliverySlot,
+        delivery_date: deliveryDate,
+        cart_items: items.map(item => ({
+          product_id: item.product.id,
+          variant_id: item.selected_variant.id,
+          ...(item.selected_flavor ? { flavor_id: item.selected_flavor.id } : {}),
+          addon_ids: item.selected_addons.map(addon => addon.id),
+          writing_message: item.writing_message,
+          quantity: item.quantity,
+        })),
+        ...(appliedCoupon ? { coupon_code: appliedCoupon } : {}),
+        ...(orderNote.trim() ? { order_note: orderNote } : {}),
+        payment_method: 'cod',
+        ...(isGift ? {
+          is_gift: true, recipient_name: recipientName.trim(), recipient_phone: recipientPhone.trim(),
+          sender_name: senderName.trim() || customerName.trim(), sender_phone: senderPhone.trim(),
+          hide_price_on_box: hidePriceOnBox, gift_card_message: giftCardMessage.trim(),
+        } : {}),
+        expected_total: estimatedTotal,
+      }, orderAttemptRef.current);
+      const pending = await preservePendingCheckout(orderAttemptRef.current, captureCheckoutCart(items));
+      pendingCheckoutRef.current = pending;
+      const confirmedOrder = await submitSheetOrder(pending.attempt);
+      await finishLiveOrder(confirmedOrder, pending);
     } catch (error: unknown) {
       await handleSubmissionFailure(error);
     } finally {
@@ -463,7 +406,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
         <div className="p-6 bg-gradient-to-r from-rose-50 to-amber-50 border-b border-rose-100 flex items-center justify-between">
           <div>
             <span className="text-xs font-bold uppercase tracking-wider text-rose-600 bg-rose-100/70 px-2.5 py-0.5 rounded-full">
-              {isLiveOrder ? 'Cash-on-delivery checkout' : 'Demo checkout'}
+              Cash-on-delivery checkout
             </span>
             <h3 id="checkout-title" className="text-xl font-bold text-slate-900 mt-1">A little closer to cake</h3>
           </div>
@@ -481,7 +424,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
         <form onSubmit={handlePlaceOrder} className="overflow-y-auto p-6 space-y-6 flex-1">
           {liveOrderingPaused && <p role="status" className="text-xs text-amber-950 bg-amber-50 p-3 rounded-xl">Online ordering is temporarily paused. To check an earlier attempt, use “Retry original order” below.</p>}
           <fieldset disabled={isSubmitting || unconfirmed} className="min-w-0 space-y-6 border-0 p-0 m-0">
-          <p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">{isLiveOrder ? 'Pay cash when your order arrives. Your receipt appears after the bakery confirms your order was saved.' : 'Live ordering is not activated yet. This demo checkout stays on this device; it is not sent to the bakery and no payment is collected.'}</p>
+          <p className="text-xs text-slate-600 bg-rose-50 p-3 rounded-xl">Pay cash when your order arrives. Your receipt appears after the bakery confirms your order was saved.</p>
           {errorMessage && (
             <div role="alert" className="bg-red-50 text-red-700 p-3.5 rounded-xl border border-red-200 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -590,7 +533,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
             {autofillNotice && <p role="status" className="text-xs text-emerald-900 bg-emerald-50 border border-emerald-200 p-3 rounded-xl">
               {autofillNotice}
             </p>}
-            {isLiveOrder&&<p className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-950">
+            {liveOrderEndpoint&&<p className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-950">
               <ShieldCheck size={14} className="inline mr-1"/>
               No customer password needed. Your details from this device can autofill.
               After checkout, your name, number, address and COD order are saved to the bakery’s private order records.
@@ -784,145 +727,19 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
               <span>3. Payment Method</span>
             </h4>
 
-            {isLiveOrder ? (
               <div className="p-3 rounded-xl border border-rose-200 bg-rose-50/50 text-slate-800 text-xs">
                 <span className="font-bold block">ক্যাশ অন ডেলিভারি (Cash on Delivery)</span>
                 <span className="text-[11px] text-slate-500">
                   কেক হাতে পেয়ে ডেলিভারি রাইডারের কাছে সম্পূর্ণ মূল্য পরিশোধ করুন।
                 </span>
               </div>
-            ) : (
-              <>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  {[
-                    { id: 'cod', label: 'ক্যাশ অন ডেলিভারি (COD)', sub: 'কেক হাতে পেয়ে সম্পূর্ণ মূল্য পরিশোধ' },
-                    { id: 'bkash', label: 'বিকাশ (bKash)', sub: 'সম্পূর্ণ বা ৫০০ টাকা অগ্রিম বুকিং' },
-                    { id: 'nagad', label: 'নগদ (Nagad)', sub: 'সম্পূর্ণ বা ৫০০ টাকা অগ্রিম বুকিং' },
-                  ].map((method) => {
-                    const isSelected = paymentMethod === method.id;
-                    return (
-                      <button
-                        key={method.id}
-                        type="button"
-                        aria-pressed={isSelected}
-                        onClick={() => setPaymentMethod(method.id as PaymentMethod)}
-                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                          isSelected
-                            ? 'border-rose-600 bg-rose-50 text-rose-900 ring-1 ring-rose-400 font-bold'
-                            : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
-                        }`}
-                      >
-                        <div className="text-xs font-bold">{method.label}</div>
-                        <div className="text-[10px] text-slate-500 font-normal mt-0.5">{method.sub}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* bKash & Nagad Payment Verification Box */}
-                {paymentMethod !== 'cod' && (
-                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-3 text-xs animate-in fade-in duration-200">
-                    <div className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
-                      <div>
-                        <span className="text-[11px] text-slate-500 block">
-                          {paymentMethod === 'bkash' ? 'Aurora’s Cake বিকাশ নম্বর:' : 'Aurora’s Cake নগদ নম্বর:'}
-                        </span>
-                        <strong className="text-sm font-mono text-slate-900 font-bold">01711-234567</strong>
-                        <span className="text-[10px] text-slate-500 ml-1.5">(Personal / Send Money)</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText('01711234567');
-                          setCopiedNumber(true);
-                          setTimeout(() => setCopiedNumber(false), 2000);
-                        }}
-                        className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors"
-                      >
-                        {copiedNumber ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                        <span>{copiedNumber ? 'কপি হয়েছে' : 'কপি করুন'}</span>
-                      </button>
-                    </div>
-
-                    {/* Advance vs Full Option */}
-                    <div className="space-y-1.5">
-                      <label className="font-bold text-slate-700 block">পেমেন্টের ধরণ নির্বাচন করুন:</label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setPaymentMode('advance')}
-                          className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
-                            paymentMode === 'advance'
-                              ? 'border-rose-600 bg-rose-50 text-rose-950 font-bold ring-1 ring-rose-300'
-                              : 'border-slate-200 bg-white text-slate-700'
-                          }`}
-                        >
-                          <div className="font-bold text-xs">আংশিক অগ্রিম (Advance)</div>
-                          <div className="text-[10px] text-slate-500 mt-0.5">
-                            ৳{Math.min(estimatedTotal, 500)} অগ্রিম, বাকি ৳{Math.max(0, estimatedTotal - Math.min(estimatedTotal, 500))} ডেলিভারিতে ক্যাশ
-                          </div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setPaymentMode('full')}
-                          className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
-                            paymentMode === 'full'
-                              ? 'border-rose-600 bg-rose-50 text-rose-950 font-bold ring-1 ring-rose-300'
-                              : 'border-slate-200 bg-white text-slate-700'
-                          }`}
-                        >
-                          <div className="font-bold text-xs">সম্পূর্ণ পেমেন্ট (Full)</div>
-                          <div className="text-[10px] text-slate-500 mt-0.5">
-                            সম্পূর্ণ ৳{estimatedTotal} এখনই বিকাশ/নগদে পরিশোধ
-                          </div>
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <div>
-                        <label className="font-bold text-slate-700 block mb-1">
-                          যে নম্বর থেকে টাকা পাঠিয়েছেন *
-                        </label>
-                        <input
-                          type="tel"
-                          required
-                          inputMode="numeric" pattern="01[3-9][0-9]{8}"
-                          value={paymentSenderPhone}
-                          onChange={(e) => setPaymentSenderPhone(normalizeBangladeshiPhoneInput(e.target.value))}
-                          placeholder="017XXXXXXXX"
-                          className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-rose-500 text-slate-800"
-                        />
-                      </div>
-                      <div>
-                        <label className="font-bold text-slate-700 block mb-1">
-                          ট্রানজেকশন আইডি (TrxID) *
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          value={paymentTrxId}
-                          onChange={(e) => setPaymentTrxId(e.target.value.toUpperCase())}
-                          placeholder="যেমন: BL89K7M2"
-                          className="w-full px-3 py-2 text-xs font-mono uppercase rounded-xl border border-slate-200 bg-white focus:outline-rose-500 text-slate-800"
-                        />
-                      </div>
-                    </div>
-
-                    <p className="text-[10px] text-slate-500">
-                      টাকা পাঠিয়ে TrxID ফর্মে লিখে অর্ডার সম্পন্ন করুন। আমাদের কিচেন টিম তাৎক্ষণিকভাবে ভেরিফাই করে কনফার্মেশন পাঠাবে।
-                    </p>
-                  </div>
-                )}
-              </>
-            )}
           </div>
 
           {/* Coupon Code */}
           <div className="space-y-2">
             <label className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">
               <Tag className="w-3.5 h-3.5 text-rose-600" />
-              <span>{isLiveOrder ? 'Have a coupon?' : 'Demo offers: WELCOME100 or BIRTHDAY10'}</span>
+              <span>Have a coupon?</span>
             </label>
             <div className="flex gap-2">
               <input
@@ -975,7 +792,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
             {appliedCoupon && (
               <div className="text-xs text-emerald-700 bg-emerald-50 p-2 rounded-lg flex items-center gap-1.5 font-medium">
                 <CheckCircle className="w-3.5 h-3.5" />
-                Coupon <strong>{appliedCoupon}</strong> {isLiveOrder ? 'included in the estimate; the bakery validates it before saving.' : 'applied to this demo.'}
+                Coupon <strong>{appliedCoupon}</strong> included in the estimate; the bakery validates it before saving.
               </div>
             )}
             {couponError && (
@@ -1031,7 +848,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
             <hr className="border-slate-200" />
             <div className="flex justify-between text-base font-bold text-slate-900 pt-1">
               <div>
-                <div>{isLiveOrder ? 'Estimated total' : 'Preview total'}</div>
+                <div>Estimated total</div>
                 {(cakeDiscountTotal > 0 || estimatedDiscount > 0) && (
                   <div className="text-[11px] font-semibold text-emerald-700">
                     মোট সাশ্রয়: {currency}{cakeDiscountTotal + estimatedDiscount}
@@ -1046,7 +863,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
           <div className="flex items-center gap-2 text-[11px] text-slate-500 bg-amber-50/70 p-2.5 rounded-xl border border-amber-200/60">
             <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0" />
             <span>
-              {isLiveOrder ? 'The bakery checks current prices and availability before saving. Your receipt shows the confirmed total. No online payment is collected.' : 'Your preview total includes the selected cake, add-ons, delivery, and any eligible demo discount.'}
+              The bakery checks current prices and availability before saving. Your receipt shows the confirmed total. No online payment is collected.
             </span>
           </div>
 
@@ -1058,11 +875,11 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
             className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-3.5 px-4 rounded-2xl shadow-lg shadow-rose-200 flex items-center justify-center gap-2 text-sm transition-all cursor-pointer active:scale-98 disabled:opacity-50"
           >
             {isSubmitting ? (
-              <span>{isLiveOrder ? 'Sending your order and waiting for confirmation...' : 'Saving your demo order...'}</span>
+              <span>Sending your order and waiting for confirmation...</span>
             ) : (
               <>
                 <Sparkles className="w-4 h-4" />
-                <span>{liveOrderingPaused ? 'Ordering temporarily paused' : isLiveOrder ? 'Place cash-on-delivery order' : 'Save demo order'} — {currency}{estimatedTotal}</span>
+                <span>{liveOrderingPaused ? 'Ordering temporarily paused' : 'Place cash-on-delivery order'} — {currency}{estimatedTotal}</span>
               </>
             )}
           </button>

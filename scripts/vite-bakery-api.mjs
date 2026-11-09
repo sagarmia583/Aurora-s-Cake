@@ -2,10 +2,10 @@ import publicCatalog from '../netlify/functions/public.mjs';
 import publicImage from '../netlify/functions/image.mjs';
 import operations from '../netlify/functions/operations.mjs';
 import health from '../netlify/functions/backend-health.mjs';
-/** Local Vite preview uses the exact Netlify API handlers, never another hosting provider. */
+/** Serve the Netlify handlers on localhost in development and production builds. */
 export function bakeryApi(scriptEndpoint){
  const routes={'/api/public':publicCatalog,'/api/image':publicImage,'/api/operations':operations,'/api/backend-health':health};
- return {name:'aurora-local-netlify-sheets',configureServer(server){
+ const addApi = (server) => {
   server.middlewares.use(async(req,res,next)=>{
    const url=new URL(req.url||'/', 'http://'+(req.headers.host||'localhost:3000'));
    const handler=routes[url.pathname];
@@ -20,5 +20,6 @@ export function bakeryApi(scriptEndpoint){
     res.end(Buffer.from(await response.arrayBuffer()));
    }catch{res.statusCode=502;res.setHeader('Content-Type','application/json');res.end('{"ok":false,"error":"Netlify preview could not reach Google Sheets."}');}
   });
- }};
+ };
+ return {name:'aurora-local-netlify-sheets',configureServer:addApi,configurePreviewServer:addApi};
 }

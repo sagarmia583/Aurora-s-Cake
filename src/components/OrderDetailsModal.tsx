@@ -1,3 +1,4 @@
+import type { Product } from '../types';
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -27,7 +28,6 @@ import {
   Save,
 } from 'lucide-react';
 import type { Order, OrderStatus } from '../types';
-import { mockDb } from '../services/mockDatabase';
 import { formatShortOrderNumber } from '../utils/orderUtils';
 import {
   PosReceiptType,
@@ -46,6 +46,8 @@ export interface OrderDetailsModalProps {
   currency?: string;
   shopName?: string;
   shopPhone?: string;
+  shopLogoUrl?: string;
+  products?: Product[];
   shopAddress?: string;
   websiteUrl?: string;
   facebookUrl?: string;
@@ -53,7 +55,6 @@ export interface OrderDetailsModalProps {
   hasPerm?: (perm: string) => boolean;
   onStatusChange?: (orderId: string, newStatus: OrderStatus, notes?: string) => void;
   onTriggerPosPrint?: (order: Order, type: PosReceiptType) => void;
-  onOrderUpdated?: (order: Order) => void;
   endpoint?: string;
 }
 
@@ -65,7 +66,9 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
   order,
   currency = '৳',
   shopName = "Aurora's Cake Artisan Bakery",
-  shopPhone = '+880 1700-000000',
+  shopPhone = '',
+  shopLogoUrl,
+  products = [],
   shopAddress = 'Tangail, Bangladesh',
   websiteUrl,
   facebookUrl,
@@ -73,7 +76,6 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
   hasPerm = () => true,
   onStatusChange,
   onTriggerPosPrint,
-  onOrderUpdated,
   endpoint,
 }) => {
   const [activeTab, setActiveTab] = useState<ModalTab>('details');
@@ -82,51 +84,12 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [copiedPhone, setCopiedPhone] = useState(false);
 
-  // Editable Order Details & Items State
-  const [currentOrder, setCurrentOrder] = useState<Order | null>(order);
-  const [isEditMode, setIsEditMode] = useState(false);
-  const [editCustomerName, setEditCustomerName] = useState('');
-  const [editCustomerPhone, setEditCustomerPhone] = useState('');
-  const [editDeliveryAddress, setEditDeliveryAddress] = useState('');
-  const [editDeliverySlot, setEditDeliverySlot] = useState('');
-  const [editDeliveryDate, setEditDeliveryDate] = useState('');
-  const [editOrderNote, setEditOrderNote] = useState('');
-  const [editItemMessages, setEditItemMessages] = useState<{ [itemIndex: number]: string }>({});
-  const [saveSuccess, setSaveSuccess] = useState(false);
-
   useEffect(() => {
     if (isOpen) {
       setActiveTab('details');
       setSettings(getPosPrinterSettings());
     }
   }, [isOpen, order?.id]);
-
-  useEffect(() => {
-    if (isOpen && order) {
-      setCurrentOrder(order);
-      setIsEditMode(false);
-      setSaveSuccess(false);
-      setEditCustomerName(order.customer_name || '');
-      setEditCustomerPhone(order.customer_phone || '');
-      setEditDeliveryAddress(order.delivery_address || '');
-      setEditDeliverySlot(order.delivery_slot || '');
-      setEditDeliveryDate(order.delivery_date || '');
-      setEditOrderNote(order.order_note || '');
-
-      const msgs: { [itemIndex: number]: string } = {};
-      const raw = Array.isArray(order.items)
-        ? order.items
-        : Array.isArray((order as any).cart_items)
-        ? (order as any).cart_items
-        : Array.isArray((order as any).order_items)
-        ? (order as any).order_items
-        : [];
-      raw.forEach((it: any, idx: number) => {
-        msgs[idx] = it.writing_message || it.cake_message || it.message || '';
-      });
-      setEditItemMessages(msgs);
-    }
-  }, [isOpen, order]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -140,43 +103,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
 
   if (!isOpen || !order) return null;
 
-  const displayOrder = currentOrder || order;
-
-  const handleSaveOrderEdits = () => {
-    if (!displayOrder) return;
-
-    const raw = Array.isArray(displayOrder.items)
-      ? displayOrder.items
-      : Array.isArray((displayOrder as any).cart_items)
-      ? (displayOrder as any).cart_items
-      : Array.isArray((displayOrder as any).order_items)
-      ? (displayOrder as any).order_items
-      : [];
-
-    const updatedItems = raw.map((it: any, idx: number) => ({
-      ...it,
-      writing_message: editItemMessages[idx] !== undefined ? editItemMessages[idx].trim() : (it.writing_message || ''),
-    }));
-
-    const updates: Partial<Order> = {
-      customer_name: editCustomerName.trim(),
-      customer_phone: editCustomerPhone.trim(),
-      delivery_address: editDeliveryAddress.trim(),
-      delivery_slot: editDeliverySlot.trim(),
-      delivery_date: editDeliveryDate.trim(),
-      order_note: editOrderNote.trim(),
-      items: updatedItems as any,
-    };
-
-    const res = mockDb.updateOrder(displayOrder.id, updates, userRole || 'Staff');
-    if (res.success && res.order) {
-      setCurrentOrder(res.order);
-      setIsEditMode(false);
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3500);
-      onOrderUpdated?.(res.order);
-    }
-  };
+  const displayOrder = order;
 
   const resolvedWebUrl = resolvePublicWebUrl(websiteUrl || settings.websiteUrl);
   const resolvedFacebookUrl =
@@ -224,7 +151,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
 
     if (basePrice === undefined || salePrice === undefined) {
       try {
-        const prods = mockDb.getProductsSync();
+        const prods = products;
         const prod = prods.find((p) =>
           (it.product_id && p.id === it.product_id) ||
           (p.name && productName && p.name.trim().toLowerCase() === String(productName).trim().toLowerCase())
@@ -374,22 +301,6 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
           </div>
 
           <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-            {hasPerm('orders.edit') && (
-              <button
-                type="button"
-                onClick={() => setIsEditMode(!isEditMode)}
-                className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
-                  isEditMode
-                    ? 'bg-amber-100 text-amber-900 border border-amber-300 ring-2 ring-amber-300'
-                    : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
-                }`}
-                title="অর্ডার তথ্য ও কেকের লেখার মেসেজ এডিট করুন"
-              >
-                <Edit2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">{isEditMode ? 'এডিট মোড চালু' : '✏️ অর্ডার এডিট'}</span>
-                <span className="sm:hidden">{isEditMode ? 'এডিটে' : 'এডিট'}</span>
-              </button>
-            )}
             <button
               type="button"
               onClick={() => setIsSettingsOpen(true)}
@@ -545,47 +456,6 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
               </div>
 
               {/* Edit Mode Alert & Save Controls */}
-              {isEditMode && (
-                <div className="bg-amber-50 p-3 sm:p-3.5 rounded-2xl border border-amber-300 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
-                  <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
-                    <Edit2 className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span>অর্ডার এডিট মোড সক্রিয়: নাম, ফোন, ডেলিভারি ঠিকানা, স্লট বা কেকের লেখা পরিবর্তন করে 'সংরক্ষণ করুন' চাপুন।</span>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsEditMode(false);
-                        if (displayOrder) {
-                          setEditCustomerName(displayOrder.customer_name || '');
-                          setEditCustomerPhone(displayOrder.customer_phone || '');
-                          setEditDeliveryAddress(displayOrder.delivery_address || '');
-                          setEditDeliverySlot(displayOrder.delivery_slot || '');
-                          setEditDeliveryDate(displayOrder.delivery_date || '');
-                          setEditOrderNote(displayOrder.order_note || '');
-                        }
-                      }}
-                      className="px-3.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition-colors cursor-pointer"
-                    >
-                      বাতিল
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSaveOrderEdits}
-                      className="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-                    >
-                      <Save className="w-3.5 h-3.5" />
-                      <span>সংরক্ষণ করুন</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-              {saveSuccess && (
-                <div className="bg-emerald-50 border border-emerald-300 p-3 rounded-2xl text-xs font-bold text-emerald-800 flex items-center gap-2 shadow-2xs">
-                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>✓ অর্ডারের তথ্য ও কেকের লেখার মেসেজ সফলভাবে সংরক্ষণ করা হয়েছে!</span>
-                </div>
-              )}
 
               {/* Customer & Delivery Information Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
@@ -601,84 +471,52 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     </span>
                   </div>
 
-                  {isEditMode ? (
-                    <div className="space-y-2 pt-1 text-xs">
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-500 block mb-0.5">গ্রাহকের নাম *</label>
-                        <input
-                          type="text"
-                          value={editCustomerName}
-                          onChange={(e) => setEditCustomerName(e.target.value)}
-                          className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-300 bg-white text-slate-900 font-bold focus:outline-emerald-600"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-500 block mb-0.5">মোবাইল নম্বর *</label>
-                        <input
-                          type="tel"
-                          value={editCustomerPhone}
-                          onChange={(e) => setEditCustomerPhone(e.target.value)}
-                          className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-300 bg-white text-slate-900 font-mono font-bold focus:outline-emerald-600"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-500 block mb-0.5">ডেলিভারি ঠিকানা *</label>
-                        <textarea
-                          rows={2}
-                          value={editDeliveryAddress}
-                          onChange={(e) => setEditDeliveryAddress(e.target.value)}
-                          className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-emerald-600"
-                        />
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500">নাম:</span>
+                      <strong className="text-slate-900 text-sm">{customerName}</strong>
+                    </div>
+
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500">ফোন নম্বর:</span>
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={`tel:${customerPhone}`}
+                          className="font-mono font-bold text-emerald-700 hover:underline flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200"
+                          title="সরাসরি কল করতে ক্লিক করুন"
+                        >
+                          <Phone className="w-3 h-3 text-emerald-600" />
+                          <span>{customerPhone}</span>
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyPhone(customerPhone)}
+                          className="p-1 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-200 transition-colors cursor-pointer"
+                          title="নম্বর কপি করুন"
+                        >
+                          {copiedPhone ? (
+                            <Check className="w-3.5 h-3.5 text-emerald-600" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
+                        </button>
                       </div>
                     </div>
-                  ) : (
-                    <div className="space-y-1.5 text-xs">
-                      <div className="flex justify-between items-center">
-                        <span className="text-slate-500">নাম:</span>
-                        <strong className="text-slate-900 text-sm">{customerName}</strong>
-                      </div>
 
-                      <div className="flex justify-between items-center">
-                        <span className="text-slate-500">ফোন নম্বর:</span>
-                        <div className="flex items-center gap-2">
-                          <a
-                            href={`tel:${customerPhone}`}
-                            className="font-mono font-bold text-emerald-700 hover:underline flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200"
-                            title="সরাসরি কল করতে ক্লিক করুন"
-                          >
-                            <Phone className="w-3 h-3 text-emerald-600" />
-                            <span>{customerPhone}</span>
-                          </a>
-                          <button
-                            type="button"
-                            onClick={() => handleCopyPhone(customerPhone)}
-                            className="p-1 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-200 transition-colors cursor-pointer"
-                            title="নম্বর কপি করুন"
-                          >
-                            {copiedPhone ? (
-                              <Check className="w-3.5 h-3.5 text-emerald-600" />
-                            ) : (
-                              <Copy className="w-3.5 h-3.5" />
-                            )}
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="flex justify-between items-start pt-1">
-                        <span className="text-slate-500 shrink-0 mr-2">ঠিকানা:</span>
-                        <span className="text-right text-slate-800 font-medium">
-                          {deliveryAddress}
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between items-center pt-1 border-t border-slate-200/60">
-                        <span className="text-slate-500">ডেলিভারি এরিয়া / জোন:</span>
-                        <span className="bg-slate-200/80 text-slate-800 font-bold px-2 py-0.5 rounded text-[11px]">
-                          {zoneName}
-                        </span>
-                      </div>
+                    <div className="flex justify-between items-start pt-1">
+                      <span className="text-slate-500 shrink-0 mr-2">ঠিকানা:</span>
+                      <span className="text-right text-slate-800 font-medium">
+                        {deliveryAddress}
+                      </span>
                     </div>
-                  )}
+
+                    <div className="flex justify-between items-center pt-1 border-t border-slate-200/60">
+                      <span className="text-slate-500">ডেলিভারি এরিয়া / জোন:</span>
+                      <span className="bg-slate-200/80 text-slate-800 font-bold px-2 py-0.5 rounded text-[11px]">
+                        {zoneName}
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Delivery & Rider Card */}
@@ -691,69 +529,39 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     
                   </div>
 
-                  {isEditMode ? (
-                    <div className="space-y-2 pt-1 text-xs">
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-500 block mb-0.5">ডেলিভারির তারিখ:</label>
-                        <input
-                          type="date"
-                          value={editDeliveryDate}
-                          onChange={(e) => setEditDeliveryDate(e.target.value)}
-                          className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-300 bg-white text-slate-900 font-semibold focus:outline-emerald-600"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-500 block mb-0.5">ডেলিভারি টাইম স্লট:</label>
-                        <input
-                          type="text"
-                          value={editDeliverySlot}
-                          onChange={(e) => setEditDeliverySlot(e.target.value)}
-                          placeholder="যেমন: বিকাল ৪টা - সন্ধ্যা ৬টা"
-                          className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-300 bg-white text-slate-900 font-semibold focus:outline-emerald-600"
-                        />
-                      </div>
-                      <div className="flex justify-between items-center pt-1 border-t border-slate-200">
-                        <span className="text-slate-500">নিযুক্ত রাইডার:</span>
-                        <strong className="text-slate-900 font-semibold">
-                          {displayOrder.rider_name || 'নিয়োগ করা হয়নি (Unassigned)'}
-                        </strong>
-                      </div>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500">ডেলিভারির তারিখ:</span>
+                      <strong className="text-slate-900">{deliveryDate}</strong>
                     </div>
-                  ) : (
-                    <div className="space-y-1.5 text-xs">
-                      <div className="flex justify-between items-center">
-                        <span className="text-slate-500">ডেলিভারির তারিখ:</span>
-                        <strong className="text-slate-900">{deliveryDate}</strong>
-                      </div>
 
-                      <div className="flex justify-between items-center">
-                        <span className="text-slate-500">ডেলিভারি টাইম স্লট:</span>
-                        <span className="bg-amber-100 text-amber-950 font-bold px-2.5 py-0.5 rounded border border-amber-300">
-                          {deliverySlot}
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between items-center pt-1">
-                        <span className="text-slate-500">নিযুক্ত রাইডার:</span>
-                        <strong className="text-slate-900 font-semibold">
-                          {displayOrder.rider_name || 'নিয়োগ করা হয়নি (Unassigned)'}
-                        </strong>
-                      </div>
-
-                      <div className="flex justify-between items-center pt-1 border-t border-slate-200/60">
-                        <span className="text-slate-500">ক্যাশ কালেকশন স্ট্যাটাস:</span>
-                        <span
-                          className={`text-[11px] font-bold px-2 py-0.5 rounded ${
-                            displayOrder.cod_collected
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-rose-100 text-rose-800'
-                          }`}
-                        >
-                          {displayOrder.cod_collected ? '✓ ক্যাশ রিসিভ হয়েছে' : 'বাকি আছে (Not Collected)'}
-                        </span>
-                      </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500">ডেলিভারি টাইম স্লট:</span>
+                      <span className="bg-amber-100 text-amber-950 font-bold px-2.5 py-0.5 rounded border border-amber-300">
+                        {deliverySlot}
+                      </span>
                     </div>
-                  )}
+
+                    <div className="flex justify-between items-center pt-1">
+                      <span className="text-slate-500">নিযুক্ত রাইডার:</span>
+                      <strong className="text-slate-900 font-semibold">
+                        {displayOrder.rider_name || 'নিয়োগ করা হয়নি (Unassigned)'}
+                      </strong>
+                    </div>
+
+                    <div className="flex justify-between items-center pt-1 border-t border-slate-200/60">
+                      <span className="text-slate-500">ক্যাশ কালেকশন স্ট্যাটাস:</span>
+                      <span
+                        className={`text-[11px] font-bold px-2 py-0.5 rounded ${
+                          displayOrder.cod_collected
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-rose-100 text-rose-800'
+                        }`}
+                      >
+                        {displayOrder.cod_collected ? '✓ ক্যাশ রিসিভ হয়েছে' : 'বাকি আছে (Not Collected)'}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -839,36 +647,16 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                       </div>
 
                       {/* Cake Writing Message - Eye Catching Amber Banner / Editable in Edit Mode */}
-                      {isEditMode ? (
-                        <div className="bg-amber-50/90 text-amber-950 p-2.5 rounded-xl border border-amber-300 shadow-2xs space-y-1">
-                          <label className="flex items-center gap-1.5 font-bold text-[11px] text-amber-900">
-                            <span>✍️ কেকের ওপর লেখার বার্তা (Writing on Cake):</span>
-                          </label>
-                          <input
-                            type="text"
-                            value={editItemMessages[idx] ?? it.writing_message ?? ''}
-                            onChange={(e) =>
-                              setEditItemMessages((prev) => ({
-                                ...prev,
-                                [idx]: e.target.value,
-                              }))
-                            }
-                            placeholder="যেমন: Happy Birthday Sadia..."
-                            className="w-full px-3 py-1.5 text-xs rounded-lg border border-amber-300 bg-white text-slate-900 focus:outline-amber-600 font-semibold"
-                          />
-                        </div>
-                      ) : (
-                        it.writing_message && (
-                          <div className="bg-amber-100/90 text-amber-950 p-2.5 rounded-xl border border-amber-300 shadow-2xs space-y-0.5">
-                            <div className="flex items-center gap-1.5 font-bold text-[11px] text-amber-900 uppercase">
-                              <span>✍️ কেকের উপর লেখার বার্তা (Writing on Cake):</span>
-                            </div>
-                            <div className="text-sm font-black font-serif tracking-wide pl-1 break-words">
-                              "{it.writing_message}"
-                            </div>
+                      it.writing_message && (
+                        <div className="bg-amber-100/90 text-amber-950 p-2.5 rounded-xl border border-amber-300 shadow-2xs space-y-0.5">
+                          <div className="flex items-center gap-1.5 font-bold text-[11px] text-amber-900 uppercase">
+                            <span>✍️ কেকের উপর লেখার বার্তা (Writing on Cake):</span>
                           </div>
-                        )
-                      )}
+                          <div className="text-sm font-black font-serif tracking-wide pl-1 break-words">
+                            "{it.writing_message}"
+                          </div>
+                        </div>
+                      )
 
                       {/* Add-ons */}
                       {it.addons && it.addons.length > 0 && (
@@ -980,50 +768,16 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
               </div>
 
               {/* Special Instructions Note */}
-              {isEditMode ? (
-                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-xs space-y-1.5">
-                  <label className="font-bold text-slate-700 uppercase text-[10px] block">
-                    📝 গ্রাহকের বিশেষ নোট / স্পেশাল নির্দেশ:
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={editOrderNote}
-                    onChange={(e) => setEditOrderNote(e.target.value)}
-                    placeholder="অর্ডারের কোনো বিশেষ নোট বা নির্দেশ থাকলে লিখুন..."
-                    className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-emerald-600"
-                  />
-                </div>
-              ) : (
-                displayOrder.order_note && (
+              {displayOrder.order_note && (
                   <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-xs space-y-1">
                     <span className="font-bold text-slate-700 uppercase text-[10px] block">
                       📝 গ্রাহকের বিশেষ নোট / স্পেশাল নির্দেশ:
                     </span>
                     <p className="text-slate-800 italic">"{displayOrder.order_note}"</p>
                   </div>
-                )
-              )}
+                )}
 
               {/* Bottom Save bar if in edit mode */}
-              {isEditMode && (
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setIsEditMode(false)}
-                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
-                  >
-                    বাতিল (Cancel)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSaveOrderEdits}
-                    className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
-                  >
-                    <Save className="w-3.5 h-3.5" />
-                    <span>✓ পরিবর্তন সংরক্ষণ করুন (Save Changes)</span>
-                  </button>
-                </div>
-              )}
             </div>
           )}
 
@@ -1061,6 +815,8 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     settings={settings}
                     currency={currency}
                     shopName={shopName}
+                  shopLogoUrl={shopLogoUrl}
+                  products={products}
                     shopPhone={shopPhone}
                     shopAddress={shopAddress}
                     resolvedWebUrl={resolvedWebUrl}
@@ -1083,6 +839,8 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                         settings={settings}
                         currency={currency}
                         shopName={shopName}
+                  shopLogoUrl={shopLogoUrl}
+                  products={products}
                         shopPhone={shopPhone}
                         shopAddress={shopAddress}
                         resolvedWebUrl={resolvedWebUrl}
@@ -1235,6 +993,8 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     settings={settings}
                     currency={currency}
                     shopName={shopName}
+                  shopLogoUrl={shopLogoUrl}
+                  products={products}
                     shopPhone={shopPhone}
                     shopAddress={shopAddress}
                     resolvedWebUrl={resolvedWebUrl}

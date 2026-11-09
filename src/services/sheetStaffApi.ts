@@ -1,6 +1,5 @@
 import type { DeliveryZone, Order, OrderStatus } from '../types';
 import { resolveSheetsPostEndpoint, sheetsPostCredentials } from './googleSheets';
-import { getSharedBakeryApiUrl } from './dualHosting';
 import { validateStaffOrderList } from './staffOrderSnapshot';
 
 export type StaffRoleName = 'super_admin' | 'admin' | 'order_manager' | 'kitchen_manager' | 'delivery_manager' | 'delivery_man' | 'accountant';
@@ -66,7 +65,7 @@ export class BakeryOperationsError extends Error {
   }
 }
 export async function privatePost(endpoint: string, body: Record<string, unknown>, sameOrigin = false): Promise<Record<string, unknown>> {
-  const url = getSharedBakeryApiUrl('/api/operations') ?? (sameOrigin ? '/api/operations' : resolveSheetsPostEndpoint(endpoint));
+  const url = sameOrigin ? '/api/operations' : resolveSheetsPostEndpoint(endpoint);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), body.action==='staff_image_upload'?28000:20000);
   try {
@@ -285,11 +284,6 @@ export async function lookupStaffCustomer(endpoint:string,token:string,phone:str
   return record as unknown as StaffCustomerMatch;
 }
 
-/**
- * Intentionally invoked only by a super admin. Apps Script verifies the staff
- * credential and role *before* Vercel mirrors a paged batch. Ordinary staff
- * polling never triggers Firestore writes.
- */
 export interface FirebaseOrderBackfill {
   offset:number;
   total:number;

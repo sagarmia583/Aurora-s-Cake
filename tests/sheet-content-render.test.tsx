@@ -5,18 +5,18 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { Navbar } from '../src/components/Navbar';
 import { CustomerProfileModal } from '../src/components/CustomerProfileModal';
 import { CustomerStorefront } from '../src/components/CustomerStorefront';
-import { DEFAULT_PUBLIC_SITE_DATA } from '../src/content/defaultSiteData';
+import { DEFAULT_PUBLIC_SITE_DATA } from './catalog-fixture';
 import { normalizePublicSiteData } from '../src/services/googleSheets';
 import type { PublicSiteData } from '../src/types/siteContent';
 
 const noop = () => {};
 function navigation(data: PublicSiteData) {
   return renderToStaticMarkup(<Navbar
-    settings={data.settings} publicData={data} activeRole="customer" onRoleChange={noop}
-    viewMode="web" onViewModeChange={noop} cartCount={0} onOpenCart={noop} onOrderNow={noop} onOpenProfile={noop}
-    onOpenCacheHub={noop} onOpenDbViewer={noop}
+    settings={data.settings} publicData={data}
+    cartCount={0} onOpenCart={noop} onOrderNow={noop} onOpenProfile={noop}
+
     onOpenTrackOrder={noop} onOpenCustomCake={noop} searchQuery="" onSearchChange={noop}
-    onOpenSheetSettings={noop} onOpenCustomerAccount={noop} isSheetConnected
+    onOpenCustomerAccount={noop}
   />);
 }
 function storefront(data: PublicSiteData, catalogState?: React.ComponentProps<typeof CustomerStorefront>['catalogState']) {

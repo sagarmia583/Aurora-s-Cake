@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { DEFAULT_PUBLIC_SITE_DATA } from '../src/content/defaultSiteData';
+import { DEFAULT_PUBLIC_SITE_DATA } from './catalog-fixture';
 import { GoogleSheetsError, normalizePublicSiteData, normalizePublicUrl, validateGoogleSheetsEndpoint, sheetsPostCredentials } from '../src/services/googleSheets';
 
 const clone = () => structuredClone(DEFAULT_PUBLIC_SITE_DATA);

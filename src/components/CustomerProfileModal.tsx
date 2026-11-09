@@ -29,7 +29,6 @@ import {
   Truck
 } from 'lucide-react';
 import { Order, OrderStatus, Product, CartItem, Review } from '../types';
-import { mockDb } from '../services/mockDatabase';
 import { getPhoneCustomerProfile, updatePhoneCustomerProfile, loginPhoneCustomer, phoneCustomerOrders, linkPhoneCustomerReceipt } from '../services/phoneCustomerApi';
 import { normalizeCheckoutPhone } from '../services/customerPhoneLookup';
 import { normalizeBangladeshiPhoneInput, validateBangladeshiPhone } from '../utils/phoneValidation';
@@ -161,8 +160,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
 
       try {
         const localConfirmed = loadConfirmedSheetOrders();
-        const mockOrders = mockDb.getOrders();
-        const pool = [...orders, ...localConfirmed, ...mockOrders];
+        const pool = [...orders, ...localConfirmed];
         if (activePhone.trim()) {
           const matched = findCustomerOrders(activePhone, pool);
           setUserOrders(matched);
@@ -281,8 +279,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
 
       // 2. Passwordless phone lookup (no password needed)
       const localConfirmed = loadConfirmedSheetOrders();
-      const mockOrders = mockDb.getOrders();
-      let combinedPool = [...orders, ...localConfirmed, ...mockOrders];
+      let combinedPool = [...orders, ...localConfirmed];
 
       // Try fetching remote orders from endpoint if connected
       if (accountEndpoint) {
@@ -357,8 +354,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
     const activePhone = customerPhone || accountPhone;
     if (activePhone && activePhone.trim()) {
       const localConfirmed = loadConfirmedSheetOrders();
-      const mockOrders = mockDb.getOrders();
-      const pool = [...userOrders, ...orders, ...localConfirmed, ...mockOrders];
+      const pool = [...userOrders, ...orders, ...localConfirmed];
       const matched = findCustomerOrders(activePhone, pool);
       if (matched.length > 0) return matched;
     }

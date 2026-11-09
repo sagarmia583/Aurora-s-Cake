@@ -51,7 +51,6 @@ import { Button, BrandLogo, C, Chip, Empty, Field, Photo, T, pressFeedback } fro
 import LoginScreen from "./LoginScreen";
 import { OrderComposer } from "./OrderComposer";
 import { OrderDetail } from "./OrderDetail";
-import { PosSheet } from "./PosSheet";
 import { CmsScreen, cmsSections } from "./CmsScreen";
 import {
   Costings,
@@ -65,34 +64,18 @@ import {orderStages,orderStageUpdates,type StageUpdate} from './orderStageUpdate
 import {FONT_NOTICES} from './fontNotices';
 import {Sheet} from './ui';
 import * as Notifications from 'expo-notifications';
-import { previewCatalog, previewOrders, previewSession } from "./preview";
-declare const __DEV__: boolean;
 type Auth = { token: string; session: StaffSession };
-const isPreview =
-  typeof __DEV__ !== "undefined" &&
-  __DEV__ &&
-  Platform.OS === "web" &&
-  typeof location !== "undefined" &&
-  new URLSearchParams(location.search).get("preview") === "1";
 const relevant = relevantOrder;
 export default function NativeApp() {
-  const [auth, setAuth] = useState<Auth | null>(
-      isPreview ? { token: "design-preview", session: previewSession } : null,
-    ),
-    [restoring, setRestoring] = useState(!isPreview),
+  const [auth, setAuth] = useState<Auth | null>(null),
+    [restoring, setRestoring] = useState(true),
     [restoreError, setRestoreError] = useState("");
-  const [catalog, setCatalog] = useState<Catalog>(
-      isPreview ? previewCatalog : emptyCatalog,
-    ),
-    [orders, setOrders] = useState<StaffOrder[]>(
-      isPreview ? previewOrders : [],
-    ),
+  const [catalog, setCatalog] = useState<Catalog>(emptyCatalog),
+    [orders, setOrders] = useState<StaffOrder[]>([]),
     [syncing, setSyncing] = useState(false),
     [syncError, setSyncError] = useState(""),
     [syncUnavailable, setSyncUnavailable] = useState(false),
-    [lastSync, setLastSync] = useState<Date | null>(
-      isPreview ? new Date() : null,
-    );
+    [lastSync, setLastSync] = useState<Date | null>(null);
   const [screen, setScreen] = useState<Screen>("today"),
     [composer, setComposer] = useState(false),
     [selected, setSelected] = useState(""),
@@ -108,7 +91,7 @@ export default function NativeApp() {
   const soundEnabled=useRef(beep);
   soundEnabled.current=beep;
   const announceStages=useCallback((updates:StageUpdate[])=>{
-    if(isPreview||!updates.length)return;
+    if(!updates.length)return;
     setStageNotices(updates.slice(-4).reverse());
     // The persistent new-order chime already covers pending orders.
     void notifyOrderStages(updates.filter(update=>update.status!=='pending'),soundEnabled.current)
@@ -143,20 +126,18 @@ export default function NativeApp() {
   }, []);
   useEffect(() => {
     alive.current = true;
-    void getCatalog().then(c=>{if(alive.current)setCatalog(old=>isPreview?{...old,settings:{...old.settings,logo_url:c.settings.logo_url,shop_name:c.settings.shop_name,address:c.settings.address,phone:c.settings.phone,website_url:c.settings.website_url,facebook_url:c.settings.facebook_url}}:c)}).catch(()=>{});
-    if (!isPreview) {
-      void restore();
-      void SecureStore.getItemAsync("aurora_native_sound_v2").then((v) => {
-        if (alive.current) setBeep(v !== "false");
-      }).catch(()=>{});
-    }
+    void getCatalog().then(c=>{if(alive.current)setCatalog(c)}).catch(()=>{});
+    void restore();
+    void SecureStore.getItemAsync("aurora_native_sound_v2").then((v) => {
+      if (alive.current) setBeep(v !== "false");
+    }).catch(()=>{});
     return () => {
       alive.current = false;
       releaseNativeOrderSound();
     };
   }, [restore]);
   const refresh = useCallback(async (manual = false) => {
-    if (isPreview || !authRef.current || refreshing.current) return;
+    if (!authRef.current || refreshing.current) return;
     const owner = authRef.current,
       version = ++readVersion.current,
       writes = mutationVersion.current;
@@ -281,7 +262,7 @@ export default function NativeApp() {
     return () => sub.remove();
   }, [refresh]);
   useEffect(() => {
-    if (isPreview || !beep || !alertIds.length) return;
+    if (!beep || !alertIds.length) return;
     const sound = () => {
       if (foreground.current)
         void playNativeOrderSound().catch(() =>
@@ -296,7 +277,7 @@ export default function NativeApp() {
     };
   }, [beep, alertIds.join(",")]);
   useEffect(() => {
-    if(!awake||isPreview||!auth)return;
+    if(!awake||!auth)return;
     const tag='aurora-native-shift-'+Math.random().toString(36).slice(2);
     const activation=activateKeepAwakeAsync(tag);
     void activation.catch(()=>{if(alive.current)setNotice('Kitchen mode চালু হয়নি। আবার চেষ্টা করুন।');});
@@ -315,7 +296,6 @@ export default function NativeApp() {
     return () => sub.remove();
   }, [screen]);
   useEffect(()=>{
-    if(isPreview){setBackgroundStatus('Phone build-এ background sync preview করুন।');return;}
     let current=true;
     if(auth)void enableBackgroundRefresh().then(async v=>{
       if(!current)return;
@@ -327,7 +307,7 @@ export default function NativeApp() {
     }).catch(()=>{if(current)setBackgroundStatus('Background sync চালু হয়নি। More থেকে আবার চেষ্টা করুন।')});
     else void stopBackgroundRefresh().catch(()=>{});
     return()=>{current=false};
-  },[auth?.token,beep,isPreview]);
+  },[auth?.token,beep]);
   useEffect(()=>{
     if(Platform.OS==='web')return;
     const subscription=Notifications.addNotificationResponseReceivedListener(response=>{
@@ -360,10 +340,7 @@ export default function NativeApp() {
     stopNativeOrderSound();
   };
   const logout = async () => {
-    if (isPreview) {
-      setNotice("Design preview-তে sign out নেই।");
-      return;
-    }
+
     if (!auth) return;
     setLogoutBusy(true);
     try {
@@ -443,13 +420,6 @@ export default function NativeApp() {
     >
       <StatusBar barStyle="dark-content" />
       <View style={S.safeTop} />
-      {isPreview && (
-        <View style={S.preview}>
-          <Text style={{ fontSize: 11, fontWeight: "800", color: C.brand }}>
-            DESIGN PREVIEW · Sample data · Live writes disabled
-          </Text>
-        </View>
-      )}
       <View style={S.header}>
         <View style={[T.row,{flex:1,minWidth:0,flexWrap:"nowrap"}]}>
           <BrandLogo uri={String(catalog.settings.logo_url||"")} size={42}/>
@@ -819,7 +789,6 @@ export default function NativeApp() {
                   onValueChange={(v) => {
                     setBeep(v);
                     if (!v) stopNativeOrderSound();
-                    if (!isPreview)
                       void SecureStore.setItemAsync(
                         "aurora_native_sound_v2",
                         String(v),
@@ -831,10 +800,7 @@ export default function NativeApp() {
                 kind="ghost"
                 label="Test sound"
                 onPress={() => {
-                  if (isPreview) {
-                    setNotice("Phone-এ native sound পরীক্ষা করুন।");
-                    return;
-                  }
+
                   void playNativeOrderSound().catch((e) =>
                     setNotice(e.message),
                   );
@@ -856,8 +822,7 @@ export default function NativeApp() {
             <Text style={T.sub}>
               অ্যাপ খোলা থাকলে ৮–১২ সেকেন্ড পরপর নীরবে Sheet দেখে। নতুন তথ্য এলে সেটুকু দেখায়। অ্যাপ আড়ালে থাকলে ফোনের সময়সূচিতে sync হয়।
             </Text>
-            <View style={T.card}><Text style={T.h3}>Background refresh</Text><Text style={T.sub}>{backgroundStatus}</Text><Button label="Background sync যাচাই করুন" kind="ghost" onPress={()=>{if(isPreview)return;void enableBackgroundRefresh().then(setBackgroundStatus).catch(()=>setBackgroundStatus('ফোনের settings যাচাই করুন।'))}}/></View>
-            <Button label="80mm POS demo" kind="ghost" onPress={() => setTool("pos-demo")} />
+            <View style={T.card}><Text style={T.h3}>Background refresh</Text><Text style={T.sub}>{backgroundStatus}</Text><Button label="Background sync যাচাই করুন" kind="ghost" onPress={()=>{void enableBackgroundRefresh().then(setBackgroundStatus).catch(()=>setBackgroundStatus('ফোনের settings যাচাই করুন।'))}}/></View>
             <Button label="Fonts & licenses" kind="ghost" onPress={()=>setLicenses(true)}/>
             <Button
               label="Sign out"
@@ -922,7 +887,6 @@ export default function NativeApp() {
           catalog={catalog}
           token={auth.token}
           session={s}
-          preview={isPreview}
           onClose={() => setComposer(false)}
           onSaved={changed}
           onCatalogChanged={() => void refresh()}
@@ -934,7 +898,6 @@ export default function NativeApp() {
           session={s}
           token={auth.token}
           catalog={catalog}
-          preview={isPreview}
           onClose={() => setSelected("")}
           onChanged={changed}
         />
@@ -945,7 +908,6 @@ export default function NativeApp() {
           title={cms[1]}
           token={auth.token}
           catalog={catalog}
-          preview={isPreview}
           onClose={() => setCms(null)}
           onChanged={() => void refresh()}
         />
@@ -953,14 +915,10 @@ export default function NativeApp() {
       {tool === "reports" && (
         <Reports orders={orders} onClose={() => setTool("")} />
       )}
-      {tool === "pos-demo" && (
-        <PosSheet order={previewOrders[2]} catalog={catalog} demo onClose={() => setTool("")} />
-      )}
       {tool === "customers" && (
         <Customers
           orders={orders}
           token={auth.token}
-          preview={isPreview}
           onClose={() => setTool("")}
         />
       )}
@@ -968,7 +926,6 @@ export default function NativeApp() {
         <Team
           session={s}
           token={auth.token}
-          preview={isPreview}
           onSession={(session) => setAuth((a) => (a ? { ...a, session } : a))}
           onClose={() => setTool("")}
         />
@@ -976,7 +933,6 @@ export default function NativeApp() {
       {tool === "custom" && (
         <CustomRequests
           token={auth.token}
-          preview={isPreview}
           onClose={() => setTool("")}
         />
       )}
@@ -984,7 +940,6 @@ export default function NativeApp() {
         <Costings
           token={auth.token}
           catalog={catalog}
-          preview={isPreview}
           onClose={() => setTool("")}
         />
       )}
@@ -1403,5 +1358,4 @@ const S = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  preview: { backgroundColor: C.peach, padding: 8, alignItems: "center" },
 });

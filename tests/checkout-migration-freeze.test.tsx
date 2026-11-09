@@ -3,7 +3,6 @@ import test, { beforeEach, afterEach, type TestContext } from 'node:test';
 import React, { act } from 'react';
 import { create, type ReactTestRenderer, type ReactTestInstance } from 'react-test-renderer';
 import { CheckoutModal } from '../src/components/CheckoutModal';
-import { mockDb } from '../src/services/mockDatabase';
 import type { CartItem, Order, Product } from '../src/types';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -86,7 +85,6 @@ test('freezing an open live checkout blocks fresh submissions without changing i
   const calls: string[] = [];
   const fetcher: typeof fetch = async (_url, options) => { calls.push(String(options?.body)); throw new Error('No submit should occur while paused'); };
   t.mock.method(globalThis, 'fetch', fetcher);
-  const demo = t.mock.method(mockDb, 'createSecureOrder', async () => ({ success: true, order: receipt() }));
   const props = propsFor(t);
   const renderer = await mount(t, props);
   await fill(renderer);
@@ -97,7 +95,6 @@ test('freezing an open live checkout blocks fresh submissions without changing i
   assert.equal(renderer.root.findByProps({ type: 'submit' }).props.disabled, true);
   await submit(renderer); // The handler must enforce the pause as well as the button.
   assert.equal(calls.length, 0);
-  assert.equal(demo.mock.callCount(), 0);
   assert.equal(props.onClose.mock.callCount(), 0);
   assert.equal(props.onOrderSuccess.mock.callCount(), 0);
 });
@@ -117,7 +114,6 @@ test('migration freeze keeps an ambiguous attempt, and retries replay the same b
       : { success: false, code: 'migration_frozen', retryable: true }), { status: 200 });
   };
   t.mock.method(globalThis, 'fetch', fetcher);
-  const demo = t.mock.method(mockDb, 'createSecureOrder', async () => ({ success: true, order: receipt() }));
   const props = propsFor(t);
   const renderer = await mount(t, props);
   await fill(renderer);
@@ -151,27 +147,23 @@ test('migration freeze keeps an ambiguous attempt, and retries replay the same b
   await act(async () => retryButton(renderer).props.onClick());
   assert.equal(calls.length, 3);
   assert.deepEqual(calls[2], original);
-  assert.equal(demo.mock.callCount(), 0);
   assert.equal(props.onOrderSuccess.mock.callCount(), 1);
   assert.equal(props.onClose.mock.callCount(), 1);
   const saved = props.onOrderSuccess.mock.calls[0].arguments[0] as Order;
   assert.equal(saved.persistence, 'google_sheets');
 });
 
-test('an initially deliberate demo remains a demo when live settings arrive later', async t => {
-  const fetcher: typeof fetch = async () => { throw new Error('A deliberate demo must not be submitted to the live bakery'); };
+test('checkout without an initial Sheet target cannot place an order', async t => {
+  const fetcher: typeof fetch = async () => { throw new Error('Checkout has no trusted target'); };
   const network = t.mock.method(globalThis, 'fetch', fetcher);
-  const demo = t.mock.method(mockDb, 'createSecureOrder', async () => ({ success: true, order: receipt() }));
   const props = propsFor(t, { sheetOrderEndpoint: undefined });
   const renderer = await mount(t, props);
   await fill(renderer);
   await update(renderer, { ...props, sheetOrderEndpoint: endpoint });
-  assert.match(text(renderer), /Demo checkout/);
+  assert.match(text(renderer), /Ordering temporarily paused/);
   await submit(renderer);
   assert.equal(network.mock.callCount(), 0);
-  assert.equal(demo.mock.callCount(), 1);
-  const saved = props.onOrderSuccess.mock.calls[0].arguments[0] as Order;
-  assert.equal(saved.persistence, 'local_demo');
+  assert.equal(props.onOrderSuccess.mock.callCount(), 0);
 });
 
 test('a closed, unstarted checkout captures live intent only when it first opens', async t => {
