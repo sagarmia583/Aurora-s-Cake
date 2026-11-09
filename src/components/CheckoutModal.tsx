@@ -212,6 +212,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
 
   const selectedZone = zones.find((zone) => zone.id === selectedZoneId && zone.is_active) || zones.find((zone) => zone.is_active);
   const availableSlots = slots.filter(slot => slot.is_active && deliverySlotOpen(slot.slot_label, deliveryDate));
+  const changeDeliveryDate = (date: string) => { setDeliveryDate(date); setSelectedSlot(''); };
   const selectedDeliverySlot = selectedSlot
     ? availableSlots.find(slot => slot.slot_label === selectedSlot)?.slot_label || ''
     : availableSlots[0]?.slot_label || '';
@@ -697,7 +698,7 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
                 <input
                   type="date" required min={localDate()} aria-label="Delivery date"
                   value={deliveryDate}
-                  onChange={(e) => { setDeliveryDate(e.target.value); setSelectedSlot(''); }}
+                  onChange={(e) => changeDeliveryDate(e.target.value)}
                   className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 focus:outline-rose-500 text-slate-800"
                 />
               </div>
@@ -716,6 +717,12 @@ const CheckoutModalDialog: React.FC<CheckoutModalProps> = ({
                     </option>
                   ))}
                 </select>
+                {!availableSlots.length && deliveryDate === localDate() && slots.some(slot => slot.is_active) && (
+                  <button type="button" className="mt-2 text-xs font-semibold text-emerald-800 underline"
+                    onClick={() => changeDeliveryDate(localDate(new Date(Date.now() + 86400000)))}>
+                    আগামীকালের সময় দেখুন
+                  </button>
+                )}
               </div>
             </div>
           </div>

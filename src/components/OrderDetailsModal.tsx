@@ -20,7 +20,6 @@ import {
   Settings2,
   Calendar,
   Layers,
-  Sparkles,
   ExternalLink,
   ChevronRight,
   ShieldCheck,
@@ -51,9 +50,7 @@ export interface OrderDetailsModalProps {
   shopAddress?: string;
   websiteUrl?: string;
   facebookUrl?: string;
-  userRole?: string;
-  hasPerm?: (perm: string) => boolean;
-  onStatusChange?: (orderId: string, newStatus: OrderStatus, notes?: string) => void;
+  onManageOrder?: () => void;
   onTriggerPosPrint?: (order: Order, type: PosReceiptType) => void;
   endpoint?: string;
 }
@@ -72,9 +69,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
   shopAddress = 'Tangail, Bangladesh',
   websiteUrl,
   facebookUrl,
-  userRole = 'super_admin',
-  hasPerm = () => true,
-  onStatusChange,
+  onManageOrder,
   onTriggerPosPrint,
   endpoint,
 }) => {
@@ -859,75 +854,16 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 pt-3 border-t border-slate-100 shrink-0">
           <div className="text-[11px] text-slate-500 items-center gap-1.5 hidden sm:flex">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
-            <span>অর্ডার স্ট্যাটাস পরিবর্তন ও সরাসরি প্রিন্ট করুন</span>
+            <span>অর্ডারের তথ্য ও প্রিন্ট অপশন</span>
           </div>
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
-            {/* 1. Pending -> Confirm */}
-            {displayOrder.status === 'pending' && hasPerm('orders.confirm') && onStatusChange && (
-              <button
-                type="button"
-                onClick={() =>
-                  onStatusChange(displayOrder.id, 'confirmed', 'অর্ডার কনফার্ম করা হয়েছে')
-                }
-                className="w-full sm:w-auto px-4 py-2.5 sm:py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors text-center"
-              >
-                <CheckCircle className="w-3.5 h-3.5 shrink-0" />
-                <span>✓ কনফার্ম করুন (Confirm)</span>
+            {onManageOrder && (
+              <button type="button" onClick={onManageOrder}
+                className="rounded-xl bg-emerald-800 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-900">
+                অর্ডার ম্যানেজ করুন
               </button>
             )}
-
-            {/* 2. Confirmed -> Preparing (Kitchen Bake) */}
-            {displayOrder.status === 'confirmed' &&
-              (hasPerm('kitchen.bake') || userRole === 'super_admin' || userRole === 'admin') &&
-              onStatusChange && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    onStatusChange(displayOrder.id, 'preparing', 'কিচেনে বেকিং ও প্রস্তুতি শুরু')
-                  }
-                  className="w-full sm:w-auto px-4 py-2.5 sm:py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors text-center"
-                >
-                  <ChefHat className="w-3.5 h-3.5 shrink-0" />
-                  <span>👨‍🍳 বেকিং শুরু করুন (Start Baking)</span>
-                </button>
-              )}
-
-            {/* 3. Preparing -> Ready */}
-            {displayOrder.status === 'preparing' &&
-              (hasPerm('kitchen.bake') || userRole === 'super_admin' || userRole === 'admin') &&
-              onStatusChange && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    onStatusChange(displayOrder.id, 'ready', 'কেক প্রস্তুত ও প্যাকিং সম্পন্ন')
-                  }
-                  className="w-full sm:w-auto px-4 py-2.5 sm:py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors text-center"
-                >
-                  <Sparkles className="w-3.5 h-3.5 shrink-0" />
-                  <span>✨ কেক প্রস্তুত (Mark Ready)</span>
-                </button>
-              )}
-
-            {/* 4. Ready -> Out for Delivery */}
-            {displayOrder.status === 'ready' &&
-              (hasPerm('dispatch.assign') || userRole === 'super_admin' || userRole === 'admin') &&
-              onStatusChange && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    onStatusChange(
-                      displayOrder.id,
-                      'out_for_delivery',
-                      'রাইডারকে হ্যান্ডওভার করা হয়েছে'
-                    )
-                  }
-                  className="w-full sm:w-auto px-4 py-2.5 sm:py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors text-center"
-                >
-                  <MapPin className="w-3.5 h-3.5 shrink-0" />
-                  <span>🚴 ডেলিভারিতে পাঠান (Out for Delivery)</span>
-                </button>
-              )}
 
             {/* Close Button */}
             <button

@@ -79,6 +79,17 @@ async function submit(renderer: ReactTestRenderer) {
   await act(async () => renderer.root.findByType('form').props.onSubmit({ preventDefault() {} }));
 }
 
+test('the next-day button exposes configured slots when today has no remaining times', async t => {
+  const renderer = await mount(t, propsFor(t));
+  const slot = () => renderer.root.findByProps({ 'aria-label': 'Delivery time slot' });
+  assert.equal(slot().props.value, '');
+  const nextDay = renderer.root.findAllByType('button').find(button => content(button).includes('আগামীকালের সময় দেখুন'));
+  assert.ok(nextDay);
+  await act(async () => nextDay.props.onClick());
+  assert.equal(slot().props.value, 'Morning');
+  assert.equal(renderer.root.findByProps({ type: 'submit' }).props.disabled, false);
+});
+
 // This exercises an existing live dialog across the exact public-flag transition
 // that previously changed its submit handler to the device-only demo path.
 test('freezing an open live checkout blocks fresh submissions without changing it to a local demo', async t => {

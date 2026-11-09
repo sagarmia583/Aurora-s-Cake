@@ -107,7 +107,9 @@ test('health reports non-green for stale deployed Apps Script or unknown write a
     } as Response)});
   const outdated=await responseFor({release:'older-than-code',writes_frozen:false});
   assert.equal(outdated.status,503);
-  assert.equal((await outdated.json()).code,'outdated_apps_script');
+  assert.deepEqual(await outdated.json(),{ok:false,code:'outdated_apps_script',
+    expected_release:'aurora-2026-11-09-sheets-only-r7',installed_release:'older-than-code',
+    database_backend:'google_sheets',writes_frozen:false});
   const unknown=await responseFor({release:'aurora-2026-11-09-sheets-only-r7'});
   assert.equal(unknown.status,503);
   assert.equal((await unknown.json()).code,'unknown_write_state');

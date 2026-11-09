@@ -154,6 +154,19 @@ test('CMS retries the same size ID without creating a duplicate or overwriting c
   assert.equal(h.last('product_variants').price,820);
 });
 
+test('saving an existing size cannot move it to another cake',()=>{
+  const h=backendHarness();
+  h.append('products',{id:'other-cake',category_id:'category',name:'Other cake',base_price:1000,is_active:true});
+  h.create('product_variants',{product_id:'cake',name:'Mini',price:200,is_active:true});
+  const id=h.last('product_variants').id;
+  const update={action:'staff_cms_update',table:'product_variants',record_id:id};
+  assert.throws(()=>h.ctx.auroraCmsPost_({...update,values:{product_id:'other-cake',price:220}}),/belongs to its original cake/);
+  assert.equal(h.last('product_variants').product_id,'cake');
+  assert.equal(h.last('product_variants').price,200);
+  assert.equal(h.ctx.auroraCmsPost_({...update,values:{price:220}}).ok,true);
+  assert.equal(h.last('product_variants').price,220);
+});
+
 test('CMS product edits preserve computed Sheet formulas and reject manual counter changes',()=>{
   const h=backendHarness(),sheet=h.book.getSheetByName('products');
   const headers=sheet.values[0];

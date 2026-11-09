@@ -16,7 +16,9 @@ async function mount(t:TestContext,token=employeeToken){
   Object.defineProperty(globalThis,'window',{configurable:true,writable:true,value:windowStub});
   Object.defineProperty(globalThis,'document',{configurable:true,writable:true,value:{visibilityState:'visible',addEventListener(){},removeEventListener(){},getElementById:()=>({addEventListener(){},removeEventListener(){}})}});
   let logout:(()=>Promise<Response>)=async()=>new Response(JSON.stringify({ok:true,revoked:true}));
-  t.mock.method(globalThis,'fetch',async(_url:unknown,options:RequestInit)=>{
+  let health={body:{ok:true,up_to_date:true,writes_frozen:false} as Record<string, unknown>,status:200};
+  t.mock.method(globalThis,'fetch',async(url:unknown,options:RequestInit)=>{
+    if(url==='/api/backend-health')return Response.json(health.body,{status:health.status});
     const input=JSON.parse(String(options.body));calls.push(input);
     if(input.action==='staff_session')return new Response(JSON.stringify({ok:true,role:'kitchen_manager',name:'Fixture baker',email:'fixture_baker',riders:[]}));
     if(input.action==='staff_orders')return new Response(JSON.stringify({ok:true,snapshot_complete:true,orders:[]}));
@@ -27,8 +29,25 @@ async function mount(t:TestContext,token=employeeToken){
   t.after(async()=>{await act(async()=>renderer.unmount());if(savedWindow)Object.defineProperty(globalThis,'window',savedWindow);else Reflect.deleteProperty(globalThis,'window');if(savedDocument)Object.defineProperty(globalThis,'document',savedDocument);else Reflect.deleteProperty(globalThis,'document');});
   const signout=()=>renderer.root.findByProps({'aria-label':'Sign out'});
   assert.ok(signout(),'fixture must restore a real staff workspace before testing sign out');
-  return {renderer,storage,calls,signout,setLogout:(handler:()=>Promise<Response>)=>{logout=handler;}};
+  return {renderer,storage,calls,signout,setLogout:(handler:()=>Promise<Response>)=>{logout=handler;},
+    setHealth:(status:number,body:Record<string,unknown>)=>{health={status,body};}};
 }
+
+test('staff health retry distinguishes a write freeze from a version mismatch and clears on recovery',async t=>{
+  const h=await mount(t);
+  const status=()=>JSON.stringify(h.renderer.toJSON());
+  const retry=()=>h.renderer.root.findAllByType('button').find(button=>button.props.children==='আবার যাচাই করুন');
+  await act(async()=>h.renderer.update(React.createElement(StaffPortal,{isOpen:false,onClose(){},endpoint})));
+  h.setHealth(503,{code:'outdated_apps_script',installed_release:'store-r5',expected_release:'store-r7',writes_frozen:false});
+  await act(async()=>h.renderer.update(React.createElement(StaffPortal,{isOpen:true,onClose(){},endpoint})));
+  assert.match(status(),/বর্তমান r5, প্রয়োজন r7/);
+  h.setHealth(200,{ok:true,up_to_date:true,writes_frozen:true});
+  await act(async()=>retry()!.props.onClick());
+  assert.match(status(),/অর্ডার আপডেট সাময়িকভাবে বন্ধ/);
+  h.setHealth(200,{ok:true,up_to_date:true,writes_frozen:false});
+  await act(async()=>retry()!.props.onClick());
+  assert.equal(retry(),undefined);
+});
 
 test('password staff remain signed in until server revocation is acknowledged',async t=>{
   const h=await mount(t);let acknowledge!:((value:Response)=>void);

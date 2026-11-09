@@ -486,7 +486,7 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = React.memo(
               <StorefrontPrice regular={pricing.regularPrice} current={pricing.currentPrice}
                 currency={currency} size={firstVariant && [text('catalog_from_label'), firstVariant.name.split(' (')[0]].filter(Boolean).join(' · ')}/>
             </div>
-            <div className="ac-card-actions">
+            {firstVariant ? <div className="ac-card-actions">
               <button
                 type="button"
                 className={`ac-card-btn ac-card-btn-cart ${justAddedId === product.id ? 'is-added' : ''}`}
@@ -514,7 +514,7 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = React.memo(
                 <Zap size={14} fill="currentColor" />
                 <span>অর্ডার করুন</span>
               </button>
-            </div>
+            </div> : <p className="text-xs font-semibold text-slate-600">এই কেকটি আপাতত অর্ডার করা যাচ্ছে না।</p>}
           </div>
         </article>;
       })}</div>

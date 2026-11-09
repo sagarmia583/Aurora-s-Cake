@@ -2492,6 +2492,8 @@ function auroraCmsPost_(input){
       if(name==='products'&&(!row.name||!row.category_id))auroraReject_('invalid_request','Product name and category are required.');
       if(name==='categories'&&!row.name)auroraReject_('invalid_request','Category name is required.');
       if(name==='product_variants'&&(!row.product_id||!row.name))auroraReject_('invalid_request','Product ID and variant name are required.');
+      if(name==='product_variants'&&existing&&String(existing.product_id)!==String(row.product_id))
+        auroraReject_('invalid_reference','An existing size belongs to its original cake. Create a new size for the other cake.');
       if(name==='delivery_zones'&&!row.name)auroraReject_('invalid_request','Delivery zone name is required.');
       if(name==='delivery_slots'&&!row.slot_label)auroraReject_('invalid_request','Delivery slot label is required.');
       if(name==='coupons'&&(!row.code||!row.discount_type))auroraReject_('invalid_request','Coupon code and discount type are required.');

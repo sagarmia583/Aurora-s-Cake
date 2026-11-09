@@ -32,7 +32,7 @@ interface OrderTrackingModalProps {
   checkedAt?: string;
   onRefresh?: () => void;
   onRestoreLegacyAccess?: (order: Order, recoveryKey: string) => Promise<void>;
-  onAddReview?: (review: Omit<Review, 'id' | 'status' | 'created_at'>) => void;
+  onAddReview?: (review: Omit<Review, 'id' | 'status' | 'created_at'>) => void | Promise<void>;
 }
 
 const STAGES: { status: OrderStatus; label: string; icon: string; desc: string }[] = [
@@ -86,21 +86,13 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
   const [reviewComment, setReviewComment] = useState('');
   const [reviewImage, setReviewImage] = useState('');
   const [reviewSuccess, setReviewSuccess] = useState(false);
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewError, setReviewError] = useState('');
 
-  const handleReviewImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (uploadEvent) => {
-      const dataUrl = uploadEvent.target?.result as string;
-      if (dataUrl) setReviewImage(dataUrl);
-    };
-    reader.readAsDataURL(file);
-  };
 
-  const handleTrackReviewSubmit = (e: React.FormEvent) => {
+  const handleTrackReviewSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!onAddReview || !selectedOrder || !reviewComment.trim()) return;
+    if (reviewBusy || !onAddReview || !selectedOrder || !reviewComment.trim()) return;
     const firstItem = selectedOrder.items[0];
     const reviewData = {
       product_id: firstItem?.product_id || 'prod-custom',
@@ -111,14 +103,16 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
       image_url: reviewImage.trim() || undefined,
       verified_purchase: true,
     };
-    onAddReview(reviewData);
-    setReviewSuccess(true);
-    setTimeout(() => {
-      setShowReviewModal(false);
-      setReviewSuccess(false);
-      setReviewComment('');
-      setReviewImage('');
-    }, 1500);
+    setReviewBusy(true);
+    setReviewError('');
+    try {
+      await onAddReview(reviewData);
+      setReviewSuccess(true);
+    } catch (error) {
+      setReviewError(shopErrorMessage(error, 'রিভিউ জমা দেওয়া যায়নি। আবার চেষ্টা করুন।'));
+    } finally {
+      setReviewBusy(false);
+    }
   };
   const dialogRef = useCakeDialog(onClose, selectedOrder?.id);
 
@@ -261,7 +255,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => setShowReviewModal(true)}
+                onClick={() => { setReviewSuccess(false); setReviewError(''); setReviewComment(''); setReviewImage(''); setShowReviewModal(true); }}
                 className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-sm transition-all shrink-0 flex items-center gap-1.5 cursor-pointer"
               >
                 <Camera className="w-3.5 h-3.5" />
@@ -484,6 +478,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
                 </div>
               ) : (
                 <form onSubmit={handleTrackReviewSubmit} className="space-y-3.5 text-xs">
+                  {reviewError && <p role="alert" className="text-red-700">{reviewError}</p>}
                   <div>
                     <span className="text-slate-500 block mb-0.5">কেক আইটেম:</span>
                     <span className="font-bold text-slate-800 text-sm">
@@ -527,31 +522,18 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
                   {/* Sold Cake Image Upload */}
                   <div className="space-y-1.5">
                     <label className="font-bold text-slate-700 block">
-                      কেকের ছবি যোগ করুন (Upload Delivered Cake Photo)
+                      কেকের ছবির HTTPS লিংক (ঐচ্ছিক)
                     </label>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <label className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl cursor-pointer font-bold flex items-center gap-1.5 transition-colors">
-                        <Camera className="w-4 h-4 text-rose-600" />
-                        <span>Choose Photo</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleReviewImageUpload}
-                          className="hidden"
-                        />
-                      </label>
-                      <span className="text-[11px] text-slate-400">or enter image URL</span>
-                    </div>
 
                     <input
-                      type="text"
+                      type="url" aria-label="Cake photo URL"
                       placeholder="https://example.com/cake-photo.jpg"
                       value={reviewImage}
                       onChange={(e) => setReviewImage(e.target.value)}
                       className="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-xs"
                     />
 
-                    {reviewImage && (
+                    {/^https:\/\//i.test(reviewImage.trim()) && (
                       <div className="relative inline-block mt-1">
                         <img
                           src={reviewImage}
@@ -579,6 +561,7 @@ const OrderTrackingModalDialog: React.FC<OrderTrackingModalProps> = ({
                     </button>
                     <button
                       type="submit"
+                      disabled={reviewBusy}
                       className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-md cursor-pointer"
                     >
                       রিভিউ ও ছবি জমা দিন

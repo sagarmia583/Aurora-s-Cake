@@ -177,21 +177,32 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [viewingSavedOrders,setViewingSavedOrders]=useState(false);
   const [orderUpdateMessage,setOrderUpdateMessage]=useState('');
   const [backendWarning,setBackendWarning]=useState('');
-  // Health is a read-only Netlify check, never an external database mirror.
+  const [healthCheck,setHealthCheck]=useState(0);
   useEffect(()=>{
     if(!isOpen||typeof window==='undefined')return;
     const controller=new AbortController();
+    let current=true;
+    const unavailable='দোকানের সার্ভারের অবস্থা যাচাই করা যায়নি। আবার চেষ্টা করুন।';
+    const timeout=setTimeout(()=>controller.abort(),15000);
     void fetch('/api/backend-health',{credentials:'same-origin',cache:'no-store',signal:controller.signal})
       .then(async response=>{
         const data=await response.json().catch(()=>null);
-        if(controller.signal.aborted)return;
-        if(!response.ok||data?.ok!==true||data?.up_to_date!==true){
-          setBackendWarning('Netlify backend health is not ready. Order actions may be unavailable until the reviewed Apps Script release is deployed.');
-        }else setBackendWarning('');
+        if(!current)return;
+        if(data?.writes_frozen===true){
+          setBackendWarning('দোকানের অর্ডার আপডেট সাময়িকভাবে বন্ধ আছে। কিছুক্ষণ পর আবার চেষ্টা করুন।');
+        }else if(data?.code==='outdated_apps_script'){
+          const installed=typeof data.installed_release==='string'?data.installed_release.match(/r\d+$/i)?.[0]:undefined;
+          const expected=typeof data.expected_release==='string'?data.expected_release.match(/r\d+$/i)?.[0]:undefined;
+          const versions=installed&&expected?` বর্তমান ${installed}, প্রয়োজন ${expected}।`:'';
+          setBackendWarning('স্টাফ প্যানেলের নতুন ফিচারের জন্য Apps Script আপডেট দরকার।'+versions);
+        }else{
+          setBackendWarning(response.ok&&data?.ok===true&&data?.up_to_date===true?'':unavailable);
+        }
       })
-      .catch(()=>{if(!controller.signal.aborted)setBackendWarning('Unable to check the Netlify backend. Confirm your connection before updating orders.');});
-    return()=>controller.abort();
-  },[isOpen,endpoint]);
+      .catch(()=>{if(current)setBackendWarning(unavailable);})
+      .finally(()=>clearTimeout(timeout));
+    return()=>{current=false;clearTimeout(timeout);controller.abort();};
+  },[isOpen,healthCheck]);
   const [legacyKey,setLegacyKey]=useState<{orderId:string;key:string}|null>(null);
   const lookupCustomer=async(event:React.FormEvent)=>{
     event.preventDefault();if(!identity||customerLookupBusy)return;
@@ -598,11 +609,12 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                 className="rounded-lg bg-white border px-3 py-2 text-sm font-bold text-emerald-800 disabled:opacity-50">Retry session</button>}
             <button aria-label="Dismiss error" type="button" onClick={()=>setError('')} className="p-1 rounded-lg hover:bg-rose-100"><X size={16}/></button>
           </div>}
-          {backendWarning&&<p role="alert" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-sm font-medium text-amber-950">{backendWarning}</p>}
+          {backendWarning&&<div role="status" className="mx-4 sm:mx-6 flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+            <p className="flex-1">{backendWarning}</p>
+            <button type="button" onClick={()=>setHealthCheck(previous=>previous+1)} className="rounded-lg border border-amber-600 px-3 py-2 font-semibold">আবার যাচাই করুন</button>
+          </div>}
           {identity&&snapshotWarning&&<p role="status" className="mx-4 sm:mx-6 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-950">{snapshotWarning}</p>}
-          {!oauthClientId ? (
-            <div role="alert" className="m-6 rounded-2xl bg-amber-50 p-6 text-amber-900">Google sign-in is temporarily unavailable.</div>
-          ) : restoringSession && !identity ? (
+          {restoringSession && !identity ? (
             <div className="max-w-lg mx-auto my-12 rounded-2xl bg-white shadow-sm border p-8 text-center" role="status">
               <RefreshCw className="animate-spin mx-auto mb-4 text-emerald-700" size={28}/>
               <h3 className="font-bold text-xl text-emerald-950">Restoring your secure staff session…</h3>
@@ -658,7 +670,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                     <div className="space-y-4">
                       <h3 className="text-2xl font-black text-[#15342e]">Owner access</h3>
                       <p className="text-sm text-slate-500">Sign in using the approved Google account.</p>
-                      <div ref={signinRef} className="min-h-12 flex justify-center"/>
+                      {oauthClientId ? <div ref={signinRef} className="min-h-12 flex justify-center"/> :
+                        <p role="status" className="text-sm text-slate-600">Google sign-in is temporarily unavailable. Staff with a username and password can use Employee login.</p>}
                       <button type="button" onClick={()=>{setGoogleUiError('');setFedcmButton(x=>!x);}} className="text-sm underline text-emerald-800">
                         {fedcmButton?'Sign-in not opening? Use classic popup':'Try browser-managed Google login'}
                       </button>
@@ -1390,24 +1403,13 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
           products={catalog.products}
           websiteUrl={catalog.settings.website_url}
           facebookUrl={catalog.settings.facebook_url}
-          userRole={identity?.role || 'staff'}
           endpoint={endpoint}
-          onStatusChange={(orderId, newStatus) => {
-            const op =
-              newStatus === 'confirmed'
-                ? 'confirm'
-                : newStatus === 'preparing'
-                ? 'start_baking'
-                : newStatus === 'ready'
-                ? 'mark_ready'
-                : newStatus === 'out_for_delivery'
-                ? 'start_delivery'
-                : newStatus === 'delivered'
-                ? 'deliver'
-                : 'cancel';
-            const ord = orders.find((o) => o.id === orderId);
-            if (ord) void mutate(ord, op);
-          }}
+          onManageOrder={identity && !terminalStatuses.has(selectedOrderForDetails.status) ? () => {
+            setSelectedOrderForDetails(null);
+            setActiveTab('orders');
+            setOrderFilter('all');
+            setOrderSearch(String(selectedOrderForDetails.order_number));
+          } : undefined}
           onTriggerPosPrint={(ord) => {
             setSelectedOrderForDetails(null);
             setSelectedOrderForPosPrint(ord);

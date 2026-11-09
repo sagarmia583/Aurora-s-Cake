@@ -1,5 +1,4 @@
 import { normalizeCheckoutPhone } from './customerPhoneLookup';
-import { privatePost } from './sheetStaffApi';
 import type { Order } from '../types';
 
 export interface SavedCustomer {
@@ -163,24 +162,3 @@ export function findCustomerOrders(phone: string, ordersList: readonly Order[]):
 
   return results.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
 }
-
-/**
- * Attempts to fetch customer order history and profile from the live Apps Script endpoint.
- */
-export async function fetchCustomerOrdersFromEndpoint(
-  endpoint: string,
-  phone: string
-): Promise<{ orders: Order[]; profile?: { name: string; phone: string; address: string; zone_id?: string } }> {
-  const normalized = normalizeCheckoutPhone(phone);
-  if (!normalized || !endpoint) return { orders: [] };
-  try {
-    const res = await privatePost(endpoint, { action: 'customer_phone_history', phone: normalized });
-    if (res && res.ok && Array.isArray(res.orders)) {
-      return { orders: res.orders as Order[], profile: res.profile as { name: string; phone: string; address: string; zone_id?: string } | undefined };
-    }
-  } catch {
-    // fallback silently
-  }
-  return { orders: [] };
-}
-

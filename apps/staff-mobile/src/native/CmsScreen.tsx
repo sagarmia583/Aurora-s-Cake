@@ -200,7 +200,7 @@ export function CmsScreen({
     try {
       const submitted: Row = {};
       for (const [field, value] of Object.entries(values)) {
-        if (protectedField(table, field)) continue;
+        if (protectedField(table, field) || (table === "product_variants" && editing.id && field === "product_id")) continue;
         if (numberFields.has(field)) {
           if (value === "" && optionalNumbers.has(field)) submitted[field] = "";
           else {
@@ -392,6 +392,10 @@ export function CmsScreen({
                   : labels[field] || field.replace(/_/g, " ");
             const set = (value: unknown) =>
               setValues((s) => ({ ...s, [field]: value }));
+            if (table === "product_variants" && editing.id && field === "product_id")
+              return <View key={field}><Text style={T.h3}>{label}</Text>
+                <Text style={T.sub}>{catalog.products.find(product => product.id === v)?.name || String(v ?? "")}</Text>
+              </View>;
             if (
               boolFields.has(field) ||
               (field === "value" &&

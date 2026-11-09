@@ -131,7 +131,10 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
     setSaving(true);setError('');setNotice('');
     try{
       const values:Record<string,Cell>={};
-      for(const field of columnsFor(data))values[field]=convert(field,draft[field]??'');
+      for(const field of columnsFor(data)){
+        if(table==='product_variants'&&!creating&&field==='product_id')continue;
+        values[field]=convert(field,draft[field]??'');
+      }
       const settingsKey=creating?newKey:selected;
       if(table==='settings'&&['accepting_orders','delivery_enabled'].includes(settingsKey)) {
         values.value=draft.value===true||draft.value==='true';
@@ -209,41 +212,6 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
     }
     return false;
   };
-  /** Explicit owner-requested smoke test: creates one clearly marked hidden FAQ,
-   *  updates it, then archives it; never touches existing public or private rows.
-   */
-  const runCmsSmoke=async()=>{
-    if((role!=='super_admin'&&role!=='admin')||operation.current||loadingRef.current)return;
-    if(!window.confirm('Run a live website CRUD test? This adds one clearly labeled, hidden FAQ test row, retained for audit. Existing orders and products stay unchanged.'))return;
-    const current={source:{endpoint,token,table},editor:editorVersion.current};
-    const isCurrent=()=>sameSource(current.source)&&editorVersion.current===current.editor;
-    operation.current=current;
-    setSaving(true);setError('');setNotice('');
-    const marker='AURORA_CMS_TEST_'+Date.now();
-    try{
-      await mutateCmsTable(endpoint,token,'faqs','create',{
-        question:marker,answer:'Live CRUD creation test',sort_order:999999,is_active:false
-      });
-      if(!isCurrent())return;
-      const found=await fetchCmsTable(endpoint,token,'faqs');
-      if(!isCurrent())return;
-      const saved=found.rows.find(row=>row.question===marker);
-      if(!saved||typeof saved.id!=='string')throw new Error('The test FAQ was created but could not be found in the first 500 entries.');
-      await mutateCmsTable(endpoint,token,'faqs','update',{answer:'Live CRUD update verified'},saved.id);
-      if(!isCurrent())return;
-      await mutateCmsTable(endpoint,token,'faqs','delete',{},saved.id);
-      if(!isCurrent())return;
-      const confirmed=await fetchCmsTable(endpoint,token,'faqs');
-      if(!isCurrent())return;
-      const result=confirmed.rows.find(row=>row.id===saved.id);
-      if(!result||result.is_active!==false||result.answer!=='Live CRUD update verified')
-        throw new Error('The test was saved, but a final read did not confirm its archived state.');
-      setNotice('The website editing test passed.');
-      if(table==='faqs')setData(confirmed);
-      onUpdated();
-    }catch(error){if(isCurrent())setError(shopErrorMessage(error, 'The website editing test failed.'));}
-    finally{if(operation.current===current){operation.current=null;if(mounted.current)setSaving(false);}}
-  };
   const archive=async()=>{
     if(operation.current||loadingRef.current||!data||data.table!==table||!selected||(role!=='super_admin'&&role!=='admin'))return;
     if(!window.confirm('Archive this public record? Historical orders stay intact. This cannot be used for private orders.'))return;
@@ -271,10 +239,6 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
         <p className="text-sm text-slate-600">Create, edit and archive website content.</p>
       </div>
       <div className="flex gap-2 flex-wrap">
-        {(role==='super_admin'||role==='admin')&&<button type="button" disabled={loading||saving||uploading} onClick={()=>void runCmsSmoke()}
-          className="rounded-xl border border-amber-300 px-3 py-2 text-sm text-amber-900">
-          Test live Create / Edit / Archive
-        </button>}
         <button type="button" disabled={loading||saving||uploading} onClick={()=>void load()} className="rounded-xl border px-3 py-2 flex items-center gap-2 text-sm">
           <RefreshCw size={15}/> Refresh
         </button>
@@ -334,7 +298,7 @@ export const WebsiteManager:React.FC<Props>=({endpoint,token,role,onUpdated})=>{
                :field==='status'&&table==='reviews'?
                 <select disabled={loading||saving||uploading} value={String(draft[field]??'pending')} onChange={e=>setDraft(prev=>({...prev,[field]:e.target.value}))}
                   className="block w-full border rounded-lg p-2 mt-1">{['pending','approved','rejected','hidden'].map(o=><option key={o}>{o}</option>)}</select>
-               :<textarea disabled={loading||saving||uploading} value={String(draft[field]??'')} rows={/description|body|content|note|address|value|_ids|gallery_images/.test(field)?3:1}
+               :<textarea disabled={loading||saving||uploading} readOnly={table==='product_variants'&&!creating&&field==='product_id'} value={String(draft[field]??'')} rows={/description|body|content|note|address|value|_ids|gallery_images/.test(field)?3:1}
                   onChange={e=>setDraft(prev=>({...prev,[field]:e.target.value}))}
                   className="block w-full border rounded-lg p-2 mt-1 resize-y"/>}
               {isUploadField(field)&&<span className="block mt-2 text-xs font-normal text-emerald-900">
