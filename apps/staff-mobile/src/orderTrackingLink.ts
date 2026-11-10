@@ -14,6 +14,13 @@ export function websiteOrderTrackingLink(value: unknown, orderId: string): strin
   if (typeof value !== 'string') return '';
   try {
     const legacy = new URL(value);
+    if (legacy.origin === ORDER_TRACKING_ORIGIN && legacy.pathname === ORDER_TRACKING_PATH &&
+        !legacy.username && !legacy.password && !legacy.search) {
+      const key = readOrderTrackingKey(new URLSearchParams(legacy.hash.slice(1)));
+      if (!key || key.orderId !== orderId) return '';
+      legacy.hash = new URLSearchParams({ ref: key.orderId, access: key.accessKey }).toString();
+      return legacy.href;
+    }
     if (legacy.origin + legacy.pathname !== ORDER_RECEIPT_BASE || legacy.username || legacy.password ||
         legacy.hash || legacy.searchParams.get('action') !== 'receipt') return '';
     const key = readOrderTrackingKey(legacy.searchParams);

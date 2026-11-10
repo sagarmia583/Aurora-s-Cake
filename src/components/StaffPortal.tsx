@@ -4,7 +4,6 @@ import { X, RefreshCw, ShieldCheck, Truck, PackageCheck, LayoutDashboard, Shoppi
 import { checkStaffSession, getStaffOrderSnapshot, mutateStaffOrder, issueLegacyReceiptAccess, signInStaffPassword, signOutStaffPassword, createStaffAccount, changeStaffStatus, resetStaffPassword, lookupStaffCustomer } from '../services/sheetStaffApi';
 import type { StaffCustomerMatch, StaffOperation, StaffOrder, StaffProfile, StaffRoleName, StaffSession } from '../services/sheetStaffApi';
 import { getAuroraGoogleClientId } from '../config/googleOAuth';
-import { getSharedBakeryApiUrl } from '../services/dualHosting';
 import { getBrowserWorkspaceStorage, loadStaffCredential, saveStaffCredential, clearStaffCredential, loadStaffTab, saveStaffTab } from '../services/staffWorkspaceSession';
 import { reconcileStaffOrders, reconcileStaffOrderSnapshot, loadStaffOrdersSnapshot, saveStaffOrdersSnapshot, clearStaffOrdersSnapshot } from '../services/staffOrderSnapshot';
 import { activeStaffOrderAlertIds, detectNewStaffOrderAlerts } from '../services/staffOrderAlerts';
@@ -18,7 +17,9 @@ import {
   acknowledgeOrderAlert,
   stopOrderAlertLoop,
 } from '../services/orderSound';
-import { mockDb } from '../services/mockDatabase';
+import { DEFAULT_ROLE_PERMISSIONS } from '../services/staffPermissions';
+import { DEFAULT_PUBLIC_SITE_DATA } from '../content/defaultSiteData';
+import type { PublicSiteData } from '../types/siteContent';
 import { StaffPermissionCode, OrderStatus, Order } from '../types';
 import { PosPrintModal } from './PosPrintModal';
 import { PosPrinterSettingsModal } from './PosPrinterSettingsModal';
@@ -26,7 +27,6 @@ import { CollectionStatementModal } from './CollectionStatementModal';
 import { AdminCreateOrderModal } from './AdminCreateOrderModal';
 import { CustomerOrderLink } from './CustomerOrderLink';
 import { OrderDetailsModal } from './OrderDetailsModal';
-import { createDemoReceiptOrder } from '../services/posPrinterService';
 import { formatShortOrderNumber } from '../utils/orderUtils';
 // Download the larger forms only if the user opens those workspaces.
 const WebsiteManager=React.lazy(()=>import('./WebsiteManager').then(m=>({default:m.WebsiteManager})));
@@ -40,6 +40,9 @@ type GoogleSdk = {
 const googleSdk = (): GoogleSdk | undefined =>
   (window as Window & { google?: { accounts?: { id?: GoogleSdk } } }).google?.accounts?.id;
 
+const hasRolePermission = (role: StaffRoleName, permission: StaffPermissionCode) =>
+  DEFAULT_ROLE_PERMISSIONS[role]?.includes(permission) ?? false;
+
 function canOperate(role: StaffRoleName, operation: StaffOperation): boolean {
   // Super Admin and Admin can do ANY operation across the bakery without restriction
   if (role === 'super_admin' || role === 'admin') return true;
@@ -47,7 +50,7 @@ function canOperate(role: StaffRoleName, operation: StaffOperation): boolean {
   // Rider actions
   if (['pick_up', 'start_delivery', 'deliver'].includes(operation)) {
     // Delivery managers dispatch; only assigned riders and administrators complete deliveries.
-    return role === 'delivery_man' || (role !== 'delivery_manager' && (mockDb.hasPermission(role, 'delivery.complete') || mockDb.hasPermission(role, 'delivery.dispatch')));
+    return role === 'delivery_man' || (role !== 'delivery_manager' && (hasRolePermission(role, 'delivery.complete') || hasRolePermission(role, 'delivery.dispatch')));
   }
 
   const operationPermMap: Partial<Record<StaffOperation, StaffPermissionCode>> = {
@@ -62,7 +65,7 @@ function canOperate(role: StaffRoleName, operation: StaffOperation): boolean {
   };
 
   const neededPerm = operationPermMap[operation];
-  if (neededPerm && mockDb.hasPermission(role, neededPerm)) {
+  if (neededPerm && hasRolePermission(role, neededPerm)) {
     return true;
   }
 
@@ -95,9 +98,10 @@ interface StaffPortalProps {
   isOpen: boolean;
   onClose: () => void;
   endpoint: string;
+  catalog?: PublicSiteData;
   onCatalogUpdated?: () => void;
 }
-export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpoint, onCatalogUpdated }) => {
+export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpoint, catalog = DEFAULT_PUBLIC_SITE_DATA, onCatalogUpdated }) => {
   const oauthClientId = getAuroraGoogleClientId();
   const signinRef = useRef<HTMLDivElement>(null);
   const [identity, setIdentity] = useState<(StaffSession & { token: string }) | null>(null);
@@ -117,7 +121,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [customerLookupResult,setCustomerLookupResult]=useState<StaffCustomerMatch|null>(null);
   const [customerLookupMessage,setCustomerLookupMessage]=useState('');
   const [customerLookupBusy,setCustomerLookupBusy]=useState(false);
-  const [expandedOrders,setExpandedOrders]=useState<string[]>([]);
+  const [expandedOrderId,setExpandedOrderId]=useState('');
   const [loginChoice,setLoginChoice]=useState<'employee'|'owner'>('employee');
   const [username,setUsername]=useState('');
   const [password,setPassword]=useState('');
@@ -173,22 +177,32 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const [viewingSavedOrders,setViewingSavedOrders]=useState(false);
   const [orderUpdateMessage,setOrderUpdateMessage]=useState('');
   const [backendWarning,setBackendWarning]=useState('');
-  // Health is a read-only Netlify check, never an external database mirror.
+  const [healthCheck,setHealthCheck]=useState(0);
   useEffect(()=>{
-    const sharedHealth=getSharedBakeryApiUrl('/api/backend-health');
-    if(!isOpen||typeof window==='undefined'||(!sharedHealth&&!window.location.hostname.endsWith('.netlify.app')))return;
+    if(!isOpen||typeof window==='undefined')return;
     const controller=new AbortController();
-    void fetch(sharedHealth||'/api/backend-health',{credentials:sharedHealth?'omit':'same-origin',cache:'no-store',signal:controller.signal})
+    let current=true;
+    const unavailable='দোকানের সার্ভারের অবস্থা যাচাই করা যায়নি। আবার চেষ্টা করুন।';
+    const timeout=setTimeout(()=>controller.abort(),15000);
+    void fetch('/api/backend-health',{credentials:'same-origin',cache:'no-store',signal:controller.signal})
       .then(async response=>{
         const data=await response.json().catch(()=>null);
-        if(controller.signal.aborted)return;
-        if(!response.ok||data?.ok!==true||data?.up_to_date!==true){
-          setBackendWarning('Netlify backend health is not ready. Order actions may be unavailable until the reviewed Apps Script release is deployed.');
-        }else setBackendWarning('');
+        if(!current)return;
+        if(data?.writes_frozen===true){
+          setBackendWarning('দোকানের অর্ডার আপডেট সাময়িকভাবে বন্ধ আছে। কিছুক্ষণ পর আবার চেষ্টা করুন।');
+        }else if(data?.code==='outdated_apps_script'){
+          const installed=typeof data.installed_release==='string'?data.installed_release.match(/r\d+$/i)?.[0]:undefined;
+          const expected=typeof data.expected_release==='string'?data.expected_release.match(/r\d+$/i)?.[0]:undefined;
+          const versions=installed&&expected?` বর্তমান ${installed}, প্রয়োজন ${expected}।`:'';
+          setBackendWarning('স্টাফ প্যানেলের নতুন ফিচারের জন্য Apps Script আপডেট দরকার।'+versions);
+        }else{
+          setBackendWarning(response.ok&&data?.ok===true&&data?.up_to_date===true?'':unavailable);
+        }
       })
-      .catch(()=>{if(!controller.signal.aborted)setBackendWarning('Unable to check the Netlify backend. Confirm your connection before updating orders.');});
-    return()=>controller.abort();
-  },[isOpen,endpoint]);
+      .catch(()=>{if(current)setBackendWarning(unavailable);})
+      .finally(()=>clearTimeout(timeout));
+    return()=>{current=false;clearTimeout(timeout);controller.abort();};
+  },[isOpen,healthCheck]);
   const [legacyKey,setLegacyKey]=useState<{orderId:string;key:string}|null>(null);
   const lookupCustomer=async(event:React.FormEvent)=>{
     event.preventDefault();if(!identity||customerLookupBusy)return;
@@ -228,10 +242,10 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
   const roleTabs:{id:StaffTab;label:string;icon:typeof LayoutDashboard;show:boolean}[]=[
     {id:'overview',label:'Overview',icon:LayoutDashboard,show:true},
     {id:'orders',label:'Orders & delivery',icon:ShoppingBag,show:true},
-    {id:'cakes',label:'Custom cake requests',icon:CakeSlice,show:['super_admin','admin','order_manager'].includes(identity?.role||'') || Boolean(identity && mockDb.hasPermission(identity.role, 'custom_cakes.manage'))},
-    {id:'costing',label:'Costing & Profit (কস্টিং ও লাভ)',icon:Calculator,show:['super_admin','admin','order_manager','accountant'].includes(identity?.role||'') || Boolean(identity && mockDb.hasPermission(identity.role, 'costing.view'))},
-    {id:'team',label:'Staff & access',icon:UsersRound,show:['super_admin','admin'].includes(identity?.role||'') || Boolean(identity && mockDb.hasPermission(identity.role, 'staff.manage'))},
-    {id:'website',label:'Website manager',icon:Store,show:identity?.role==='super_admin'||identity?.role==='admin' || Boolean(identity && mockDb.hasPermission(identity.role, 'settings.manage'))},
+    {id:'cakes',label:'Custom cake requests',icon:CakeSlice,show:['super_admin','admin','order_manager'].includes(identity?.role||'') || Boolean(identity && hasRolePermission(identity.role, 'custom_cakes.manage'))},
+    {id:'costing',label:'Costing & Profit (কস্টিং ও লাভ)',icon:Calculator,show:['super_admin','admin','order_manager','accountant'].includes(identity?.role||'') || Boolean(identity && hasRolePermission(identity.role, 'costing.view'))},
+    {id:'team',label:'Staff & access',icon:UsersRound,show:['super_admin','admin'].includes(identity?.role||'') || Boolean(identity && hasRolePermission(identity.role, 'staff.manage'))},
+    {id:'website',label:'Website manager',icon:Store,show:identity?.role==='super_admin'||identity?.role==='admin' || Boolean(identity && hasRolePermission(identity.role, 'settings.manage'))},
   ];
   const tabs=roleTabs.filter(tab=>tab.show);
   const pipeline=['pending','confirmed','preparing','ready','assigned','picked_up','out_for_delivery','delivered'];
@@ -344,7 +358,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       if(liveIdentityToken.current!==token)return;
       liveIdentityToken.current=undefined;
       clearStaffCredential(getBrowserWorkspaceStorage());clearStaffOrdersSnapshot(getBrowserWorkspaceStorage());
-      setIdentity(null);setOrders([]);setStaffProfiles([]);setActiveTab('overview');setError('');setSnapshotWarning('');
+      setIdentity(null);setOrders([]);setStaffProfiles([]);setExpandedOrderId('');setActiveTab('overview');setError('');setSnapshotWarning('');
     }catch{
       if(liveIdentityToken.current===token)setError('Sign out could not be confirmed. Retry before leaving this device.');
     }finally{setSigningOut(false);}
@@ -501,6 +515,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       await changeStaffStatus(endpoint,identity.token,username,active);
       const profile=await checkStaffSession(endpoint,identity.token);
       setStaffProfiles(profile.staff_profiles??[]);
+      setIdentity(previous=>previous?.token===identity.token?{...previous,riders:profile.riders}:previous);
+      setRiderEmail(previous=>profile.riders.some(r=>r.email===previous)?previous:(profile.riders[0]?.email||''));
     }catch(caught){setError(shopErrorMessage(caught, 'Staff status could not be updated.'));}
     finally{setRefreshingStaff(false);}
   };
@@ -522,6 +538,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       const current = await checkStaffSession(endpoint, identity.token);
       if (current.role !== 'super_admin' && current.role !== 'admin') throw new Error('Administrator access is no longer available. Sign in again.');
       setStaffProfiles(current.staff_profiles ?? []);
+      setIdentity(previous=>previous?.token===identity.token?{...previous,riders:current.riders}:previous);
+      setRiderEmail(previous=>current.riders.some(r=>r.email===previous)?previous:(current.riders[0]?.email||''));
       setError('');
     } catch (caught) { setError(shopErrorMessage(caught, 'Unable to refresh staff profiles.')); }
     finally { setRefreshingStaff(false); }
@@ -539,7 +557,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
     finally{setBusyOrderId('');}
   };
 
-  const mutate = async (order: StaffOrder, operation: StaffOperation) => {
+  const mutate = async (order: StaffOrder, operation: StaffOperation, selfDispatch = false) => {
     if (!identity || busyOrderId) return;
     if (operation === 'cancel' && !window.confirm('Cancel this order? This cannot be undone.')) return;
     if (operation === 'assign' && (!riderEmail || !identity.riders.some(r=>r.email===riderEmail))) {
@@ -554,7 +572,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
       const confirmed = await mutateStaffOrder(endpoint, identity.token, operation, order.id,
         operation === 'assign' ? { rider_email: riderEmail } :
         operation === 'deliver' ? { cash_collected: cashCollected, admin_override: isManager } :
-        (operation === 'pick_up' || operation === 'start_delivery') ? { admin_override: isManager } : {});
+        (operation === 'pick_up' || operation === 'start_delivery') ? { admin_override: isManager, ...(selfDispatch ? {self_dispatch:true} : {}) } : {});
       // Display the server-confirmed stage immediately; don't block the rider
       // for another costly full Sheet list request.
       setOrders(previous=>reconcileStaffOrders(previous,previous.map(item=>item.id===confirmed.id?{...item,...confirmed}:item)));
@@ -591,11 +609,12 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                 className="rounded-lg bg-white border px-3 py-2 text-sm font-bold text-emerald-800 disabled:opacity-50">Retry session</button>}
             <button aria-label="Dismiss error" type="button" onClick={()=>setError('')} className="p-1 rounded-lg hover:bg-rose-100"><X size={16}/></button>
           </div>}
-          {backendWarning&&<p role="alert" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-sm font-medium text-amber-950">{backendWarning}</p>}
+          {backendWarning&&<div role="status" className="mx-4 sm:mx-6 flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+            <p className="flex-1">{backendWarning}</p>
+            <button type="button" onClick={()=>setHealthCheck(previous=>previous+1)} className="rounded-lg border border-amber-600 px-3 py-2 font-semibold">আবার যাচাই করুন</button>
+          </div>}
           {identity&&snapshotWarning&&<p role="status" className="mx-4 sm:mx-6 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-950">{snapshotWarning}</p>}
-          {!oauthClientId ? (
-            <div role="alert" className="m-6 rounded-2xl bg-amber-50 p-6 text-amber-900">Google sign-in is temporarily unavailable.</div>
-          ) : restoringSession && !identity ? (
+          {restoringSession && !identity ? (
             <div className="max-w-lg mx-auto my-12 rounded-2xl bg-white shadow-sm border p-8 text-center" role="status">
               <RefreshCw className="animate-spin mx-auto mb-4 text-emerald-700" size={28}/>
               <h3 className="font-bold text-xl text-emerald-950">Restoring your secure staff session…</h3>
@@ -651,7 +670,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                     <div className="space-y-4">
                       <h3 className="text-2xl font-black text-[#15342e]">Owner access</h3>
                       <p className="text-sm text-slate-500">Sign in using the approved Google account.</p>
-                      <div ref={signinRef} className="min-h-12 flex justify-center"/>
+                      {oauthClientId ? <div ref={signinRef} className="min-h-12 flex justify-center"/> :
+                        <p role="status" className="text-sm text-slate-600">Google sign-in is temporarily unavailable. Staff with a username and password can use Employee login.</p>}
                       <button type="button" onClick={()=>{setGoogleUiError('');setFedcmButton(x=>!x);}} className="text-sm underline text-emerald-800">
                         {fedcmButton?'Sign-in not opening? Use classic popup':'Try browser-managed Google login'}
                       </button>
@@ -672,7 +692,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                 <div className="flex items-center gap-3 rounded-2xl bg-[#eff5f0] p-3">
                   <div className="relative shrink-0">
                     <img
-                      src={mockDb.getShopSettingsSync().profile_image_url || mockDb.getShopSettingsSync().logo_url || '/images/aurora-logo.png'}
+                      src={catalog.settings.profile_image_url || catalog.settings.logo_url || '/images/aurora-logo.png'}
                       alt={identity.name}
                       className="h-11 w-11 rounded-xl object-cover border border-emerald-900/15 shadow-2xs bg-white"
                       onError={(e) => {
@@ -950,56 +970,51 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                   const next = actionForStatus[order.status] || null;
                   const canCancel = canOperate(identity.role, 'cancel') && ['pending','confirmed','preparing','ready','assigned'].includes(order.status);
                   const shortNum = formatShortOrderNumber(order.order_number);
-                  return <article key={order.id} onClick={()=>{setUnreadOrderAlerts([]);acknowledgeOrderAlert();}} className="w-full min-w-0 max-w-full bg-white rounded-3xl border border-slate-200 hover:border-slate-300 p-3 sm:p-5 space-y-4 transition-all shadow-xs hover:shadow-md">
-                    {/* Top Header Bar: 4-digit order number, status, slot, and total price */}
-                    <div className="flex flex-wrap justify-between items-start gap-3 border-b border-slate-100 pb-3">
-                      <div className="flex items-start gap-3 min-w-0">
-                        <div className="shrink-0 h-11 w-11 rounded-2xl bg-slate-100 text-slate-700 grid place-items-center shadow-2xs font-black">
-                          <PackageCheck size={22} />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="inline-flex items-center gap-1 bg-slate-900 text-white font-mono font-black text-base sm:text-lg px-3 py-1 rounded-xl shadow-xs tracking-wider border border-slate-800" title={`পুরো অর্ডার আইডি: #${formatShortOrderNumber(order.order_number)}`}>
-                              <span className="text-amber-400">#</span>{shortNum}
-                            </span>
-                            <span className={'rounded-full px-3 py-1 text-xs font-black ring-1 uppercase tracking-wide '+stageClass(order.status)}>
-                              {stageNames[order.status] || order.status.replaceAll('_', ' ')}
-                            </span>
-                          </div>
-                          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs sm:text-sm font-semibold text-slate-700">
-                            <span className="flex items-center gap-1.5 text-slate-700 font-semibold">
-                              <Clock3 size={13} className="shrink-0 text-slate-500" />
-                              <span>{order.delivery_date || 'তারিখ নির্ধারিত নেই'}</span>
-                              <span>·</span>
-                              <span className="text-slate-900 font-bold">{order.delivery_slot || 'যেকোনো সময়'}</span>
-                            </span>
-                            <span className="text-[11px] text-slate-400 font-mono" title={formatShortOrderNumber(order.order_number)}>
-                              
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex sm:flex-col items-center sm:items-end justify-between w-full sm:w-auto gap-1">
-                        <span className="text-xl sm:text-2xl font-black text-slate-900 font-mono">
-                          ৳{Number(order.total_amount || 0).toLocaleString()}
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
-                            {order.payment_method === 'cod' ? '💵 ক্যাশ অন ডেলিভারি (COD)' : `💳 ${order.payment_method?.toUpperCase() || 'অনলাইন'}`}
+                  const isExpanded = expandedOrderId === order.id;
+                  const detailsId = 'staff-order-details-' + order.id;
+                  const toggleDetails = () => {
+                    setExpandedOrderId(isExpanded ? '' : order.id);
+                    setDeliveryConfirmOrderId('');
+                    setCashCollected(false);
+                    if (!isExpanded && unreadOrderAlerts.length) {
+                      setUnreadOrderAlerts([]);
+                      acknowledgeOrderAlert();
+                    }
+                  };
+                  return <article key={order.id} className="min-w-0 rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-x-5 gap-y-3 px-3 py-3 sm:px-4">
+                      <div className="min-w-0 grow">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <strong className="rounded-lg bg-slate-900 px-2.5 py-1 font-mono text-sm text-white">#{shortNum}</strong>
+                          <span className={'rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 '+stageClass(order.status)}>
+                            {stageNames[order.status] || order.status.replaceAll('_', ' ')}
                           </span>
-                          {order.payment_status === 'paid' ? (
-                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
-                              পরিশোধিত
-                            </span>
-                          ) : (
-                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-900">
-                              বকেয়া
-                            </span>
-                          )}
                         </div>
+                        <p className="mt-1.5 flex items-start gap-1.5 break-words text-xs text-slate-600">
+                          <Clock3 size={13} className="mt-0.5 shrink-0" aria-hidden="true"/>
+                          <span>{[order.delivery_date, order.delivery_slot].filter(Boolean).join(' · ') || 'সময় নির্ধারিত নেই'}</span>
+                        </p>
+                      </div>
+                      <div className="flex w-full items-center justify-between gap-3 sm:w-auto">
+                        <div>
+                          <p className="font-mono text-base font-black text-slate-900">৳{Number(order.total_amount || 0).toLocaleString()}</p>
+                          <p className={'text-xs font-semibold '+(order.payment_status === 'paid' ? 'text-emerald-700' : 'text-amber-800')}>
+                            {order.payment_status === 'paid' ? 'পরিশোধিত' : 'বকেয়া'}
+                          </p>
+                        </div>
+                        <button type="button" onClick={toggleDetails} aria-expanded={isExpanded} aria-controls={detailsId}
+                          aria-label={'অর্ডার #' + shortNum + (isExpanded ? ' বিস্তারিত বন্ধ করুন' : ' বিস্তারিত দেখুন')}
+                          className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-950 hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700">
+                          {isExpanded ? 'বন্ধ করুন' : 'বিস্তারিত দেখুন'}
+                          <ChevronDown size={16} aria-hidden="true" className={isExpanded ? 'rotate-180' : undefined}/>
+                        </button>
                       </div>
                     </div>
+                    <div id={detailsId} hidden={!isExpanded}>
+                    {isExpanded && <div className="space-y-4 border-t border-slate-200 px-3 py-4 sm:px-4">
+                    <p className="text-xs font-semibold text-slate-600">
+                      পেমেন্ট · {order.payment_method === 'cod' ? 'ক্যাশ অন ডেলিভারি (COD)' : order.payment_method?.toUpperCase() || 'অনলাইন'}
+                    </p>
 
                     {/* Customer & Delivery Address Grid */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-50/90 p-4 rounded-2xl border border-slate-200">
@@ -1126,6 +1141,9 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                             )}
 
                             {/* Addons if any */}
+                            {!!item.free_gift_items?.length && (
+                              <p className="mt-1 text-xs font-semibold text-emerald-800">ফ্রি উপহার · {item.free_gift_items.join(', ')}</p>
+                            )}
                             {item.addons && item.addons.length > 0 && (
                               <div className="text-xs text-slate-600 pl-3 flex flex-wrap gap-1.5 items-center">
                                 <span className="font-bold text-slate-500">যুক্ত করা আইটেম:</span>
@@ -1176,6 +1194,11 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                     {['super_admin','admin','order_manager','delivery_manager'].includes(identity.role)&&<CustomerOrderLink endpoint={endpoint} token={identity.token} orderId={order.id} initialUrl={order.customer_share_url}/>}
                     <div className="flex w-full min-w-0 flex-wrap gap-2.5 items-center pt-2 border-t border-slate-100">
                       {/* Workflow action button */}
+                      {order.status==='ready'&&!order.rider_id&&['super_admin','admin'].includes(identity.role)&&
+                        <button type="button" disabled={!!busyOrderId} onClick={()=>void mutate(order,'start_delivery',true)}
+                          className="min-h-10 rounded-xl border border-emerald-800 px-4 py-2 text-xs font-bold text-emerald-950">
+                          নিজে ডেলিভারি শুরু করুন
+                        </button>}
                       {next && canOperate(identity.role, next.operation) && next.operation !== 'deliver' && (
                         <>
                           {next.operation === 'assign' && (
@@ -1344,6 +1367,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
                         </div>
                       )}
                     </div>
+                    </div>}
+                    </div>
                   </article>;
                 })}
                   </div>
@@ -1351,7 +1376,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
               )}
               <React.Suspense fallback={<div className="rounded-2xl bg-white border p-8 text-center text-slate-500" role="status">Opening your workspace…</div>}>
                 {activeTab==='cakes'&&(['super_admin','admin','order_manager'] as string[]).includes(identity.role) && <CustomCakeQueue endpoint={endpoint} token={identity.token} />}
-                {activeTab==='costing'&&(['super_admin','admin','order_manager','accountant'] as string[]).includes(identity.role) && <ItemCostingManager products={mockDb.getProductsSync()} orders={orders} endpoint={endpoint} token={identity.token} onProductCostingUpdated={() => onCatalogUpdated?.()} />}
+                {activeTab==='costing'&&(['super_admin','admin','order_manager','accountant'] as string[]).includes(identity.role) && <ItemCostingManager products={catalog.products} orders={orders} endpoint={endpoint} token={identity.token} onProductCostingUpdated={() => onCatalogUpdated?.()} />}
                 {activeTab==='website'&&(identity.role === 'super_admin' || identity.role === 'admin') && <WebsiteManager endpoint={endpoint} token={identity.token}
                   role={identity.role} onUpdated={() => onCatalogUpdated?.()} />}
               </React.Suspense>
@@ -1367,33 +1392,22 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
           isOpen={!!selectedOrderForDetails}
           order={selectedOrderForDetails as Order}
           onClose={() => setSelectedOrderForDetails(null)}
-          currency={mockDb.getShopSettingsSync().currency}
-          shopName={mockDb.getShopSettingsSync().shop_name}
-          shopPhone={mockDb.getShopSettingsSync().phone}
-          shopAddress={mockDb.getShopSettingsSync().address}
-          websiteUrl={mockDb.getShopSettingsSync().website_url}
-          facebookUrl={mockDb.getShopSettingsSync().facebook_url}
-          userRole={identity?.role || 'staff'}
+          currency={catalog.settings.currency}
+          shopName={catalog.settings.shop_name}
+          shopPhone={catalog.settings.phone}
+          shopAddress={catalog.settings.address}
+          shopLogoUrl={catalog.settings.logo_url}
+          products={catalog.products}
+          websiteUrl={catalog.settings.website_url}
+          facebookUrl={catalog.settings.facebook_url}
           endpoint={endpoint}
-          onOrderUpdated={(updatedOrder) => {
-            setSelectedOrderForDetails({ ...updatedOrder });
-          }}
-          onStatusChange={(orderId, newStatus) => {
-            const op =
-              newStatus === 'confirmed'
-                ? 'confirm'
-                : newStatus === 'preparing'
-                ? 'start_baking'
-                : newStatus === 'ready'
-                ? 'mark_ready'
-                : newStatus === 'out_for_delivery'
-                ? 'start_delivery'
-                : newStatus === 'delivered'
-                ? 'deliver'
-                : 'cancel';
-            const ord = orders.find((o) => o.id === orderId);
-            if (ord) void mutate(ord, op);
-          }}
+          onManageOrder={identity && !terminalStatuses.has(selectedOrderForDetails.status) ? () => {
+            setSelectedOrderForDetails(null);
+            setActiveTab('orders');
+            setOrderFilter('all');
+            setOrderSearch(String(selectedOrderForDetails.order_number));
+            setExpandedOrderId(selectedOrderForDetails.id);
+          } : undefined}
           onTriggerPosPrint={(ord) => {
             setSelectedOrderForDetails(null);
             setSelectedOrderForPosPrint(ord);
@@ -1406,12 +1420,14 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
         <PosPrintModal
           order={selectedOrderForPosPrint as Order}
           onClose={() => setSelectedOrderForPosPrint(null)}
-          currency={mockDb.getShopSettingsSync().currency}
-          shopName={mockDb.getShopSettingsSync().shop_name}
-          shopPhone={mockDb.getShopSettingsSync().phone}
-          shopAddress={mockDb.getShopSettingsSync().address}
-          websiteUrl={mockDb.getShopSettingsSync().website_url}
-          facebookUrl={mockDb.getShopSettingsSync().facebook_url}
+          currency={catalog.settings.currency}
+          shopName={catalog.settings.shop_name}
+          shopPhone={catalog.settings.phone}
+          shopAddress={catalog.settings.address}
+          shopLogoUrl={catalog.settings.logo_url}
+          products={catalog.products}
+          websiteUrl={catalog.settings.website_url}
+          facebookUrl={catalog.settings.facebook_url}
         />
       )}
 
@@ -1420,10 +1436,6 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
         <PosPrinterSettingsModal
           isOpen={isPosSettingsOpen}
           onClose={() => setIsPosSettingsOpen(false)}
-          onTestPrint={() => {
-            setIsPosSettingsOpen(false);
-            setSelectedOrderForPosPrint(createDemoReceiptOrder('৳'));
-          }}
         />
       )}
 
@@ -1441,13 +1453,14 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({ isOpen, onClose, endpo
         <AdminCreateOrderModal
           isOpen={isCreateOrderModalOpen}
           onClose={() => setIsCreateOrderModalOpen(false)}
-          products={mockDb.getProductsSync()}
-          zones={mockDb.getDeliveryZones()}
-          slots={mockDb.getDeliverySlots()}
-          flavors={mockDb.getFlavors()}
-          addons={mockDb.getAddons()}
-          coupons={mockDb.getCoupons()}
-          currency={mockDb.getShopSettingsSync().currency}
+          products={catalog.products}
+          shopSettings={catalog.settings}
+          zones={catalog.zones}
+          slots={catalog.slots}
+          flavors={catalog.flavors}
+          addons={catalog.addons}
+          coupons={catalog.coupons}
+          currency={catalog.settings.currency}
           role={identity.role as any}
           endpoint={endpoint}
           staffIdentity={identity.email}

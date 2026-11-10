@@ -3,7 +3,7 @@
  * Rebuilt from the individual apps-script modules by scripts/build-apps-script.mjs.
  * Customer accounts, saved delivery profiles and product-email preferences stay private.
  * Routine update: replace the complete deployed Code.gs and retain existing Script Properties.
- * Keep the existing database backend. Database initialization is not part of an update.
+ * Keep the existing Google Sheet. Database initialization is not part of an update.
  * New Google Sheets installations only: the owner runs setupSheetDatabase(), then setupCampaignTools().
  * Deploy a NEW Web App version using Execute as Me / access Anyone.
  */
@@ -16,7 +16,7 @@
 // Leave blank when this script is bound to the intended Sheet through Extensions > Apps Script.
 var AURORA_SPREADSHEET_ID = '18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4';
 var AURORA_SCHEMA_VERSION = 1;
-var AURORA_BACKEND_RELEASE = 'aurora-2026-11-03-staff-order-alerts-r5';
+var AURORA_BACKEND_RELEASE = 'aurora-2026-11-09-sheets-only-r7';
 var PUBLIC_TABLE_SCHEMAS = {
   settings: ['key','value'],
   content: ['key','value'],
@@ -42,19 +42,17 @@ function auroraConfiguredId_() {
   return PropertiesService.getScriptProperties().getProperty('AURORA_SPREADSHEET_ID') || AURORA_SPREADSHEET_ID || '';
 }
 function auroraSpreadsheet_() {
-  if (typeof auroraSupabaseEnabled_ === 'function' && auroraSupabaseEnabled_()) return auroraSupabaseBook_();
   var id = auroraConfiguredId_();
   var book = id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
   if (!book) throw new Error('Bind the script to the intended Sheet or set AURORA_SPREADSHEET_ID in Script Properties.');
   return book;
 }
 function auroraCacheKey_() {
-  return 'aurora_public_profiles_email_v1_' + (typeof auroraSupabaseEnabled_ === 'function' && auroraSupabaseEnabled_() ? 'supabase_' : 'sheets_') + (auroraConfiguredId_() || 'bound');
+  return 'aurora_public_profiles_email_v1_' + 'sheets_' + (auroraConfiguredId_() || 'bound');
 }
 
 function doGet(e) {
   try {
-    if (typeof auroraSupabaseBegin_ === 'function') auroraSupabaseBegin_();
     return auroraDoGet_(e);
   } catch (_) {
     var unavailable={ok:false,error:'The bakery database is temporarily unavailable.'};
@@ -64,7 +62,6 @@ function doGet(e) {
     }
     return auroraResponse_(unavailable);
   }
-  finally { if (typeof auroraSupabaseDiscard_ === 'function') auroraSupabaseDiscard_(); }
 }
 function auroraDoGet_(e) {
   var params = e && e.parameter ? e.parameter : {};
@@ -86,7 +83,7 @@ function auroraDoGet_(e) {
     if (action === 'health') {
       var freeze=typeof auroraMigrationStatus_==='function'?auroraMigrationStatus_():{writes_frozen:false,frozen_at:null};
       return auroraResponse_({ok:true,schema_version:AURORA_SCHEMA_VERSION,service:'aurora_public_content',release:AURORA_BACKEND_RELEASE,
-        database_backend:typeof auroraSupabaseEnabled_ === 'function' && auroraSupabaseEnabled_()?'supabase':'google_sheets',
+        database_backend:'google_sheets',
         writes_frozen:freeze.writes_frozen,frozen_at:freeze.frozen_at}, callback);
     }
     var cache = CacheService.getScriptCache();
@@ -125,10 +122,8 @@ var PRIVATE_ORDER_SCHEMAS = {
 function doPost(e) {
   try {
     if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_())return auroraResponse_({ok:false,success:false,code:'migration_frozen',retryable:true,error:'Bakery updates are paused for database migration. Retry later with the same request ID; do not create a new request.'});
-    if (typeof auroraSupabaseBegin_ === 'function') auroraSupabaseBegin_();
     return auroraDoPost_(e);
   } catch (_) { return auroraResponse_({ok:false,success:false,code:'submission_uncertain',error:'Order confirmation is unavailable. Retry with the same request ID; do not create a new request.'}); }
-  finally { if (typeof auroraSupabaseDiscard_ === 'function') auroraSupabaseDiscard_(); }
 }
 function auroraDoPost_(e) {
   var lock;
@@ -207,6 +202,8 @@ function auroraDoPost_(e) {
       return auroraResponse_({success:true,persisted:true,order:auroraCheckoutReceiptSafe_(receipt)});
     }
     if (!request.checkout_proof) auroraReject_('upgrade_required','Refresh the website before placing a new order.');
+    // Validate new orders without changing the fingerprint of historical retries.
+    auroraAccountPhone_(request.customer_phone);
     var order = auroraBuildOrder_(book,request,orders.rows);
     order.order_number=auroraNextOrderNumber_(orders.rows);
     auroraCheckoutRateLimit_(request);
@@ -417,6 +414,7 @@ function auroraCheckSlotCapacity_(slot,request,orders) {
 }
 function auroraBuildOrder_(book,request,orders) {
   var settings = auroraPairs_(auroraRows_(book,'settings'),PUBLIC_SETTINGS_KEYS);
+  var freeGifts = auroraGiftAssignments_(settings.complimentary_kit_items);
   if (!auroraActive_(settings.accepting_orders)) auroraReject_('shop_closed','The shop is not accepting orders right now.');
   if (!auroraActive_(settings.delivery_enabled)) auroraReject_('delivery_unavailable','Delivery is currently unavailable.');
   var now = new Date();
@@ -465,15 +463,8 @@ function auroraBuildOrder_(book,request,orders) {
     } else if (allowedFlavors.some(function(id) { return flavors[id] && auroraActive_(flavors[id].is_active); })) {
       auroraReject_('unavailable_selection','Choose an available flavour for this cake.');
     }
-    var effectiveSalePrice = variant.sale_price;
-    if ((effectiveSalePrice === '' || effectiveSalePrice === undefined || effectiveSalePrice === null) &&
-        product.sale_price !== '' && product.sale_price !== undefined && product.sale_price !== null &&
-        Number(product.sale_price) < Number(product.base_price)) {
-      if (String(variant.id).indexOf('-half') !== -1 || Number(variant.price) <= Number(product.base_price)) {
-        effectiveSalePrice = product.sale_price;
-      }
-    }
-    var basePrice = auroraMoney_(effectiveSalePrice === '' || effectiveSalePrice === undefined || effectiveSalePrice === null ? variant.price : effectiveSalePrice,'variant price');
+    var salePrice = auroraVariantSalePrice_(product,variant);
+    var basePrice = auroraMoney_(salePrice === '' ? variant.price : salePrice,'variant price');
     var selectedAddons = line.addon_ids.map(function(id) {
       if (!allowAllAddons && allowedAddons.indexOf(id) === -1) auroraReject_('unavailable_selection','The selected add-on is not allowed for this cake.');
       var addon = auroraCurrent_(addons,id,'Add-on');
@@ -485,6 +476,7 @@ function auroraBuildOrder_(book,request,orders) {
       id:'item_' + request.request_id + '_' + index,order_id:orderId,product_id:line.product_id,product_name:String(product.name || ''),
       variant_id:line.variant_id,variant_name:String(variant.name || ''),flavor_id:line.flavor_id,flavor_name:flavor ? String(flavor.name || '') : '',
       writing_message:line.writing_message,unit_price:basePrice,quantity:line.quantity,addons:selectedAddons,
+      free_gift_items:freeGifts[line.product_id]||[],
       subtotal:auroraMoneyRound_((basePrice + addonUnit) * line.quantity)
     };
   });
@@ -571,7 +563,6 @@ function auroraResponse_(payload, callback) {
   // A successful API acknowledgement MUST follow the atomic persistence commit.
   // Validation errors discard uncommitted work at the outer request boundary;
   // security counters and external-send claims use explicit checkpoints.
-  if (payload && (payload.ok === true || payload.success === true) && typeof auroraSupabaseFlush_ === 'function') auroraSupabaseFlush_();
   var json = JSON.stringify(payload,function(key,value){return key==='order_number'?auroraFormatOrderNumber_(value):value;}).replace(/</g,'\\u003c').replace(/>/g,'\\u003e').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');
   if (callback) return ContentService.createTextOutput(callback + '(' + json + ');').setMimeType(ContentService.MimeType.JAVASCRIPT);
   return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
@@ -635,6 +626,33 @@ function auroraList_(value, isUrlList) {
   return input.split(isUrlList ? /\n/ : /[,\n]/).map(function(item) { return item.trim(); }).filter(Boolean);
 }
 
+function auroraGiftAssignments_(value) {
+  var result=Object.create(null), data;
+  try{data=JSON.parse(String(value||''));}catch(_){return result;}
+  if(!data||data.version!==2||!Array.isArray(data.items)||!data.products||typeof data.products!=='object'||Array.isArray(data.products))return result;
+  function names(values){
+    if(!Array.isArray(values))return [];
+    return Array.from(new Set(values.filter(function(item){return typeof item==='string';}).map(function(item){return item.trim();})
+      .filter(function(item){return item&&item.length<=80&&!/[\x00-\x1f\x7f]/.test(item);}))).slice(0,20);
+  }
+  var catalog=names(data.items);
+  Object.keys(data.products).slice(0,500).forEach(function(id){
+    if(/^[A-Za-z0-9_-]{1,100}$/.test(id)&&['__proto__','constructor','prototype'].indexOf(id)<0)
+      result[id]=names(data.products[id]).filter(function(item){return catalog.indexOf(item)>=0;});
+  });
+  return result;
+}
+
+function auroraVariantSalePrice_(product,variant) {
+  var sale=variant.sale_price;
+  if(sale!==''&&sale!==undefined&&sale!==null)return sale;
+  var productSale=product.sale_price;
+  if(productSale!==''&&productSale!==undefined&&productSale!==null&&
+      Number(productSale)<Number(product.base_price)&&Number(productSale)<Number(variant.price)&&
+      (String(variant.id).indexOf('-half')!==-1||Number(variant.price)<=Number(product.base_price)))return productSale;
+  return '';
+}
+
 function auroraPublicData_() {
   var book = auroraSpreadsheet_();
   var settings = auroraPairs_(auroraRows_(book,'settings'),PUBLIC_SETTINGS_KEYS);
@@ -646,28 +664,8 @@ function auroraPublicData_() {
   var allProducts = auroraRows_(book, 'products');
   var products = (allProducts.length ? allProducts : active('products')).map(function(product) {
     product.is_active = auroraActive_(product.is_active);
-    var prodBase = Number(product.base_price);
-    var prodSale = (product.sale_price !== '' && product.sale_price !== undefined && product.sale_price !== null) ? Number(product.sale_price) : undefined;
-    var prodVariants = variants.filter(function(variant) { return String(variant.product_id) === String(product.id); });
-    if (prodSale !== undefined && prodSale < prodBase) {
-      var diff = prodBase - prodSale;
-      prodVariants = prodVariants.map(function(variant, index) {
-        var copy = {};
-        for (var k in variant) copy[k] = variant[k];
-        if (copy.sale_price === '' || copy.sale_price === undefined || copy.sale_price === null) {
-          if (index === 0 || Number(copy.price) <= prodBase || prodVariants.length === 1) {
-            copy.price = Math.max(Number(copy.price) || 0, prodBase);
-            copy.sale_price = prodSale;
-          } else {
-            var orig = Number(copy.price) || 0;
-            copy.price = orig + diff;
-            copy.sale_price = orig;
-          }
-        }
-        return copy;
-      });
-    }
-    product.variants = prodVariants;
+    product.variants = variants.filter(function(variant) { return String(variant.product_id) === String(product.id); })
+      .map(function(variant) { return Object.assign({},variant,{sale_price:auroraVariantSalePrice_(product,variant)}); });
     product.gallery_images = auroraList_(product.gallery_images,true);
     product.allowed_flavor_ids = auroraList_(product.allowed_flavor_ids,false);
     product.allowed_addon_ids = auroraList_(product.allowed_addon_ids,false);
@@ -725,7 +723,7 @@ function switchToGoogleSheetsBackend() {
   props.deleteProperty('AURORA_MIGRATION_SOURCE_BACKEND');
   var cache = CacheService.getScriptCache();
   var id = props.getProperty('AURORA_SPREADSHEET_ID') || AURORA_SPREADSHEET_ID || '';
-  ['aurora_public_profiles_email_v1_sheets_', 'aurora_public_profiles_email_v1_supabase_', 'aurora_public_profiles_email_v1_'].forEach(function(prefix) {
+  ['aurora_public_profiles_email_v1_sheets_', 'aurora_public_profiles_email_v1_'].forEach(function(prefix) {
     cache.remove(prefix + (id || 'bound'));
   });
   console.log('ACTIVE DATABASE IS NOW GOOGLE SHEETS! Changes in your sheet will now appear on the website, and orders will be saved directly to your sheet.');
@@ -798,7 +796,7 @@ function syncNewCakeMenu() {
   // Clear cache
   var cache = CacheService.getScriptCache();
   var id = PropertiesService.getScriptProperties().getProperty('AURORA_SPREADSHEET_ID') || AURORA_SPREADSHEET_ID || '';
-  ['aurora_public_profiles_email_v1_sheets_', 'aurora_public_profiles_email_v1_supabase_', 'aurora_public_profiles_email_v1_'].forEach(function(prefix) {
+  ['aurora_public_profiles_email_v1_sheets_', 'aurora_public_profiles_email_v1_'].forEach(function(prefix) {
     cache.remove(prefix + (id || 'bound'));
   });
   
@@ -807,7 +805,6 @@ function syncNewCakeMenu() {
 }
 
 function setupSheetDatabase() {
-  if(typeof auroraSupabaseEnabled_==='function'&&auroraSupabaseEnabled_())throw new Error('Supabase runtime schemas are owner-managed in SQL. Do not seed or rebuild the migrated database from Sheet setup.');
   auroraRequireInteractiveSetup_();
   if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
   var book = auroraSpreadsheet_();
@@ -889,8 +886,8 @@ var AURORA_SEED_DATA = {
     "opening_time": "",
     "closing_time": "",
     "currency": "৳",
-    "accepting_orders": true,
-    "delivery_enabled": true,
+    "accepting_orders": false,
+    "delivery_enabled": false,
     "website_title": "Aurora’s Cake — A Little Slice of Happiness",
     "website_description": "Discover celebration cakes and thoughtful details at Aurora’s Cake.",
     "top_announcement_text": "A little cake. A lot of happiness.",
@@ -971,936 +968,18 @@ var AURORA_SEED_DATA = {
     "nav_facebook": "Facebook",
     "brand_tagline": "Little moments. Lovely cakes."
   },
-  "hero_slides": [
-    {
-      "id": "slide-1",
-      "product_id": "prod-chocolate",
-      "title": "Aurora's Cake — ফ্রেশলি বেকড উইথ লাভ",
-      "subtitle": "প্রতি কামড়ে ভালোবাসা ও মিষ্টি মুহূর্ত",
-      "image_url": "/images/chocolate-cake.jpg",
-      "image_alt": "চকলেট কেক",
-      "sort_order": 1,
-      "is_active": true
-    },
-    {
-      "id": "slide-2",
-      "product_id": "prod-rasmalai",
-      "title": "স্পেশাল রসমলাই ও রেড ভেলভেট",
-      "subtitle": "যেকোনো উদযাপনের জন্য সেরা আয়োজন",
-      "image_url": "/images/rasmalai-cake.jpg",
-      "image_alt": "রসমলাই কেক",
-      "sort_order": 2,
-      "is_active": true
-    },
-    {
-      "id": "slide-3",
-      "product_id": "prod-bento-vanilla",
-      "title": "কিউট বেন্টো কেক ও কাপ কেক",
-      "subtitle": "ছোট পার্টি আর মিষ্টি উপহারের পারফেক্ট সাইজ",
-      "image_url": "/images/bento-cake-vanilla.jpg",
-      "image_alt": "বেন্টো কেক",
-      "sort_order": 3,
-      "is_active": true
-    }
-  ],
-  "highlights": [
-    {
-      "id": "promise-1",
-      "section": "promise",
-      "title": "Thoughtfully crafted cakes",
-      "description": "",
-      "icon": "cake",
-      "sort_order": 1,
-      "is_active": true
-    },
-    {
-      "id": "promise-2",
-      "section": "promise",
-      "title": "Made personal, by you",
-      "description": "",
-      "icon": "flower",
-      "sort_order": 2,
-      "is_active": true
-    },
-    {
-      "id": "promise-3",
-      "section": "promise",
-      "title": "A sweet delivery to your door",
-      "description": "",
-      "icon": "truck",
-      "sort_order": 3,
-      "is_active": true
-    },
-    {
-      "id": "occasion-1",
-      "section": "occasion",
-      "title": "Birthday wishes",
-      "description": "Make a wish. Make it sweet.",
-      "image_url": "/images/red-velvet.webp",
-      "image_alt": "Birthday cake",
-      "category_id": "cat-1",
-      "sort_order": 1,
-      "is_active": true
-    },
-    {
-      "id": "occasion-2",
-      "section": "occasion",
-      "title": "Love & togetherness",
-      "description": "For your favourite people.",
-      "image_url": "/images/floral-signature.webp",
-      "image_alt": "Anniversary cake",
-      "category_id": "cat-3",
-      "sort_order": 2,
-      "is_active": true
-    },
-    {
-      "id": "occasion-3",
-      "section": "occasion",
-      "title": "Chocolate cravings",
-      "description": "A very good kind of extra.",
-      "image_url": "/images/chocolate-fudge.webp",
-      "image_alt": "Chocolate cake",
-      "category_id": "cat-2",
-      "sort_order": 3,
-      "is_active": true
-    },
-    {
-      "id": "occasion-4",
-      "section": "occasion",
-      "title": "Just because",
-      "description": "Little treats. Big smiles.",
-      "image_url": "/images/floral-cake.webp",
-      "image_alt": "Cupcakes",
-      "category_id": "all",
-      "sort_order": 4,
-      "is_active": true
-    },
-    {
-      "id": "step-1",
-      "section": "custom_step",
-      "title": "Choose your flavours",
-      "description": "",
-      "icon": "check",
-      "sort_order": 1,
-      "is_active": true
-    },
-    {
-      "id": "step-2",
-      "section": "custom_step",
-      "title": "Add your little details",
-      "description": "",
-      "icon": "check",
-      "sort_order": 2,
-      "is_active": true
-    },
-    {
-      "id": "step-3",
-      "section": "custom_step",
-      "title": "Make it a moment",
-      "description": "",
-      "icon": "check",
-      "sort_order": 3,
-      "is_active": true
-    },
-    {
-      "id": "social-1",
-      "section": "social_gallery",
-      "title": "Cake collection",
-      "description": "",
-      "image_url": "/images/chocolate-fudge.webp",
-      "image_alt": "Cake from the preview collection",
-      "sort_order": 1,
-      "is_active": true
-    },
-    {
-      "id": "social-2",
-      "section": "social_gallery",
-      "title": "Cake collection",
-      "description": "",
-      "image_url": "/images/floral-signature.webp",
-      "image_alt": "Cake from the preview collection",
-      "sort_order": 2,
-      "is_active": true
-    },
-    {
-      "id": "social-3",
-      "section": "social_gallery",
-      "title": "Cake collection",
-      "description": "",
-      "image_url": "/images/floral-cake.webp",
-      "image_alt": "Cake from the preview collection",
-      "sort_order": 3,
-      "is_active": true
-    }
-  ],
-  "faqs": [
-    {
-      "id": "faq-1",
-      "question": "Can I make a cake my own?",
-      "answer": "Choose your cake size and flavour, add a personal message, then finish with candles, a topper or a little extra. Each cake page shows the available options.",
-      "sort_order": 1,
-      "is_active": true
-    },
-    {
-      "id": "faq-2",
-      "question": "How do custom cakes work?",
-      "answer": "Open our custom cake studio, tell us the occasion, flavours and colours you have in mind, and add a reference image link if you have one. You can review an estimate before saving your request.",
-      "sort_order": 2,
-      "is_active": true
-    },
-    {
-      "id": "faq-3",
-      "question": "Where can I see delivery options?",
-      "answer": "The checkout shows the available delivery zones, delivery fees, dates and time slots. Select your zone to see the total before placing an order.",
-      "sort_order": 3,
-      "is_active": true
-    },
-    {
-      "id": "faq-4",
-      "question": "Can I place a real order on this website?",
-      "answer": "When checkout offers cash on delivery to Aurora's Cake, a confirmed saved receipt means your order has reached our Google Sheet. Contact us to confirm availability and delivery. No online payment is collected. If checkout is labelled a demo, it stays on this device. Discuss custom cake requests with us on Facebook.",
-      "sort_order": 4,
-      "is_active": true
-    }
-  ],
-  "links": [
-    {
-      "id": "facebook",
-      "label": "Facebook",
-      "url": "https://www.facebook.com/aurorascake26",
-      "location": "social",
-      "sort_order": 1,
-      "is_active": true
-    }
-  ],
-  "products": [
-    {
-      "id": "prod-vanilla",
-      "category_id": "cat-cakes",
-      "category_name": "কেক (হাফ ও এক পাউন্ড)",
-      "name": "ভ্যানিলা কেক",
-      "slug": "vanilla-cake",
-      "description": "সফট ও স্পঞ্জি ভ্যানিলা বেসের সাথে প্রিমিয়াম ভ্যানিলা বাটারক্রিমের ক্লাসিক স্বাদ।",
-      "base_price": 400,
-      "image_url": "/images/vanilla-cake.jpg",
-      "gallery_images": [
-        "/images/vanilla-cake.jpg",
-        "/images/aurora-menu-card.jpg"
-      ],
-      "is_featured": true,
-      "is_active": true,
-      "rating": 5,
-      "review_count": 12,
-      "variants": [
-        {
-          "id": "var-vanilla-half",
-          "product_id": "prod-vanilla",
-          "name": "হাফ পাউন্ড (Half Pound)",
-          "weight_grams": 226,
-          "price": 400,
-          "is_active": true,
-          "sale_price": 350
-        },
-        {
-          "id": "var-vanilla-one",
-          "product_id": "prod-vanilla",
-          "name": "এক পাউন্ড (One Pound)",
-          "weight_grams": 453,
-          "price": 650,
-          "is_active": true
-        }
-      ],
-      "allowed_flavor_ids": [
-        "flav-2"
-      ],
-      "allowed_addon_ids": [
-        "addon-1",
-        "addon-2",
-        "addon-3"
-      ],
-      "sale_price": 350
-    },
-    {
-      "id": "prod-orange",
-      "category_id": "cat-cakes",
-      "category_name": "কেক (হাফ ও এক পাউন্ড)",
-      "name": "অরেঞ্জ কেক",
-      "slug": "orange-cake",
-      "description": "তাজা কমলার রিফ্রেশিং ফ্লেভার ও ময়েস্ট স্পঞ্জের অসাধারণ যুগলবন্দি।",
-      "base_price": 400,
-      "image_url": "/images/orange-cake.jpg",
-      "gallery_images": [
-        "/images/orange-cake.jpg",
-        "/images/aurora-menu-card.jpg"
-      ],
-      "is_featured": false,
-      "is_active": true,
-      "rating": 4.8,
-      "review_count": 8,
-      "variants": [
-        {
-          "id": "var-orange-half",
-          "product_id": "prod-orange",
-          "name": "হাফ পাউন্ড (Half Pound)",
-          "weight_grams": 226,
-          "price": 400,
-          "is_active": true,
-          "sale_price": 350
-        },
-        {
-          "id": "var-orange-one",
-          "product_id": "prod-orange",
-          "name": "এক পাউন্ড (One Pound)",
-          "weight_grams": 453,
-          "price": 650,
-          "is_active": true
-        }
-      ],
-      "allowed_flavor_ids": [
-        "flav-2"
-      ],
-      "allowed_addon_ids": [
-        "addon-1",
-        "addon-2",
-        "addon-3"
-      ],
-      "sale_price": 350
-    },
-    {
-      "id": "prod-chocolate",
-      "category_id": "cat-cakes",
-      "category_name": "কেক (হাফ ও এক পাউন্ড)",
-      "name": "চকলেট কেক",
-      "slug": "chocolate-cake",
-      "description": "রিচ ডার্ক কোকোয়া ও চকলেট গানাশের মন মাতানো স্বাদ।",
-      "base_price": 450,
-      "image_url": "/images/chocolate-cake.jpg",
-      "gallery_images": [
-        "/images/chocolate-cake.jpg",
-        "/images/aurora-menu-card.jpg"
-      ],
-      "is_featured": true,
-      "is_active": true,
-      "rating": 5,
-      "review_count": 24,
-      "variants": [
-        {
-          "id": "var-choc-half",
-          "product_id": "prod-chocolate",
-          "name": "হাফ পাউন্ড (Half Pound)",
-          "weight_grams": 226,
-          "price": 450,
-          "is_active": true,
-          "sale_price": 380
-        },
-        {
-          "id": "var-choc-one",
-          "product_id": "prod-chocolate",
-          "name": "এক পাউন্ড (One Pound)",
-          "weight_grams": 453,
-          "price": 750,
-          "is_active": true
-        }
-      ],
-      "allowed_flavor_ids": [
-        "flav-1"
-      ],
-      "allowed_addon_ids": [
-        "addon-1",
-        "addon-2",
-        "addon-3"
-      ],
-      "sale_price": 380
-    },
-    {
-      "id": "prod-lemon",
-      "category_id": "cat-cakes",
-      "category_name": "কেক (হাফ ও এক পাউন্ড)",
-      "name": "লেমন কেক",
-      "slug": "lemon-cake",
-      "description": "লেবুর মিষ্টি-টক হালকা সুবাস আর নরম স্পঞ্জি টেক্সচার।",
-      "base_price": 350,
-      "image_url": "/images/lemon-cake.jpg",
-      "gallery_images": [
-        "/images/lemon-cake.jpg",
-        "/images/aurora-menu-card.jpg"
-      ],
-      "is_featured": false,
-      "is_active": true,
-      "rating": 4.7,
-      "review_count": 6,
-      "variants": [
-        {
-          "id": "var-lemon-half",
-          "product_id": "prod-lemon",
-          "name": "হাফ পাউন্ড (Half Pound)",
-          "weight_grams": 226,
-          "price": 350,
-          "is_active": true,
-          "sale_price": 300
-        },
-        {
-          "id": "var-lemon-one",
-          "product_id": "prod-lemon",
-          "name": "এক পাউন্ড (One Pound)",
-          "weight_grams": 453,
-          "price": 600,
-          "is_active": true
-        }
-      ],
-      "allowed_flavor_ids": [
-        "flav-2"
-      ],
-      "allowed_addon_ids": [
-        "addon-1",
-        "addon-2",
-        "addon-3"
-      ],
-      "sale_price": 300
-    },
-    {
-      "id": "prod-rasmalai",
-      "category_id": "cat-cakes",
-      "category_name": "কেক (হাফ ও এক পাউন্ড)",
-      "name": "রসমলাই কেক",
-      "slug": "rasmalai-cake",
-      "description": "দেশি ঐতিহ্যবাহী রসমলাই, এলাচ, জাফরান ও পেস্তার রাজকীয় ফিউশন কেক।",
-      "base_price": 450,
-      "image_url": "/images/rasmalai-cake.jpg",
-      "gallery_images": [
-        "/images/rasmalai-cake.jpg",
-        "/images/aurora-menu-card.jpg"
-      ],
-      "is_featured": true,
-      "is_active": true,
-      "rating": 5,
-      "review_count": 32,
-      "variants": [
-        {
-          "id": "var-rasmalai-half",
-          "product_id": "prod-rasmalai",
-          "name": "হাফ পাউন্ড (Half Pound)",
-          "weight_grams": 226,
-          "price": 450,
-          "is_active": true,
-          "sale_price": 400
-        },
-        {
-          "id": "var-rasmalai-one",
-          "product_id": "prod-rasmalai",
-          "name": "এক পাউন্ড (One Pound)",
-          "weight_grams": 453,
-          "price": 800,
-          "is_active": true
-        }
-      ],
-      "allowed_flavor_ids": [
-        "flav-2"
-      ],
-      "allowed_addon_ids": [
-        "addon-1",
-        "addon-2",
-        "addon-3"
-      ],
-      "sale_price": 400
-    },
-    {
-      "id": "prod-red-velvet",
-      "category_id": "cat-cakes",
-      "category_name": "কেক (হাফ ও এক পাউন্ড)",
-      "name": "রেড ভেলভেট কেক",
-      "slug": "red-velvet-cake",
-      "description": "আইকনিক রেড ভেলভেট ক্রাম্ব ও ভেলভেটি ক্রিম চিজ ফ্রস্টিংয়ের অপূর্ব কম্বিনেশন।",
-      "base_price": 450,
-      "image_url": "/images/red-velvet-cake.jpg",
-      "gallery_images": [
-        "/images/red-velvet-cake.jpg",
-        "/images/aurora-menu-card.jpg"
-      ],
-      "is_featured": true,
-      "is_active": true,
-      "rating": 4.9,
-      "review_count": 18,
-      "variants": [
-        {
-          "id": "var-redvelvet-half",
-          "product_id": "prod-red-velvet",
-          "name": "হাফ পাউন্ড (Half Pound)",
-          "weight_grams": 226,
-          "price": 450,
-          "is_active": true,
-          "sale_price": 400
-        },
-        {
-          "id": "var-redvelvet-one",
-          "product_id": "prod-red-velvet",
-          "name": "এক পাউন্ড (One Pound)",
-          "weight_grams": 453,
-          "price": 800,
-          "is_active": true
-        }
-      ],
-      "allowed_flavor_ids": [
-        "flav-3"
-      ],
-      "allowed_addon_ids": [
-        "addon-1",
-        "addon-2",
-        "addon-3"
-      ],
-      "sale_price": 400
-    },
-    {
-      "id": "prod-strawberry",
-      "category_id": "cat-cakes",
-      "category_name": "কেক (হাফ ও এক পাউন্ড)",
-      "name": "স্ট্রবেরি কেক",
-      "slug": "strawberry-cake",
-      "description": "মিষ্টি স্ট্রবেরির সুবাস আর ফ্রেশ ক্রিমের মজাদার স্বাদে ভরপুর।",
-      "base_price": 450,
-      "image_url": "/images/strawberry-cake.jpg",
-      "gallery_images": [
-        "/images/strawberry-cake.jpg",
-        "/images/aurora-menu-card.jpg"
-      ],
-      "is_featured": false,
-      "is_active": true,
-      "rating": 4.8,
-      "review_count": 15,
-      "variants": [
-        {
-          "id": "var-straw-half",
-          "product_id": "prod-strawberry",
-          "name": "হাফ পাউন্ড (Half Pound)",
-          "weight_grams": 226,
-          "price": 450,
-          "is_active": true,
-          "sale_price": 380
-        },
-        {
-          "id": "var-straw-one",
-          "product_id": "prod-strawberry",
-          "name": "এক পাউন্ড (One Pound)",
-          "weight_grams": 453,
-          "price": 750,
-          "is_active": true
-        }
-      ],
-      "allowed_flavor_ids": [
-        "flav-2"
-      ],
-      "allowed_addon_ids": [
-        "addon-1",
-        "addon-2",
-        "addon-3"
-      ],
-      "sale_price": 380
-    },
-    {
-      "id": "prod-blueberry",
-      "category_id": "cat-cakes",
-      "category_name": "কেক (হাফ ও এক পাউন্ড)",
-      "name": "ব্লুবেরি কেক",
-      "slug": "blueberry-cake",
-      "description": "প্রাকৃতিক ব্লুবেরি কম্পোট এবং মিষ্টি স্মুথ ক্রিমের অসাধারণ ফ্লেভার।",
-      "base_price": 450,
-      "image_url": "/images/blueberry-cake.jpg",
-      "gallery_images": [
-        "/images/blueberry-cake.jpg",
-        "/images/aurora-menu-card.jpg"
-      ],
-      "is_featured": false,
-      "is_active": true,
-      "rating": 4.8,
-      "review_count": 9,
-      "variants": [
-        {
-          "id": "var-blue-half",
-          "product_id": "prod-blueberry",
-          "name": "হাফ পাউন্ড (Half Pound)",
-          "weight_grams": 226,
-          "price": 450,
-          "is_active": true,
-          "sale_price": 380
-        },
-        {
-          "id": "var-blue-one",
-          "product_id": "prod-blueberry",
-          "name": "এক পাউন্ড (One Pound)",
-          "weight_grams": 453,
-          "price": 750,
-          "is_active": true
-        }
-      ],
-      "allowed_flavor_ids": [
-        "flav-2"
-      ],
-      "allowed_addon_ids": [
-        "addon-1",
-        "addon-2",
-        "addon-3"
-      ],
-      "sale_price": 380
-    },
-    {
-      "id": "prod-chocolate-overload",
-      "category_id": "cat-cakes",
-      "category_name": "কেক (হাফ ও এক পাউন্ড)",
-      "name": "চকলেট ওভারলোড কেক",
-      "slug": "chocolate-overload-cake",
-      "description": "চকলেটপ্রেমীদের জন্য স্পেশাল—ঘন চকলেট গানাশ ও ডাবল চকলেট টপিং।",
-      "base_price": 500,
-      "image_url": "/images/chocolate-overload-cake.jpg",
-      "gallery_images": [
-        "/images/chocolate-overload-cake.jpg",
-        "/images/aurora-menu-card.jpg"
-      ],
-      "is_featured": true,
-      "is_active": true,
-      "rating": 5,
-      "review_count": 27,
-      "variants": [
-        {
-          "id": "var-overload-half",
-          "product_id": "prod-chocolate-overload",
-          "name": "হাফ পাউন্ড (Half Pound)",
-          "weight_grams": 226,
-          "price": 500,
-          "is_active": true,
-          "sale_price": 450
-        },
-        {
-          "id": "var-overload-one",
-          "product_id": "prod-chocolate-overload",
-          "name": "এক পাউন্ড (One Pound)",
-          "weight_grams": 453,
-          "price": 900,
-          "is_active": true
-        }
-      ],
-      "allowed_flavor_ids": [
-        "flav-1"
-      ],
-      "allowed_addon_ids": [
-        "addon-1",
-        "addon-2",
-        "addon-3"
-      ],
-      "sale_price": 450
-    },
-    {
-      "id": "prod-bento-vanilla",
-      "category_id": "cat-mini",
-      "category_name": "মিনি আইটেম",
-      "name": "বেন্টো কেক (ভ্যানিলা)",
-      "slug": "bento-cake-vanilla",
-      "description": "কিউট কোরিয়ান লাঞ্চবক্স বেন্টো কেক, ছোট পার্টির জন্য পারফেক্ট সাইজ।",
-      "base_price": 200,
-      "image_url": "/images/bento-cake-vanilla.jpg",
-      "gallery_images": [
-        "/images/bento-cake-vanilla.jpg",
-        "/images/aurora-menu-card.jpg"
-      ],
-      "is_featured": true,
-      "is_active": true,
-      "rating": 4.9,
-      "review_count": 35,
-      "variants": [
-        {
-          "id": "var-bento-vanilla",
-          "product_id": "prod-bento-vanilla",
-          "name": "স্ট্যান্ডার্ড মিনি সাইজ (Mini Bento)",
-          "weight_grams": 150,
-          "price": 200,
-          "is_active": true,
-          "sale_price": 150
-        }
-      ],
-      "allowed_flavor_ids": [],
-      "allowed_addon_ids": [
-        "addon-1",
-        "addon-2"
-      ],
-      "sale_price": 150
-    },
-    {
-      "id": "prod-bento-flavors",
-      "category_id": "cat-mini",
-      "category_name": "মিনি আইটেম",
-      "name": "বেন্টো কেক (অন্যান্য ফ্লেভার)",
-      "slug": "bento-cake-other-flavors",
-      "description": "চকলেট, স্ট্রবেরি, রেড ভেলভেট সহ আপনার পছন্দের ফ্লেভারে কাস্টম বেন্টো কেক।",
-      "base_price": 200,
-      "image_url": "/images/bento-cake-flavors.jpg",
-      "gallery_images": [
-        "/images/bento-cake-flavors.jpg",
-        "/images/aurora-menu-card.jpg"
-      ],
-      "is_featured": false,
-      "is_active": true,
-      "rating": 4.9,
-      "review_count": 22,
-      "variants": [
-        {
-          "id": "var-bento-flavors",
-          "product_id": "prod-bento-flavors",
-          "name": "স্ট্যান্ডার্ড মিনি সাইজ (Mini Bento)",
-          "weight_grams": 150,
-          "price": 200,
-          "is_active": true
-        }
-      ],
-      "allowed_flavor_ids": [],
-      "allowed_addon_ids": [
-        "addon-1",
-        "addon-2"
-      ]
-    },
-    {
-      "id": "prod-cupcake",
-      "category_id": "cat-mini",
-      "category_name": "মিনি আইটেম",
-      "name": "কাপ কেক",
-      "slug": "cupcake",
-      "description": "নরম তুলতুলে মিনি কাপ কেক, প্রতিটি কামড়ে দারুণ বাটারক্রিম টুইস্ট।",
-      "base_price": 50,
-      "image_url": "/images/cupcakes.jpg",
-      "gallery_images": [
-        "/images/cupcakes.jpg",
-        "/images/aurora-menu-card.jpg"
-      ],
-      "is_featured": false,
-      "is_active": true,
-      "rating": 4.7,
-      "review_count": 40,
-      "variants": [
-        {
-          "id": "var-cupcake-single",
-          "product_id": "prod-cupcake",
-          "name": "১ পিস (Single Piece)",
-          "weight_grams": 50,
-          "price": 50,
-          "is_active": true,
-          "sale_price": 30
-        }
-      ],
-      "allowed_flavor_ids": [],
-      "allowed_addon_ids": [],
-      "sale_price": 30
-    },
-    {
-      "id": "prod-muffin",
-      "category_id": "cat-mini",
-      "category_name": "মিনি আইটেম",
-      "name": "মাফিন",
-      "slug": "muffin",
-      "description": "ওভেনে তাজা বেক করা সুস্বাদু ও ক্রিস্পি চকো চিপস মাফিন।",
-      "base_price": 80,
-      "image_url": "/images/muffins.jpg",
-      "gallery_images": [
-        "/images/muffins.jpg",
-        "/images/aurora-menu-card.jpg"
-      ],
-      "is_featured": false,
-      "is_active": true,
-      "rating": 4.8,
-      "review_count": 19,
-      "variants": [
-        {
-          "id": "var-muffin-single",
-          "product_id": "prod-muffin",
-          "name": "১ পিস (Single Piece)",
-          "weight_grams": 80,
-          "price": 80,
-          "is_active": true
-        }
-      ],
-      "allowed_flavor_ids": [],
-      "allowed_addon_ids": []
-    }
-  ],
-  "categories": [
-    {
-      "id": "cat-cakes",
-      "name": "কেক (হাফ ও এক পাউন্ড)",
-      "slug": "cakes",
-      "description": "আমাদের ফ্রেশলি বেকড স্পেশাল কেক কালেকশন। হাফ পাউন্ড ও এক পাউন্ড সাইজে তৈরি।",
-      "image_url": "/images/vanilla-cake.jpg",
-      "sort_order": 1,
-      "is_active": true
-    },
-    {
-      "id": "cat-mini",
-      "name": "মিনি আইটেম",
-      "slug": "mini-items",
-      "description": "বেন্টো কেক, কাপ কেক ও মাফিনের আকর্ষণীয় মিনি কালেকশন।",
-      "image_url": "/images/bento-cake-vanilla.jpg",
-      "sort_order": 2,
-      "is_active": true
-    }
-  ],
-  "flavors": [
-    {
-      "id": "flav-1",
-      "name": "Belgian Dark Truffle",
-      "color_hex": "#3e2723",
-      "is_active": true
-    },
-    {
-      "id": "flav-2",
-      "name": "Velvet Madagascar Vanilla",
-      "color_hex": "#fff9c4",
-      "is_active": true
-    },
-    {
-      "id": "flav-3",
-      "name": "Signature Red Velvet",
-      "color_hex": "#b71c1c",
-      "is_active": true
-    },
-    {
-      "id": "flav-4",
-      "name": "Black Forest Royale",
-      "color_hex": "#880e4f",
-      "is_active": true
-    },
-    {
-      "id": "flav-5",
-      "name": "Lotus Biscoff Crunch",
-      "color_hex": "#d7ccc8",
-      "is_active": true
-    },
-    {
-      "id": "flav-6",
-      "name": "Salted Caramel Praline",
-      "color_hex": "#ffb74d",
-      "is_active": true
-    }
-  ],
-  "addons": [
-    {
-      "id": "addon-1",
-      "name": "Sparkler Candle Set (Pack of 4)",
-      "price": 120,
-      "is_active": true
-    },
-    {
-      "id": "addon-2",
-      "name": "Golden Acrylic \"Happy Birthday\" Topper",
-      "price": 180,
-      "is_active": true
-    },
-    {
-      "id": "addon-3",
-      "name": "Handwritten Calligraphy Card",
-      "price": 80,
-      "is_active": true
-    },
-    {
-      "id": "addon-4",
-      "name": "Fresh Red Roses Mini Bouquet",
-      "price": 350,
-      "is_active": true
-    },
-    {
-      "id": "addon-5",
-      "name": "Ferrero Rocher Box (4 pcs)",
-      "price": 420,
-      "is_active": true
-    }
-  ],
-  "banners": [
-    {
-      "id": "ban-1",
-      "title": "Make every moment a little sweeter",
-      "subtitle": "Explore celebration cakes and the little details that make them yours.",
-      "image_url": "/images/floral-signature.webp",
-      "button_text": "Explore cakes",
-      "button_link": "#catalog",
-      "is_active": true
-    }
-  ],
-  "zones": [
-    {
-      "id": "zone-1",
-      "name": "Tangail Town (Main City Area)",
-      "delivery_fee": 60,
-      "estimated_time": "1-2 Hours Express",
-      "is_active": true
-    },
-    {
-      "id": "zone-2",
-      "name": "Nearby Suburbs & Akur Takur",
-      "delivery_fee": 100,
-      "estimated_time": "2-3 Hours",
-      "is_active": true
-    },
-    {
-      "id": "zone-3",
-      "name": "Outside Town / Cantonment / Bypass",
-      "delivery_fee": 150,
-      "estimated_time": "3-4 Hours",
-      "is_active": true
-    }
-  ],
-  "slots": [
-    {
-      "id": "slot-1",
-      "slot_label": "10:00 AM - 12:00 PM (Morning Slot)",
-      "is_active": true
-    },
-    {
-      "id": "slot-2",
-      "slot_label": "12:00 PM - 02:00 PM (Lunch Slot)",
-      "is_active": true
-    },
-    {
-      "id": "slot-3",
-      "slot_label": "02:00 PM - 04:00 PM (Afternoon Slot)",
-      "is_active": true
-    },
-    {
-      "id": "slot-4",
-      "slot_label": "04:00 PM - 06:00 PM (Evening Teatime)",
-      "is_active": true
-    },
-    {
-      "id": "slot-5",
-      "slot_label": "06:00 PM - 08:30 PM (Celebration Dinner)",
-      "is_active": true
-    }
-  ],
-  "coupons": [
-    {
-      "id": "coup-1",
-      "code": "WELCOME100",
-      "discount_type": "fixed",
-      "discount_value": 100,
-      "min_order_amount": 800,
-      "is_active": true,
-      "usage_count": 14
-    },
-    {
-      "id": "coup-2",
-      "code": "BIRTHDAY10",
-      "discount_type": "percentage",
-      "discount_value": 10,
-      "min_order_amount": 1000,
-      "max_discount_amount": 300,
-      "is_active": true,
-      "usage_count": 28
-    },
-    {
-      "id": "coup-3",
-      "code": "SWEETDELIGHT",
-      "discount_type": "percentage",
-      "discount_value": 15,
-      "min_order_amount": 1500,
-      "max_discount_amount": 500,
-      "is_active": true,
-      "usage_count": 9
-    }
-  ],
+  "hero_slides": [],
+  "highlights": [],
+  "faqs": [],
+  "links": [],
+  "products": [],
+  "categories": [],
+  "flavors": [],
+  "addons": [],
+  "banners": [],
+  "zones": [],
+  "slots": [],
+  "coupons": [],
   "reviews": []
 };
 /* ==== END apps-script/SeedData.gs ==== */
@@ -2241,10 +1320,18 @@ function auroraOperationsPost_(input) {
       var isManagerOrAdmin = actor.role === 'super_admin' || actor.role === 'admin' || actor.role === 'delivery_manager';
       var hasAdminOverride = isManagerOrAdmin && (actor.role==='super_admin'||actor.role==='admin'||input.admin_override === true || input.admin_override === 'true');
       var assignedRider = String(order.rider_id || '').toLowerCase().trim();
-      if (action === 'start_delivery' && !assignedRider)
-        auroraReject_('rider_required','Assign an active registered rider before dispatching this order.');
       var actorEmail = String(actor.email || '').toLowerCase().trim();
       var actorUser = String(actor.username || '').toLowerCase().trim();
+      if(action==='start_delivery'&&input.self_dispatch===true){
+        if((actor.role!=='super_admin'&&actor.role!=='admin')||order.status!=='ready'||assignedRider)
+          auroraReject_('forbidden','Only an administrator can take an unassigned ready order for delivery.');
+        assignedRider=actorEmail||actorUser;
+        if(!assignedRider)auroraReject_('forbidden','Administrator identity is unavailable.');
+        order.rider_id=assignedRider;
+        order.rider_name=actor.name;
+      }
+      if (action === 'start_delivery' && !assignedRider)
+        auroraReject_('rider_required','Assign an active registered rider before dispatching this order.');
 
       if (!hasAdminOverride && (!assignedRider ||
           (assignedRider !== actorEmail && assignedRider !== actorUser))) {
@@ -2445,8 +1532,6 @@ function auroraAccountRevokeAll_(kind,id){
   }});
 }
 function auroraAccountVerifyPassword_(accounts,person,password){
-  if(typeof auroraSupabaseHasChanges_==='function'&&auroraSupabaseHasChanges_())
-    throw new Error('Password verification requires a fresh account transaction.');
   if(Number(person.locked_until||0)>Date.now())
     auroraReject_('too_many_attempts','Too many attempts. Try again in 15 minutes.');
   if(typeof password!=='string'||password.length<4||password.length>128||
@@ -2454,9 +1539,7 @@ function auroraAccountVerifyPassword_(accounts,person,password){
     person.failed_attempts=Number(person.failed_attempts||0)+1;
     if(person.failed_attempts>=5){person.locked_until=Date.now()+15*60000;person.failed_attempts=0;}
     auroraAccountSave_(accounts,person);
-    // Callers verify before staging any business changes. Persist ONLY this
-    // security counter checkpoint before the validation-error response.
-    if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
+    // Persist the failed-attempt counter before returning a validation error.
     auroraReject_('invalid_credentials','Invalid login details.');
   }
   person.failed_attempts=0;person.locked_until=0;
@@ -2466,9 +1549,7 @@ function auroraAccountLogin_(kind,identifier,password){
   var lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))auroraReject_('busy','Another account update is in progress. Retry signing in.');
   try{
-    // Serialize attempts, then refresh before verification so concurrent guesses
-    // cannot lose their counters through an optimistic revision conflict.
-    if(typeof auroraSupabaseRefresh_==='function')auroraSupabaseRefresh_();
+    // Read the current account after taking the lock so concurrent attempts cannot lose counters.
     var accounts=auroraPrivateTable_(auroraSpreadsheet_(),isCustomer?'customer_accounts':'staff_accounts');
     var person=accounts.rows.filter(function(row){return String(row[key]).toLowerCase()===name;})[0];
 
@@ -2477,7 +1558,6 @@ function auroraAccountLogin_(kind,identifier,password){
     auroraAccountVerifyPassword_(accounts,person,password);
     auroraAccountSave_(accounts,person);
     var token=auroraAccountStart_(kind,person.id);
-    if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
     return {person:person,token:token};
   }finally{lock.releaseLock();}
 }
@@ -2625,7 +1705,6 @@ function auroraAccountCustomerPost_(input) {
     var accountLock=LockService.getScriptLock();
     if(!accountLock.tryLock(10000))auroraReject_('busy','Another account update is in progress.');
     try{
-      if(typeof auroraSupabaseRefresh_==='function')auroraSupabaseRefresh_();
       // Revalidate the bearer after waiting: logout/reset/disable may have
       // revoked it while this request was acquiring the update lock.
       var freshIdentity=auroraAccountAuthenticate_('customer',input.auth_token);
@@ -2640,7 +1719,6 @@ function auroraAccountCustomerPost_(input) {
         current.updated_at=new Date().toISOString();
         auroraAccountSave_(accounts,current);
         auroraAccountRevokeAll_('customer',current.id);
-        if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
         // Financial records/receipts remain unchanged for COD reconciliation.
         return {ok:true,closed:true};
       }
@@ -2653,7 +1731,6 @@ function auroraAccountCustomerPost_(input) {
       auroraAccountSave_(accounts,current);
       auroraAccountRevokeAll_('customer',current.id);
       var newToken=auroraAccountStart_('customer',current.id);
-      if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
       return {ok:true,auth_token:newToken};
     }finally{accountLock.releaseLock();}
   }
@@ -2863,7 +1940,6 @@ function backfillCustomerMasterOnce(){
   if(!lock.tryLock(10000))throw new Error('Other bakery updates are running. Retry.');
   try{
     if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
-    if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();
     var book=auroraSpreadsheet_(),orders=auroraPrivateTable_(book,'orders');
     var table=auroraPrivateTable_(book,'customer_master');
     var known=Object.create(null),newCount=0,updatedCount=0,skipped=0;
@@ -2886,9 +1962,8 @@ function backfillCustomerMasterOnce(){
       // Keep the in-memory copy current to avoid duplicates within the same run.
       table=auroraPrivateTable_(book,'customer_master');
     });
-    if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
     return {created:newCount,updated:updatedCount,skipped:skipped,total_customers:Object.keys(known).length};
-  }finally{lock.releaseLock();if(typeof auroraSupabaseDiscard_==='function')auroraSupabaseDiscard_();}
+  }finally{lock.releaseLock();}
 }
 /* ==== END apps-script/CustomerMaster.gs ==== */
 
@@ -3359,7 +2434,7 @@ function auroraCmsPost_(input){
   if(action==='staff_cms_list'){
     var snapshot=auroraCmsRead_(auroraSpreadsheet_(),name);
     return {ok:true,table:name,columns:snapshot.columns,rows:auroraCmsRowsSafe_(snapshot),
-      total:snapshot.rows.length,truncated:snapshot.rows.length>500,can_delete:actor.role==='super_admin'||actor.role==='admin'};
+      total:snapshot.rows.length,truncated:snapshot.rows.length>500,can_delete:actor.role==='super_admin'||actor.role==='admin',retry_safe_create:true};
   }
   if(['staff_cms_create','staff_cms_update','staff_cms_delete'].indexOf(action)===-1)
     auroraReject_('invalid_action','Unsupported website edit.');
@@ -3392,9 +2467,12 @@ function auroraCmsPost_(input){
       else table.sheet.getRange(previous._row,table.headers.indexOf('value')+1,1,1).setValues([[auroraSheetCell_(val)]]);
     }else{
       if(action!=='staff_cms_create'&&!recordId)auroraReject_('invalid_request','Select a record.');
+      var createId=action==='staff_cms_create'?String(input.create_id||''):'';
+      if(createId&&(['products','product_variants'].indexOf(name)<0||!/^cms_[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(createId)))
+        auroraReject_('invalid_request','Invalid cake edit reference.');
       var existing=action==='staff_cms_create'?null:auroraCmsRow_(table,recordId);
       if(action!=='staff_cms_create'&&!existing)auroraReject_('not_found','Record was not found.');
-      var row={},nowId=action==='staff_cms_create'?'cms_'+Utilities.getUuid():recordId;
+      var row={},nowId=action==='staff_cms_create'?(createId||'cms_'+Utilities.getUuid()):recordId;
       table.columns.forEach(function(field){
         row[field]=existing?existing[field]:field===table.key?nowId:
           AURORA_CMS_BOOLEAN_FIELDS_.indexOf(field)!==-1?false:
@@ -3414,6 +2492,8 @@ function auroraCmsPost_(input){
       if(name==='products'&&(!row.name||!row.category_id))auroraReject_('invalid_request','Product name and category are required.');
       if(name==='categories'&&!row.name)auroraReject_('invalid_request','Category name is required.');
       if(name==='product_variants'&&(!row.product_id||!row.name))auroraReject_('invalid_request','Product ID and variant name are required.');
+      if(name==='product_variants'&&existing&&String(existing.product_id)!==String(row.product_id))
+        auroraReject_('invalid_reference','An existing size belongs to its original cake. Create a new size for the other cake.');
       if(name==='delivery_zones'&&!row.name)auroraReject_('invalid_request','Delivery zone name is required.');
       if(name==='delivery_slots'&&!row.slot_label)auroraReject_('invalid_request','Delivery slot label is required.');
       if(name==='coupons'&&(!row.code||!row.discount_type))auroraReject_('invalid_request','Coupon code and discount type are required.');
@@ -3431,6 +2511,18 @@ function auroraCmsPost_(input){
       }
       if(name==='product_variants'&&row.sale_price!==''&&Number(row.sale_price)>Number(row.price))
         auroraReject_('invalid_price','Sale price cannot exceed the regular price.');
+      var previousCreate=createId&&auroraCmsRow_(table,createId);
+      if(previousCreate){
+        if(fields.some(function(field){return String(previousCreate[field]===undefined?'':previousCreate[field])!==String(row[field]);}))
+          auroraReject_('edit_conflict','This size or cake was already saved with different values. Reload it before editing.');
+        CacheService.getScriptCache().remove(auroraCacheKey_());
+        return {ok:true,operation:'created',record_id:createId};
+      }
+      if(name==='product_variants'&&action!=='staff_cms_delete'&&(!existing||existing.name!==row.name||existing.product_id!==row.product_id)&&
+          table.rows.some(function(other){
+            return String(other.id)!==nowId&&String(other.product_id)===String(row.product_id)&&
+              String(other.name).trim().toLowerCase()===String(row.name).trim().toLowerCase();
+          }))auroraReject_('duplicate','This cake already has a size with that name.');
       if(action==='staff_cms_create') {
         table.sheet.getRange(table.sheet.getLastRow()+1,1,1,table.headers.length).setValues([table.headers.map(function(field){return auroraSheetCell_(row[field]);})]);
       }else{
@@ -3445,7 +2537,8 @@ function auroraCmsPost_(input){
     }
     if(name==='products'&&typeof auroraEnsureProductStats_==='function')auroraEnsureProductStats_(book);
     CacheService.getScriptCache().remove(auroraCacheKey_());
-    return {ok:true,operation:action==='staff_cms_delete'?'archived':action==='staff_cms_create'?'created':'updated'};
+    return {ok:true,operation:action==='staff_cms_delete'?'archived':action==='staff_cms_create'?'created':'updated',
+      record_id:isKeyValue?key:nowId};
   }finally{lock.releaseLock();}
 }
 /* ==== END apps-script/PublicCms.gs ==== */
@@ -3604,7 +2697,6 @@ function auroraSubscriptionPost_(input) {
   var lock=LockService.getScriptLock();if(!lock.tryLock(10000))auroraReject_('busy','Please retry your email preference shortly.');
   var locked=true,message,row;
   try{
-    if(typeof auroraSupabaseRefresh_==='function')auroraSupabaseRefresh_();
     person=auroraAccountAuthenticate_('customer',input.auth_token);
     var table=auroraSubscriptionTable_(book);row=auroraSubscriptionRow_(table,person.id);
     if(input.action==='customer_email_unsubscribe'){
@@ -3653,18 +2745,16 @@ function auroraSubscriptionLinkPost_(action,token) {
   try{
     var parts=auroraSubscriptionParseToken_(token,action==='email_confirm'?'confirm':'unsubscribe');
     if(!lock.tryLock(10000))return auroraSubscriptionLinkPage_('Please try again','Another update is in progress. Press the button again.',action,token);locked=true;
-    if(typeof auroraSupabaseRefresh_==='function')auroraSupabaseRefresh_();
     var book=auroraSpreadsheet_(),table=auroraSubscriptionTable_(book),matches=table.rows.filter(function(row){return String(row.id)===parts[1];});
     if(matches.length!==1)throw new Error('Unknown link');var row=matches[0];
     if(action==='email_unsubscribe'){
       if(parts[2]!==auroraAccountDigest_(String(row.email).trim().toLowerCase()))throw new Error('Email changed');
-      auroraSubscriptionOptOutEmail_(table,String(row.email));if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();return auroraSubscriptionLinkPage_('You are unsubscribed','Product announcements to this email address have been stopped. Order messages and account access are unchanged.');
+      auroraSubscriptionOptOutEmail_(table,String(row.email));return auroraSubscriptionLinkPage_('You are unsubscribed','Product announcements to this email address have been stopped. Order messages and account access are unchanged.');
     }
     if(Number(row.confirmation_version)!==Number(parts[2])||!auroraSubscriptionEqual_(String(row.confirmation_nonce_hash),auroraAccountDigest_(parts[3]))||Date.parse(String(row.confirmation_expires_at))<Date.now())throw new Error('Expired confirmation');
     var account=auroraAccountValue_(auroraPrivateTable_(book,'customer_accounts'),row.customer_id);if(!account||!auroraSubscriptionTrue_(account.active))throw new Error('Closed account');
     if(row.status==='subscribed')return auroraSubscriptionLinkPage_('Email already confirmed','Your product email preference is active. You can change it in your bakery account.');
     var now=new Date().toISOString();auroraSubscriptionSave_(table,row,{marketing_consent:true,email_verified:true,status:'subscribed',confirmed_at:now,updated_at:now});
-    if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
     return auroraSubscriptionLinkPage_('Email confirmed','You can now receive Aurora’s Cake product announcements. Every announcement includes an unsubscribe link.');
   }catch(_){return auroraSubscriptionLinkPage_('This link is unavailable','The link is invalid or expired. Open your bakery account to manage email preferences.');}
   finally{if(locked)lock.releaseLock();}
@@ -3736,7 +2826,6 @@ function setupCampaignTools() {
   var previous=String(props.getProperty('AURORA_CAMPAIGN_OWNER_EMAIL')||'').toLowerCase();
   if(previous && previous!==effective)throw new Error('Campaign tools already belong to another owner.');
   if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
-  if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();
   props.setProperty('AURORA_CAMPAIGN_OWNER_EMAIL',effective);
   var book=auroraSpreadsheet_();auroraSetupCampaignTables_(book);
   // Request the mail permission during explicit setup, without sending anything.
@@ -3753,12 +2842,11 @@ function auroraCampaignOnOpen() {
 function auroraNewCampaignDraft() {
   auroraCampaignOwner_(true);
   if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
-  if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();
   var book=auroraSpreadsheet_(),table=auroraCampaignTable_(book,'email_campaigns');
   var id='campaign_'+Utilities.getUuid();
   auroraCampaignAppend_(table,[{id:id,status:'draft',created_at:new Date().toISOString(),recipient_count:0,sent_count:0,skipped_count:0,unknown_count:0}]);
-  if(typeof auroraSupabaseEnabled_==='function'&&auroraSupabaseEnabled_())auroraSupabaseProjectCampaignDraft_(id);
-  else{book.setActiveSheet(table.sheet);table.sheet.getRange(table.sheet.getLastRow(),2).activate();}
+  book.setActiveSheet(table.sheet);
+  table.sheet.getRange(table.sheet.getLastRow(),2).activate();
   SpreadsheetApp.getUi().alert('Add the subject, message body and optional HTTPS product link in this new row, then choose Aurora’s Cake → Review & send selected campaign.');
 }
 function auroraCampaignFind_(table,id) {
@@ -3802,11 +2890,9 @@ function auroraCampaignEscape_(text) {
 function auroraPreviewCampaign() {
   var owner=auroraCampaignOwner_(true);
   if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
-  if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();
-  var bridge=typeof auroraSupabaseImportSelectedCampaignDraft_==='function'?auroraSupabaseImportSelectedCampaignDraft_():null;
   var book=auroraSpreadsheet_(),active=book.getActiveSheet(),range=book.getActiveRange();
   if(!active||active.getName()!=='email_campaigns'||!range||range.getRow()<2)throw new Error('Select a filled campaign row in email_campaigns first.');
-  var table=auroraCampaignTable_(book,'email_campaigns'),row=table.rows.filter(function(row){return bridge?String(row.id)===bridge.id:row._rowNumber===range.getRow();})[0];
+  var table=auroraCampaignTable_(book,'email_campaigns'),row=table.rows.filter(function(row){return row._rowNumber===range.getRow();})[0];
   if(!row)throw new Error('Select a filled campaign row.');
   var draft=auroraCampaignDraft_(book,String(row.id));
   var token=Utilities.getUuid().replace(/-/g,'')+Utilities.getUuid().replace(/-/g,'');
@@ -3819,7 +2905,6 @@ function auroraPreviewCampaign() {
 function auroraConfirmCampaign(token) {
   var owner=auroraCampaignOwner_(true);
   if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
-  if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();
   var lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))throw new Error('Another operation is running. Review the campaign again shortly.');
   try{
@@ -3827,8 +2912,6 @@ function auroraConfirmCampaign(token) {
     var props=PropertiesService.getScriptProperties(),review;
     try{review=JSON.parse(props.getProperty('AURORA_CAMPAIGN_REVIEW')||'null');}catch(_){review=null;}
     if(!review||review.owner!==owner||review.token!==String(token)||review.expires_at<Date.now())throw new Error('This preview expired. Review the selected campaign again.');
-    var bridge=typeof auroraSupabaseImportSelectedCampaignDraft_==='function'?auroraSupabaseImportSelectedCampaignDraft_():null;
-    if(bridge&&bridge.id!==review.id)throw new Error('The selected draft changed. Review it again before sending.');
     var book=auroraSpreadsheet_(),draft=auroraCampaignDraft_(book,review.id);
     if(draft.hash!==review.hash)throw new Error('The message or subscriber list changed. Review the campaign again before sending.');
     var base=String(ScriptApp.getService().getUrl()||'');
@@ -3841,7 +2924,6 @@ function auroraConfirmCampaign(token) {
     if(deliveries.rows.some(function(row){return row.campaign_id===review.id;}))throw new Error('This draft already has delivery rows; inspect it before creating a new campaign.');
     auroraCampaignAppend_(deliveries,draft.recipients.map(function(customer){return {id:review.id+'_'+auroraCampaignHash_(customer.email),campaign_id:review.id,customer_id:customer.customer_id,email:customer.email,status:'queued',created_at:now};}));
     auroraCampaignUpdate_(draft.table,draft.row,{status:'queued'});
-    if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
     auroraCampaignEnsureWorker_();
   }finally{lock.releaseLock();}
   // The explicit owner click starts the first batch. Later batches are automatic.
@@ -3872,7 +2954,6 @@ function auroraCampaignMessage_(snapshot,recipient) {
 function auroraCampaignRun_() {
   auroraCampaignOwner_(false);
   if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_())return {processed:0,migration_frozen:true};
-  if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();
   var lock=LockService.getScriptLock();if(!lock.tryLock(1000))return {processed:0,busy:true};
   if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_()){lock.releaseLock();return {processed:0,migration_frozen:true};}
   var locked=true,props=PropertiesService.getScriptProperties(),lease;
@@ -3886,7 +2967,7 @@ function auroraCampaignRun_() {
     var book=auroraSpreadsheet_(),campaigns=auroraCampaignTable_(book,'email_campaigns'),deliveries=auroraCampaignTable_(book,'email_deliveries');
     var pending=campaigns.rows.filter(function(row){return ['queued','sending','waiting_quota'].indexOf(String(row.status))>=0;});
     for(var i=0;i<pending.length && processed<AURORA_CAMPAIGN_BATCH_SIZE && Date.now()-started<200000;i++){
-      if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_()){if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();return {processed:processed,migration_frozen:true};}
+      if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_()){return {processed:processed,migration_frozen:true};}
       var campaign=pending[i];
       if(campaign.next_attempt_at && new Date(campaign.next_attempt_at).getTime()>Date.now())continue;
       var snapshot;
@@ -3899,7 +2980,7 @@ function auroraCampaignRun_() {
       rows.filter(function(row){return row.status==='sending';}).forEach(function(row){auroraCampaignUpdate_(deliveries,row,{status:'unknown',last_error:'A previous send was interrupted. Delivery is uncertain; this recipient will not be retried automatically.'});});
       var next=rows.filter(function(row){return row.status==='queued';}),quotaWait=false;
       for(var j=0;j<next.length && processed<AURORA_CAMPAIGN_BATCH_SIZE && Date.now()-started<200000;j++){
-        if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_()){if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();return {processed:processed,migration_frozen:true};}
+        if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_()){return {processed:processed,migration_frozen:true};}
         var customers=auroraSubscriptionCampaignRecipients_(book);
         var delivery=next[j],matches=customers.filter(function(customer){return String(customer.customer_id)===String(delivery.customer_id);});
         var customer=matches.length===1?matches[0]:null;
@@ -3908,7 +2989,7 @@ function auroraCampaignRun_() {
         }
         if(MailApp.getRemainingDailyQuota()<=AURORA_CAMPAIGN_QUOTA_RESERVE){quotaWait=true;break;}
         var message=auroraCampaignMessage_(snapshot,delivery);
-        if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_()){if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();return {processed:processed,migration_frozen:true};}
+        if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_()){return {processed:processed,migration_frozen:true};}
         auroraCampaignUpdate_(deliveries,delivery,{status:'sending',attempted_at:new Date().toISOString(),last_error:''});
         // Flush the claim before the external send. If flushing fails, no mail is attempted.
         if(typeof auroraPersistenceFlush_==='function')auroraPersistenceFlush_();else SpreadsheetApp.flush();
@@ -3918,7 +2999,6 @@ function auroraCampaignRun_() {
         // Checkout, OTP and unsubscribe requests may run while the mail service is sending.
         if(!lock.tryLock(10000))return {processed:processed+1,unconfirmed:true};
         locked=true;
-        if(typeof auroraSupabaseRefresh_==='function')auroraSupabaseRefresh_();
         if(sendSucceeded)auroraCampaignUpdate_(deliveries,delivery,{status:'sent',sent_at:new Date().toISOString()});
         else auroraCampaignUpdate_(deliveries,delivery,{status:'unknown',last_error:'Send outcome is uncertain. Inspect the sending account before any manual follow-up; automatic resend is disabled.'});
         processed++;
@@ -3927,12 +3007,9 @@ function auroraCampaignRun_() {
       var remaining=counts.queued>0;
       auroraCampaignUpdate_(campaigns,campaign,{sent_count:counts.sent,skipped_count:counts.skipped,unknown_count:counts.unknown,status:remaining?(quotaWait?'waiting_quota':'sending'):(counts.unknown?'completed_with_issues':'completed'),finished_at:remaining?'':new Date().toISOString(),next_attempt_at:quotaWait?new Date(Date.now()+3600000).toISOString():'',last_error:quotaWait?'Waiting for Google’s mail allowance; ten messages are reserved for customer verification.':(counts.unknown?'Some send outcomes are uncertain. See email_deliveries.':'')});
     }
-    if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
     if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_())return {processed:processed,migration_frozen:true};
-    if(typeof auroraSupabaseProjectCampaignState_==='function')auroraSupabaseProjectCampaignState_();
     // Another owner action may queue a campaign while MailApp releases our
     // lock. Check fresh authoritative state before deleting its shared trigger.
-    if(typeof auroraSupabaseRefresh_==='function')auroraSupabaseRefresh_();
     var remainingCampaigns=auroraCampaignTable_(book,'email_campaigns').rows;
     if(!remainingCampaigns.some(function(row){return ['queued','sending','waiting_quota'].indexOf(String(row.status))>=0;})){
       ScriptApp.getProjectTriggers().filter(function(trigger){return trigger.getHandlerFunction()==='auroraCampaignTick';}).forEach(function(trigger){ScriptApp.deleteTrigger(trigger);});
@@ -3943,7 +3020,6 @@ function auroraCampaignRun_() {
     var current;try{current=JSON.parse(props.getProperty('AURORA_CAMPAIGN_WORKER_LEASE')||'null');}catch(_){current=null;}
     if(current && current.id===leaseId)props.deleteProperty('AURORA_CAMPAIGN_WORKER_LEASE');
     if(locked)lock.releaseLock();
-    if(typeof auroraSupabaseDiscard_==='function')auroraSupabaseDiscard_();
   }
 }
 /* ==== END apps-script/Campaigns.gs ==== */
@@ -4143,264 +3219,9 @@ function auroraCostingPost_(input) {
 }
 /* ==== END apps-script/ItemCostings.gs ==== */
 
-/* ==== BEGIN apps-script/SupabaseStore.gs ==== */
-/**
- * OFF by default. Private transitional persistence for existing business rules.
- * No browser/client key. No automatic promotion, deployment or activation.
- * Requires SQL 006 + 007 and explicit entry-point/flush integration documented
- * in docs/SUPABASE_RUNTIME.md. Physical Sheets remain the owner draft editor.
- */
-var AURORA_SUPABASE_PROJECT_REF_ = 'dtvefwpaxwffxglqbfoo';
-var AURORA_SUPABASE_ORIGIN_ = 'https://dtvefwpaxwffxglqbfoo.supabase.co';
-var AURORA_SUPABASE_REQUEST_ = null;
-
-function auroraSupabaseEnabled_() {
-  var selected=PropertiesService.getScriptProperties().getProperty('AURORA_DATABASE_BACKEND');
-  if(selected===null||selected===undefined||selected===''||selected==='google_sheets')return false;
-  if(selected==='supabase')return true;
-  throw auroraSupabaseError_('invalid_database_backend',false);
-}
-function auroraSupabaseError_(code, uncertain) {
-  // Never include remote error bodies, secrets, row data or URLs in errors/logs.
-  var error = new Error('Private database operation could not be confirmed. Retry the same request.');
-  error.code = code; error.auroraStoreError = true; error.uncertain = uncertain === true;
-  return error;
-}
-function auroraSupabaseClone_(value) { return JSON.parse(JSON.stringify(value)); }
-function auroraSupabaseRpc_(name, payload) {
-  if (['aurora_runtime_snapshot','aurora_runtime_commit','aurora_runtime_cutover_status'].indexOf(name) < 0) throw auroraSupabaseError_('invalid_database_operation', false);
-  var key = PropertiesService.getScriptProperties().getProperty('AURORA_SUPABASE_SERVICE_KEY') || '';
-  if (key.length < 32 || /^sb_publishable_/.test(key)) throw auroraSupabaseError_('database_not_configured', false);
-  var headers = {apikey:key};
-  // Legacy service-role JWTs need the matching Authorization header. New secret
-  // API keys authenticate through apikey; they are not JWT bearer tokens.
-  if (/^eyJ/.test(key)) headers.Authorization = 'Bearer ' + key;
-  var response;
-  try {
-    response = UrlFetchApp.fetch(AURORA_SUPABASE_ORIGIN_ + '/rest/v1/rpc/' + name, {
-      method:'post', contentType:'application/json', headers:headers,
-      payload:JSON.stringify(payload), muteHttpExceptions:true, followRedirects:false,
-      validateHttpsCertificates:true
-    });
-  } catch (_) { throw auroraSupabaseError_('database_unavailable', name === 'aurora_runtime_commit'); }
-  var status = response.getResponseCode(), body = response.getContentText(), data;
-  if (body.length > 8388608) throw auroraSupabaseError_('database_response_limit', name === 'aurora_runtime_commit');
-  try { data = JSON.parse(body); } catch (_) { throw auroraSupabaseError_('database_invalid_response', name === 'aurora_runtime_commit'); }
-  if (status < 200 || status >= 300) {
-    if (data && (data.code === '40001' || data.message === 'revision_conflict')) throw auroraSupabaseError_('revision_conflict', false);
-    throw auroraSupabaseError_('database_rejected', name === 'aurora_runtime_commit' && status >= 500);
-  }
-  return data;
-}
-function auroraSupabaseBegin_() {
-  // Call once at EVERY web/owner/trigger entry point. It clears request globals
-  // even when the feature is off, preventing accidental reuse in tests/runtime.
-  AURORA_SUPABASE_REQUEST_ = null;
-  if (!auroraSupabaseEnabled_()) return false;
-  var snapshot = auroraSupabaseRpc_('aurora_runtime_snapshot', {p_project_ref:AURORA_SUPABASE_PROJECT_REF_});
-  if (!snapshot || snapshot.project_ref !== AURORA_SUPABASE_PROJECT_REF_ || !/^[1-9][0-9]{0,17}$/.test(String(snapshot.revision)) ||
-      !snapshot.tables || typeof snapshot.tables !== 'object' || Array.isArray(snapshot.tables)) throw auroraSupabaseError_('database_invalid_snapshot', false);
-  var names = Object.keys(snapshot.tables), count = 0;
-  if (names.length > 64) throw auroraSupabaseError_('database_snapshot_limit', false);
-  names.forEach(function(name) {
-    var table = snapshot.tables[name];
-    if (!table || !Array.isArray(table.headers) || !table.headers.length || table.headers.length > 100 ||
-        table.headers.some(function(h) { return typeof h !== 'string'; }) || !Array.isArray(table.rows)) throw auroraSupabaseError_('database_invalid_snapshot', false);
-    var grid = Object.create(null), last = 1;
-    table.rows.forEach(function(row) {
-      if (!row || !Number.isInteger(row.sheet_row) || row.sheet_row < 2 || row.sheet_row > 50001 ||
-          !Array.isArray(row.cells) || row.cells.length > table.headers.length || grid[row.sheet_row]) throw auroraSupabaseError_('database_invalid_snapshot', false);
-      grid[row.sheet_row] = row.cells.slice(); last = Math.max(last, row.sheet_row); count++;
-    });
-    table.grid = grid; table.last = last; delete table.rows;
-  });
-  if (count > 50000) throw auroraSupabaseError_('database_snapshot_limit', false);
-  AURORA_SUPABASE_REQUEST_ = {revision:String(snapshot.revision),tables:snapshot.tables,dirty:Object.create(null),commit:null,poisoned:false};
-  return true;
-}
-function auroraSupabaseContext_() {
-  if (!auroraSupabaseEnabled_()) throw auroraSupabaseError_('database_disabled', false);
-  if (!AURORA_SUPABASE_REQUEST_) auroraSupabaseBegin_();
-  if (AURORA_SUPABASE_REQUEST_.poisoned) throw auroraSupabaseError_('database_request_aborted', true);
-  return AURORA_SUPABASE_REQUEST_;
-}
-function auroraSupabaseHasChanges_() {
-  return !!(AURORA_SUPABASE_REQUEST_ && Object.keys(AURORA_SUPABASE_REQUEST_.dirty).length);
-}
-function auroraSupabaseFlush_() {
-  if (!auroraSupabaseEnabled_()) return;
-  var ctx = auroraSupabaseContext_(), keys = Object.keys(ctx.dirty);
-  if (!keys.length) return;
-  // Snapshot order is fixed; appends sort by row so the server can require
-  // contiguous appends. Every operation is a changed row, never a table dump.
-  var changes = keys.map(function(key) { return ctx.dirty[key]; }).sort(function(a,b) {
-    return a.table < b.table ? -1 : a.table > b.table ? 1 : a.row-b.row;
-  });
-  if (changes.length > 1000 || JSON.stringify(changes).length > 2097152) throw auroraSupabaseError_('database_delta_limit', false);
-  if (!ctx.commit) ctx.commit = {p_project_ref:AURORA_SUPABASE_PROJECT_REF_,p_expected_revision:ctx.revision,
-    p_operation_id:Utilities.getUuid(),p_changes:auroraSupabaseClone_(changes)};
-  var reply;
-  try {
-    try { reply = auroraSupabaseRpc_('aurora_runtime_commit',ctx.commit); }
-    catch (first) {
-      // Only a lost acknowledgement is retried automatically. Reuse the EXACT
-      // operation id, expected revision and delta; never replay business logic.
-      if (!first.uncertain) throw first;
-      reply = auroraSupabaseRpc_('aurora_runtime_commit',ctx.commit);
-    }
-    if (!reply || reply.ok !== true || !/^[1-9][0-9]{0,17}$/.test(String(reply.revision))) throw auroraSupabaseError_('database_invalid_commit',true);
-    ctx.revision = String(reply.revision); ctx.dirty = Object.create(null); ctx.commit = null;
-  } catch (error) { ctx.poisoned = true; throw error; }
-}
-function auroraSupabaseRefresh_() {
-  if (!auroraSupabaseEnabled_()) return;
-  if (auroraSupabaseHasChanges_()) throw auroraSupabaseError_('database_refresh_has_pending_changes',false);
-  // Use after acquiring/reacquiring ScriptLock, before reading/revalidating
-  // identity/consent. Virtual sheet/range handles always resolve the new context.
-  auroraSupabaseBegin_();
-}
-function auroraSupabaseDiscard_() { AURORA_SUPABASE_REQUEST_ = null; }
-function auroraPersistenceFlush_() {
-  if (auroraSupabaseEnabled_()) auroraSupabaseFlush_();
-  else SpreadsheetApp.flush();
-}
-function auroraSupabaseCell_(value) {
-  if (value === undefined || value === null) return '';
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === 'string') {
-    if (value.indexOf('\u0000') >= 0) throw auroraSupabaseError_('database_invalid_cell',false);
-    // setValues("'=...") is a literal in Sheets; getValues returns "=...".
-    return /^'[=+\-@]/.test(value) ? value.slice(1) : value;
-  }
-  if (typeof value === 'boolean' || typeof value === 'number' && Number.isFinite(value)) return value;
-  throw auroraSupabaseError_('database_invalid_cell',false);
-}
-function auroraSupabaseTable_(name) {
-  var tables=auroraSupabaseContext_().tables;
-  if (!Object.prototype.hasOwnProperty.call(tables,name)) throw auroraSupabaseError_('database_table_missing',false);
-  return tables[name];
-}
-function auroraSupabaseBook_() {
-  auroraSupabaseContext_();
-  return {
-    getId:function() { return auroraConfiguredId_(); },
-    getSheetByName:function(name) { return Object.prototype.hasOwnProperty.call(auroraSupabaseContext_().tables,name) ? auroraSupabaseSheet_(name) : null; },
-    insertSheet:function() { throw auroraSupabaseError_('database_schema_is_owner_managed',false); },
-    // Owner UI selection remains a real Sheet. It is a draft editor only.
-    getActiveSheet:function() { return auroraSupabasePhysicalBook_().getActiveSheet(); },
-    getActiveRange:function() { return auroraSupabasePhysicalBook_().getActiveRange(); },
-    setActiveSheet:function(sheet) { return auroraSupabasePhysicalBook_().setActiveSheet(auroraSupabasePhysicalBook_().getSheetByName(sheet.getName())); }
-  };
-}
-function auroraSupabasePhysicalBook_() {
-  var id=auroraConfiguredId_();
-  return id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
-}
-function auroraSupabaseSheet_(name) {
-  var sheet={
-    getName:function(){return name;},getLastRow:function(){return auroraSupabaseTable_(name).last;},
-    getLastColumn:function(){return auroraSupabaseTable_(name).headers.length;},getMaxRows:function(){return 50001;},
-    getRange:function(r,c,h,w){return auroraSupabaseRange_(name,r,c,h===undefined?1:h,w===undefined?1:w);},
-    insertRowsAfter:function(after,count){if(!Number.isInteger(after)||!Number.isInteger(count)||count<0||after+count>50001)throw auroraSupabaseError_('database_range_limit',false);return sheet;},
-    setFrozenRows:function(){return sheet;},setColumnWidths:function(){return sheet;}
-  };
-  return sheet;
-}
-function auroraSupabaseRange_(name,r,c,h,w) {
-  if (![r,c,h,w].every(function(n){return Number.isInteger(n)&&n>0;}) || r+h-1>50001 || c+w-1>100 || h*w>5000000) throw auroraSupabaseError_('database_range_limit',false);
-  var range={
-    getRow:function(){return r;},
-    getValues:function(){
-      var table=auroraSupabaseTable_(name),result=[];
-      for(var y=0;y<h;y++){var source=r+y===1?table.headers:table.grid[r+y]||[],row=[];
-        for(var x=0;x<w;x++)row.push(source[c+x-1]===null||source[c+x-1]===undefined?'':source[c+x-1]);result.push(row);}
-      return result;
-    },
-    setValues:function(values){
-      var ctx=auroraSupabaseContext_(),table=auroraSupabaseTable_(name);
-      if(ctx.commit || !Array.isArray(values)||values.length!==h || values.some(function(row){return !Array.isArray(row)||row.length!==w;}))throw auroraSupabaseError_('database_invalid_range_write',false);
-      if(c+w-1>table.headers.length)throw auroraSupabaseError_('database_schema_is_owner_managed',false);
-      // Setup may write unchanged headers, but cannot add/rename columns.
-      if(r===1){if(h!==1||JSON.stringify(values[0])!==JSON.stringify(table.headers.slice(c-1,c+w-1)))throw auroraSupabaseError_('database_schema_is_owner_managed',false);return range;}
-      var normalized=values.map(function(row){return row.map(auroraSupabaseCell_);});
-      for(var y=0;y<h;y++){
-        var at=r+y;
-        if(at>table.last+1)throw auroraSupabaseError_('database_append_must_be_contiguous',false);
-        var row=(table.grid[at]||[]).slice();while(row.length<table.headers.length)row.push('');
-        for(var x=0;x<w;x++)row[c+x-1]=normalized[y][x];
-        table.grid[at]=row;table.last=Math.max(table.last,at);
-        ctx.dirty[JSON.stringify([name,at])]={table:name,row:at,cells:row.slice()};
-      }
-      return range;
-    },
-    createTextFinder:function(text){
-      var exact=false;
-      var finder={matchEntireCell:function(value){exact=value===true;return finder;},findNext:function(){
-        var values=range.getValues();for(var y=0;y<h;y++)for(var x=0;x<w;x++){
-          var cell=String(values[y][x]);if(exact?cell===String(text):cell.indexOf(String(text))>=0)return auroraSupabaseRange_(name,r+y,c+x,1,1);
-        }return null;}};return finder;
-    },
-    activate:function(){var physical=auroraSupabasePhysicalBook_().getSheetByName(name);if(physical)physical.getRange(r,c,h,w).activate();return range;}
-  };
-  ['setFontWeight','setBackground','setFontColor','setWrap','setNumberFormat'].forEach(function(method){range[method]=function(){return range;};});
-  return range;
-}
-/** Project ONLY a draft row into the physical owner editor. Never private users. */
-function auroraSupabaseProjectCampaignDraft_(id) {
-  if(!auroraSupabaseEnabled_())return;
-  auroraCampaignOwner_(true);auroraSupabaseFlush_();
-  var source=auroraSupabaseSheet_('email_campaigns'),headers=source.getRange(1,1,1,source.getLastColumn()).getValues()[0];
-  var rows=source.getRange(2,1,Math.max(1,source.getLastRow()-1),headers.length).getValues();
-  var found=rows.filter(function(row){return String(row[headers.indexOf('id')])===String(id);});
-  if(found.length!==1||found[0][headers.indexOf('status')]!=='draft')throw auroraSupabaseError_('campaign_not_draft',false);
-  var book=auroraSupabasePhysicalBook_(),sheet=book.getSheetByName('email_campaigns');
-  if(!sheet)throw auroraSupabaseError_('campaign_editor_missing',false);
-  var physical=sheet.getRange(1,1,Math.max(1,sheet.getLastRow()),sheet.getLastColumn()).getValues(),ph=physical[0],idCol=ph.indexOf('id');
-  if(idCol<0)throw auroraSupabaseError_('campaign_editor_headers',false);
-  var target=[];for(var i=1;i<physical.length;i++)if(String(physical[i][idCol])===String(id))target.push(i+1);
-  if(target.length>1)throw auroraSupabaseError_('campaign_editor_duplicate',false);
-  var at=target.length?target[0]:sheet.getLastRow()+1;
-  sheet.getRange(at,1,1,ph.length).setValues([ph.map(function(key){var col=headers.indexOf(key);return col<0?'':auroraSheetCell_(found[0][col]);})]);
-  book.setActiveSheet(sheet);sheet.getRange(at,Math.max(1,ph.indexOf('subject')+1)).activate();
-}
-/** Copy three editable draft fields, never status/counts/recipients, into DB. */
-function auroraSupabaseImportSelectedCampaignDraft_() {
-  if(!auroraSupabaseEnabled_())return;
-  auroraCampaignOwner_(true);auroraSupabaseRefresh_();
-  var book=auroraSupabasePhysicalBook_(),sheet=book.getActiveSheet(),selected=book.getActiveRange();
-  if(!sheet||sheet.getName()!=='email_campaigns'||!selected||selected.getRow()<2)throw auroraSupabaseError_('campaign_select_draft',false);
-  var headers=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0],cells=sheet.getRange(selected.getRow(),1,1,headers.length).getValues()[0];
-  if(['id','subject','body','product_url'].some(function(key){return headers.indexOf(key)<0||headers.indexOf(key)!==headers.lastIndexOf(key);}))throw auroraSupabaseError_('campaign_editor_headers',false);
-  var id=String(cells[headers.indexOf('id')]),table=auroraSupabaseSheet_('email_campaigns'),th=table.getRange(1,1,1,table.getLastColumn()).getValues()[0];
-  var matches=[];for(var r=2;r<=table.getLastRow();r++){var row=table.getRange(r,1,1,th.length).getValues()[0];if(String(row[th.indexOf('id')])===id)matches.push({at:r,cells:row});}
-  if(matches.length!==1||matches[0].cells[th.indexOf('status')]!=='draft')throw auroraSupabaseError_('campaign_not_draft',false);
-  ['subject','body','product_url'].forEach(function(key){table.getRange(matches[0].at,th.indexOf(key)+1).setValues([[auroraSheetCell_(cells[headers.indexOf(key)])]]);});
-  auroraSupabaseFlush_();return {id:id,row:matches[0].at};
-}
-/** Best-effort owner display projection. Supabase remains authoritative. */
-function auroraSupabaseProjectCampaignState_() {
-  if(!auroraSupabaseEnabled_())return;
-  try{
-    auroraSupabaseFlush_();var table=auroraSupabaseTable_('email_campaigns'),sheet=auroraSupabasePhysicalBook_().getSheetByName('email_campaigns');
-    if(!sheet)return;
-    var physical=sheet.getRange(1,1,Math.max(1,sheet.getLastRow()),sheet.getLastColumn()).getValues(),headers=physical[0],idIndex=headers.indexOf('id');
-    if(idIndex<0)return;
-    var stateFields=['status','recipient_count','sent_count','skipped_count','unknown_count','started_at','finished_at','next_attempt_at','last_error'];
-    Object.keys(table.grid).forEach(function(key){var cells=table.grid[key],id=cells[table.headers.indexOf('id')],matches=[];
-      for(var i=1;i<physical.length;i++)if(String(physical[i][idIndex])===String(id))matches.push(i+1);
-      if(matches.length!==1)return;
-      stateFields.forEach(function(field){var from=table.headers.indexOf(field),to=headers.indexOf(field);if(from>=0&&to>=0)sheet.getRange(matches[0],to+1).setValues([[auroraSheetCell_(cells[from])]]);});
-    });
-  }catch(_){console.warn('Campaign editor display could not refresh. Private database state remains authoritative.');}
-}
-/* ==== END apps-script/SupabaseStore.gs ==== */
-
 /* ==== BEGIN apps-script/MigrationControl.gs ==== */
-/** Owner-controlled write freeze. Inactive until explicitly started in editor. */
-var AURORA_MIGRATION_DRAIN_MS_ = 7 * 60 * 1000;
+/** Honor the existing owner-controlled write freeze Script Property. */
 var AURORA_MIGRATION_FROZEN_PROP_ = 'AURORA_MIGRATION_FROZEN_AT';
-var AURORA_MIGRATION_SOURCE_PROP_ = 'AURORA_MIGRATION_SOURCE_BACKEND';
-var AURORA_MIGRATION_VERIFIED_PROP_ = 'AURORA_SUPABASE_CONNECTION_VERIFIED';
 
 function auroraMigrationIso_(value) {
   if(typeof value!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value))return null;
@@ -4412,125 +3233,12 @@ function auroraMigrationStatus_() {
   return {writes_frozen:raw!==null&&raw!==undefined&&raw!=='',frozen_at:auroraMigrationIso_(raw)};
 }
 function auroraMigrationFrozen_() { return auroraMigrationStatus_().writes_frozen; }
-function auroraMigrationDrainReady_() {
-  var status=auroraMigrationStatus_(),stamp=status.frozen_at?Date.parse(status.frozen_at):NaN;
-  return status.writes_frozen&&Number.isFinite(stamp)&&stamp<=Date.now()&&Date.now()-stamp>=AURORA_MIGRATION_DRAIN_MS_;
-}
 function auroraMigrationAssertWritable_() {
   if(auroraMigrationFrozen_()){
-    var error=new Error('Bakery updates are paused for database migration. Retry later with the same request ID.');
+    var error=new Error('Bakery updates are temporarily paused. Retry later with the same request ID.');
     error.code='migration_frozen';error.auroraMigrationFrozen=true;throw error;
   }
 }
-function auroraMigrationOwner_() {
-  var email=auroraRequireInteractiveSetup_(),props=PropertiesService.getScriptProperties();
-  var configured=String(props.getProperty('AURORA_CAMPAIGN_OWNER_EMAIL')||'').trim().toLowerCase();
-  if(configured){if(configured!==email)throw new Error('Only the configured bakery owner can manage migration.');return email;}
-  var people;try{people=JSON.parse(props.getProperty('AURORA_STAFF_USERS')||'{}');}catch(_){people=null;}
-  if(!people||!people[email]||people[email].role!=='super_admin')throw new Error('Configure the bakery owner before managing migration.');
-  return email;
-}
-function auroraMigrationBackend_() {
-  var raw=PropertiesService.getScriptProperties().getProperty('AURORA_DATABASE_BACKEND');
-  if(raw===null||raw===undefined||raw===''||raw==='google_sheets')return 'google_sheets';
-  if(raw==='supabase')return 'supabase';
-  throw new Error('Fix the configured database backend before continuing migration.');
-}
-function auroraMigrationClearCache_() {
-  var suffix=auroraConfiguredId_()||'bound',cache=CacheService.getScriptCache();
-  ['aurora_public_profiles_email_v1_sheets_','aurora_public_profiles_email_v1_supabase_','aurora_public_profiles_email_v1_'].forEach(function(prefix){cache.remove(prefix+suffix);});
-}
-function beginMigrationFreeze() {
-  auroraMigrationOwner_();var lock=LockService.getScriptLock();
-  if(!lock.tryLock(10000))throw new Error('An update is running. Retry starting the freeze.');
-  try{
-    var props=PropertiesService.getScriptProperties(),status=auroraMigrationStatus_();
-    if(!status.writes_frozen){
-      var source=auroraMigrationBackend_();
-      props.setProperty(AURORA_MIGRATION_SOURCE_PROP_,source);
-      props.setProperty(AURORA_MIGRATION_FROZEN_PROP_,new Date().toISOString());
-      status=auroraMigrationStatus_();
-    }
-    auroraMigrationClearCache_();
-    var result={ok:true,writes_frozen:true,frozen_at:status.frozen_at,
-      drain_until:status.frozen_at?new Date(Date.parse(status.frozen_at)+AURORA_MIGRATION_DRAIN_MS_).toISOString():null,
-      drain_ready:auroraMigrationDrainReady_()};
-    console.log(JSON.stringify(result));return result;
-  }finally{lock.releaseLock();}
-}
-function auroraMigrationKeyDigest_(key) {
-  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,key,Utilities.Charset.UTF_8)
-    .map(function(byte){return ('0'+((byte+256)%256).toString(16)).slice(-2);}).join('');
-}
-function auroraMigrationVerifyResult_(ok,code) {
-  var allowed=['server_key_missing_or_invalid','connection_unavailable','connection_invalid_response','supabase_connection_verified'];
-  if(allowed.indexOf(code)<0)code='connection_unavailable';
-  console.log(code);return {ok:ok===true,code:code};
-}
-/** Verifies only the isolated operational RPC. No business data read/write. */
-function verifySupabaseConnection() {
-  auroraMigrationOwner_();var props=PropertiesService.getScriptProperties();
-  var key=String(props.getProperty('AURORA_SUPABASE_SERVICE_KEY')||'');
-  if(!/^sb_secret_[A-Za-z0-9_-]{20,}$/.test(key)&&!/^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(key))return auroraMigrationVerifyResult_(false,'server_key_missing_or_invalid');
-  var headers={apikey:key};if(/^eyJ/.test(key))headers.Authorization='Bearer '+key;
-  var slot=new Date(Math.floor(Date.now()/(6*3600000))*(6*3600000)).toISOString();
-  try{
-    var response=UrlFetchApp.fetch('https://dtvefwpaxwffxglqbfoo.supabase.co/rest/v1/rpc/aurora_operational_heartbeat',{
-      method:'post',contentType:'application/json',headers:headers,
-      payload:JSON.stringify({p_slot:slot,p_request_id:Utilities.getUuid()}),muteHttpExceptions:true,
-      followRedirects:false,validateHttpsCertificates:true
-    });
-    var status=response.getResponseCode(),body=response.getContentText();
-    if(status<200||status>=300||body.length>4096)return auroraMigrationVerifyResult_(false,'connection_unavailable');
-    var result=JSON.parse(body);
-    if(!result||result.ok!==true||typeof result.applied!=='boolean'||typeof result.checked_at!=='string'||!Number.isFinite(Date.parse(result.checked_at)))return auroraMigrationVerifyResult_(false,'connection_invalid_response');
-    props.setProperty(AURORA_MIGRATION_VERIFIED_PROP_,JSON.stringify({project_ref:'dtvefwpaxwffxglqbfoo',key_sha256:auroraMigrationKeyDigest_(key),verified_at:new Date().toISOString()}));
-    return auroraMigrationVerifyResult_(true,'supabase_connection_verified');
-  }catch(_){return auroraMigrationVerifyResult_(false,'connection_unavailable');}
-}
-function auroraMigrationConnectionVerified_() {
-  var props=PropertiesService.getScriptProperties(),record;
-  try{record=JSON.parse(props.getProperty(AURORA_MIGRATION_VERIFIED_PROP_)||'null');}catch(_){return false;}
-  var key=String(props.getProperty('AURORA_SUPABASE_SERVICE_KEY')||'');
-  if(!record||record.project_ref!=='dtvefwpaxwffxglqbfoo'||!auroraMigrationIso_(record.verified_at)||!key)return false;
-  var elapsed=Date.now()-Date.parse(record.verified_at);
-  return elapsed>=0&&elapsed<=24*3600000&&record.key_sha256===auroraMigrationKeyDigest_(key);
-}
-function auroraMigrationUnfreeze_(cancel) {
-  auroraMigrationOwner_();var lock=LockService.getScriptLock();
-  if(!lock.tryLock(10000))throw new Error('An update is running. Retry ending the freeze.');
-  try{
-    var props=PropertiesService.getScriptProperties(),status=auroraMigrationStatus_(),backend=auroraMigrationBackend_();
-    if(!cancel&&backend!=='supabase')throw new Error('Select the verified Supabase backend before completing migration. Use cancellation to keep the original source.');
-    if(status.writes_frozen){
-      var source=props.getProperty(AURORA_MIGRATION_SOURCE_PROP_);
-      if(cancel&&(['google_sheets','supabase'].indexOf(source)<0||source!==backend))throw new Error('Cancellation requires the valid recorded original backend to remain selected. No database authority was changed.');
-      if(!cancel&&!auroraMigrationDrainReady_())throw new Error('Keep writes frozen until at least seven minutes after the valid freeze timestamp.');
-      if(!cancel&&!auroraMigrationConnectionVerified_())throw new Error('Verify the current private Supabase connection before reopening writes.');
-      if(!cancel){
-        // The operational RPC proves the key, not business-store promotion.
-        // Require a real snapshot AND post-drain source provenance. A morning
-        // staging import cannot silently become the final live database.
-        try{
-          auroraSupabaseBegin_();
-          var revision=auroraSupabaseContext_().revision;
-          var final=auroraSupabaseRpc_('aurora_runtime_cutover_status',{p_project_ref:'dtvefwpaxwffxglqbfoo'});
-          var exported=final&&auroraMigrationIso_(final.source_exported_at)?Date.parse(final.source_exported_at):NaN;
-          if(!final||final.project_ref!=='dtvefwpaxwffxglqbfoo'||final.promoted!==true||typeof final.source_sha256!=='string'||
-             !/^[a-f0-9]{64}$/.test(final.source_sha256)||final.run_id!=='sheet_'+final.source_sha256.slice(0,32)||
-             String(final.revision)!==revision||!Number.isFinite(exported)||exported<Date.parse(status.frozen_at)+AURORA_MIGRATION_DRAIN_MS_||exported>Date.now()+60000)
-            throw new Error('The final promoted source must match this freeze and be exported after its seven-minute drain.');
-        }finally{auroraSupabaseDiscard_();}
-      }
-    }
-    props.deleteProperty(AURORA_MIGRATION_FROZEN_PROP_);props.deleteProperty(AURORA_MIGRATION_SOURCE_PROP_);
-    auroraMigrationClearCache_();
-    console.log(cancel?'migration_freeze_cancelled':'migration_freeze_ended');
-    return {ok:true,writes_frozen:false,frozen_at:null};
-  }finally{lock.releaseLock();}
-}
-function cancelMigrationFreeze() { return auroraMigrationUnfreeze_(true); }
-function endMigrationFreeze() { return auroraMigrationUnfreeze_(false); }
 /* ==== END apps-script/MigrationControl.gs ==== */
 
 /* ==== BEGIN apps-script/ProductStatistics.gs ==== */
@@ -4545,7 +3253,6 @@ function auroraProductStatFormulas_(row,columns){
   };
 }
 function auroraEnsureProductStats_(book){
-  if(typeof auroraSupabaseEnabled_==='function'&&auroraSupabaseEnabled_())return;
   // Real Sheets expose getFormulas; legacy database adapters/test tables may not.
   var products=book.getSheetByName('products');
   if(!products||typeof products.getRange(1,1,1,1).getFormulas!=='function')return;
@@ -4675,7 +3382,7 @@ function auroraCustomerSharedOrder_(input){
   var safe={persistence:'google_sheets',delivery_otp:''};
   ['id','order_number','customer_name','customer_phone','is_gift','recipient_name','recipient_phone','sender_name','sender_phone','hide_price_on_box','gift_card_message','delivery_address','delivery_zone','delivery_date','delivery_slot','status','subtotal','discount_amount','delivery_fee','total_amount','coupon_code','order_note','payment_method','payment_status','cod_amount','cod_collected','rider_name','created_at','updated_at'].forEach(function(field){safe[field]=order[field];});
   safe.order_number=auroraFormatOrderNumber_(order.order_number);
-  safe.items=(order.items||[]).map(function(item){var result={};['id','order_id','product_id','product_name','variant_name','flavor_id','flavor_name','writing_message','unit_price','quantity','subtotal'].forEach(function(field){result[field]=item[field];});
+  safe.items=(order.items||[]).map(function(item){var result={};['id','order_id','product_id','product_name','variant_name','flavor_id','flavor_name','writing_message','unit_price','quantity','subtotal','free_gift_items'].forEach(function(field){result[field]=item[field];});
     result.addons=(item.addons||[]).map(function(addon){var value={};['addon_id','addon_name','unit_price','quantity','subtotal'].forEach(function(field){value[field]=addon[field];});return value;});return result;});
   safe.history=(order.history||[]).map(function(h){return {id:h.id,status:h.status,created_at:h.created_at,notes:''};});
   var settings=auroraPairs_(auroraRows_(book,'settings'),PUBLIC_SETTINGS_KEYS),shop={};
@@ -4684,9 +3391,8 @@ function auroraCustomerSharedOrder_(input){
 }
 /** Public HtmlService RPC; the private bearer key is still checked before any order read. */
 function customerSharedOrder(input){
-  try{if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();return auroraCustomerSharedOrder_(input||{});}
+  try{return auroraCustomerSharedOrder_(input||{});}
   catch(_){return {ok:false,error:'এই private order link পাওয়া যায়নি। দোকান থেকে নতুন link নিন।'};}
-  finally{if(typeof auroraSupabaseDiscard_==='function')auroraSupabaseDiscard_();}
 }
 function auroraReceiptHtml_(params){
   var proof={order_id:String(params.ref||''),share_token:String(params.access||'')};

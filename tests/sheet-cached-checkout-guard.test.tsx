@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {useGoogleSheetContent} from '../src/hooks/useGoogleSheetContent';
-import {DEFAULT_PUBLIC_SITE_DATA} from '../src/content/defaultSiteData';
+import {DEFAULT_PUBLIC_SITE_DATA} from './catalog-fixture';
 import {DEFAULT_SHEETS_ENDPOINT} from '../src/services/googleSheets';
 
 test('restored offline catalog may show cakes but never enables an unverified COD checkout',()=>{

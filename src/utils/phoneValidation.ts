@@ -10,16 +10,16 @@ export interface PhoneValidationResult {
 }
 
 /**
- * Keep an editable mobile number to at most 11 Bangladeshi digits.
+ * Normalize editable digits while preserving invalid lengths for validation.
  * Accept pasted/typed +8801… numbers, converting the prefix to 01.
  * The final 01[3-9] format is validated separately on submit.
  */
-export function limitBangladeshiPhoneInput(input: string): string {
+export function normalizeBangladeshiPhoneInput(input: string): string {
   const digits = String(input ?? '')
     .replace(/[০-৯]/g, digit => String(digit.charCodeAt(0) - 0x09e6))
     .replace(/\D/g, '');
   const local = digits.startsWith('8801') ? digits.slice(2) : digits;
-  return local.slice(0, 11);
+  return local;
 }
 
 export function validateBangladeshiPhone(input: string | undefined | null): PhoneValidationResult {

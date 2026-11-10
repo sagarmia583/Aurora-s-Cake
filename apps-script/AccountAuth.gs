@@ -90,8 +90,6 @@ function auroraAccountRevokeAll_(kind,id){
   }});
 }
 function auroraAccountVerifyPassword_(accounts,person,password){
-  if(typeof auroraSupabaseHasChanges_==='function'&&auroraSupabaseHasChanges_())
-    throw new Error('Password verification requires a fresh account transaction.');
   if(Number(person.locked_until||0)>Date.now())
     auroraReject_('too_many_attempts','Too many attempts. Try again in 15 minutes.');
   if(typeof password!=='string'||password.length<4||password.length>128||
@@ -99,9 +97,7 @@ function auroraAccountVerifyPassword_(accounts,person,password){
     person.failed_attempts=Number(person.failed_attempts||0)+1;
     if(person.failed_attempts>=5){person.locked_until=Date.now()+15*60000;person.failed_attempts=0;}
     auroraAccountSave_(accounts,person);
-    // Callers verify before staging any business changes. Persist ONLY this
-    // security counter checkpoint before the validation-error response.
-    if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
+    // Persist the failed-attempt counter before returning a validation error.
     auroraReject_('invalid_credentials','Invalid login details.');
   }
   person.failed_attempts=0;person.locked_until=0;
@@ -111,9 +107,7 @@ function auroraAccountLogin_(kind,identifier,password){
   var lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))auroraReject_('busy','Another account update is in progress. Retry signing in.');
   try{
-    // Serialize attempts, then refresh before verification so concurrent guesses
-    // cannot lose their counters through an optimistic revision conflict.
-    if(typeof auroraSupabaseRefresh_==='function')auroraSupabaseRefresh_();
+    // Read the current account after taking the lock so concurrent attempts cannot lose counters.
     var accounts=auroraPrivateTable_(auroraSpreadsheet_(),isCustomer?'customer_accounts':'staff_accounts');
     var person=accounts.rows.filter(function(row){return String(row[key]).toLowerCase()===name;})[0];
 
@@ -122,7 +116,6 @@ function auroraAccountLogin_(kind,identifier,password){
     auroraAccountVerifyPassword_(accounts,person,password);
     auroraAccountSave_(accounts,person);
     var token=auroraAccountStart_(kind,person.id);
-    if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
     return {person:person,token:token};
   }finally{lock.releaseLock();}
 }
@@ -270,7 +263,6 @@ function auroraAccountCustomerPost_(input) {
     var accountLock=LockService.getScriptLock();
     if(!accountLock.tryLock(10000))auroraReject_('busy','Another account update is in progress.');
     try{
-      if(typeof auroraSupabaseRefresh_==='function')auroraSupabaseRefresh_();
       // Revalidate the bearer after waiting: logout/reset/disable may have
       // revoked it while this request was acquiring the update lock.
       var freshIdentity=auroraAccountAuthenticate_('customer',input.auth_token);
@@ -285,7 +277,6 @@ function auroraAccountCustomerPost_(input) {
         current.updated_at=new Date().toISOString();
         auroraAccountSave_(accounts,current);
         auroraAccountRevokeAll_('customer',current.id);
-        if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
         // Financial records/receipts remain unchanged for COD reconciliation.
         return {ok:true,closed:true};
       }
@@ -298,7 +289,6 @@ function auroraAccountCustomerPost_(input) {
       auroraAccountSave_(accounts,current);
       auroraAccountRevokeAll_('customer',current.id);
       var newToken=auroraAccountStart_('customer',current.id);
-      if(typeof auroraSupabaseFlush_==='function')auroraSupabaseFlush_();
       return {ok:true,auth_token:newToken};
     }finally{accountLock.releaseLock();}
   }

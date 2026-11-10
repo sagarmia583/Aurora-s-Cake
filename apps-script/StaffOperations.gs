@@ -333,10 +333,18 @@ function auroraOperationsPost_(input) {
       var isManagerOrAdmin = actor.role === 'super_admin' || actor.role === 'admin' || actor.role === 'delivery_manager';
       var hasAdminOverride = isManagerOrAdmin && (actor.role==='super_admin'||actor.role==='admin'||input.admin_override === true || input.admin_override === 'true');
       var assignedRider = String(order.rider_id || '').toLowerCase().trim();
-      if (action === 'start_delivery' && !assignedRider)
-        auroraReject_('rider_required','Assign an active registered rider before dispatching this order.');
       var actorEmail = String(actor.email || '').toLowerCase().trim();
       var actorUser = String(actor.username || '').toLowerCase().trim();
+      if(action==='start_delivery'&&input.self_dispatch===true){
+        if((actor.role!=='super_admin'&&actor.role!=='admin')||order.status!=='ready'||assignedRider)
+          auroraReject_('forbidden','Only an administrator can take an unassigned ready order for delivery.');
+        assignedRider=actorEmail||actorUser;
+        if(!assignedRider)auroraReject_('forbidden','Administrator identity is unavailable.');
+        order.rider_id=assignedRider;
+        order.rider_name=actor.name;
+      }
+      if (action === 'start_delivery' && !assignedRider)
+        auroraReject_('rider_required','Assign an active registered rider before dispatching this order.');
 
       if (!hasAdminOverride && (!assignedRider ||
           (assignedRider !== actorEmail && assignedRider !== actorUser))) {

@@ -32,7 +32,7 @@ test('Netlify public catalog is read-only, validates source host and never retur
 
 test('Netlify health checks Google Sheets release without returning Script Properties',async()=>{
   const fetcher=async()=>({ok:true,url:'https://script.googleusercontent.com/relay',
-    json:async()=>({ok:true,service:'aurora_public_content',release:'aurora-2026-11-03-staff-order-alerts-r5',
+    json:async()=>({ok:true,service:'aurora_public_content',release:'aurora-2026-11-09-sheets-only-r7',
       database_backend:'google_sheets',writes_frozen:false,SECRET:'must-not-leak'})} as Response);
   const response=await health(request('/api/backend-health'),{scriptUrl,fetcher});
   assert.equal(response.status,200);
@@ -42,7 +42,7 @@ test('Netlify health checks Google Sheets release without returning Script Prope
   assert.equal('SECRET' in body,false);
   const otherBackend=await health(request('/api/backend-health'),{scriptUrl,
     fetcher:async()=>({ok:true,url:'https://script.googleusercontent.com/relay',json:async()=>({
-      ok:true,service:'aurora_public_content',release:'aurora-2026-11-03-staff-order-alerts-r5',
+      ok:true,service:'aurora_public_content',release:'aurora-2026-11-09-sheets-only-r7',
       database_backend:'supabase'})} as Response)});
   assert.equal(otherBackend.status,503);
   assert.equal((await otherBackend.json()).code,'unexpected_database_backend');
@@ -107,8 +107,10 @@ test('health reports non-green for stale deployed Apps Script or unknown write a
     } as Response)});
   const outdated=await responseFor({release:'older-than-code',writes_frozen:false});
   assert.equal(outdated.status,503);
-  assert.equal((await outdated.json()).code,'outdated_apps_script');
-  const unknown=await responseFor({release:'aurora-2026-11-03-staff-order-alerts-r5'});
+  assert.deepEqual(await outdated.json(),{ok:false,code:'outdated_apps_script',
+    expected_release:'aurora-2026-11-09-sheets-only-r7',installed_release:'older-than-code',
+    database_backend:'google_sheets',writes_frozen:false});
+  const unknown=await responseFor({release:'aurora-2026-11-09-sheets-only-r7'});
   assert.equal(unknown.status,503);
   assert.equal((await unknown.json()).code,'unknown_write_state');
 });

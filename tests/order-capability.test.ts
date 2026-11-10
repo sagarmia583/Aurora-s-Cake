@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { normalizePublicSiteData } from '../src/services/googleSheets';
-import { DEFAULT_PUBLIC_SITE_DATA } from '../src/content/defaultSiteData';
+import { DEFAULT_PUBLIC_SITE_DATA } from './catalog-fixture';
 
 test('only a literal code capability enables private Sheet checkout', () => {
   const data={settings:{},products:[]};

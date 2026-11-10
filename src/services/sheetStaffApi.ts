@@ -1,6 +1,5 @@
 import type { DeliveryZone, Order, OrderStatus } from '../types';
 import { resolveSheetsPostEndpoint, sheetsPostCredentials } from './googleSheets';
-import { getSharedBakeryApiUrl } from './dualHosting';
 import { validateStaffOrderList } from './staffOrderSnapshot';
 
 export type StaffRoleName = 'super_admin' | 'admin' | 'order_manager' | 'kitchen_manager' | 'delivery_manager' | 'delivery_man' | 'accountant';
@@ -66,7 +65,7 @@ export class BakeryOperationsError extends Error {
   }
 }
 export async function privatePost(endpoint: string, body: Record<string, unknown>, sameOrigin = false): Promise<Record<string, unknown>> {
-  const url = getSharedBakeryApiUrl('/api/operations') ?? (sameOrigin ? '/api/operations' : resolveSheetsPostEndpoint(endpoint));
+  const url = sameOrigin ? '/api/operations' : resolveSheetsPostEndpoint(endpoint);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), body.action==='staff_image_upload'?28000:20000);
   try {
@@ -234,6 +233,7 @@ export interface CmsSnapshot {
   total:number;
   truncated:boolean;
   can_delete:boolean;
+  retry_safe_create?:boolean;
 }
 export const CMS_TABLE_OPTIONS: {table:CmsTable,label:string}[] = [
   {table:'settings',label:'Shop settings'},{table:'content',label:'Website text'},
@@ -256,9 +256,11 @@ export async function fetchCmsTable(endpoint:string,token:string,table:CmsTable)
   return response as unknown as CmsSnapshot;
 }
 export async function mutateCmsTable(endpoint:string,token:string,table:CmsTable,action:'create'|'update'|'delete',
-  values:Record<string,string|number|boolean>,recordId?:string,key?:string):Promise<void>{
-  await privatePost(endpoint,{action:'staff_cms_'+action,...staffCredential(token),table,
-    ...(recordId?{record_id:recordId}:{}),...(key?{key}:{}),values});
+  values:Record<string,string|number|boolean>,recordId?:string,key?:string,createId?:string):Promise<void>{
+  const result=await privatePost(endpoint,{action:'staff_cms_'+action,...staffCredential(token),table,
+    ...(recordId?{record_id:recordId}:{}),...(key?{key}:{}),...(createId?{create_id:createId}:{}),values});
+  if(createId&&result.record_id!==createId)
+    throw new Error('The save could not be verified. Reload the cake before making another edit.');
 }
 
 export async function uploadCmsImage(endpoint:string,token:string,base64:string):Promise<string> {
@@ -282,11 +284,6 @@ export async function lookupStaffCustomer(endpoint:string,token:string,phone:str
   return record as unknown as StaffCustomerMatch;
 }
 
-/**
- * Intentionally invoked only by a super admin. Apps Script verifies the staff
- * credential and role *before* Vercel mirrors a paged batch. Ordinary staff
- * polling never triggers Firestore writes.
- */
 export interface FirebaseOrderBackfill {
   offset:number;
   total:number;

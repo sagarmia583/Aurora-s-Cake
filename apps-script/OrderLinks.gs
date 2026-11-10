@@ -61,7 +61,7 @@ function auroraCustomerSharedOrder_(input){
   var safe={persistence:'google_sheets',delivery_otp:''};
   ['id','order_number','customer_name','customer_phone','is_gift','recipient_name','recipient_phone','sender_name','sender_phone','hide_price_on_box','gift_card_message','delivery_address','delivery_zone','delivery_date','delivery_slot','status','subtotal','discount_amount','delivery_fee','total_amount','coupon_code','order_note','payment_method','payment_status','cod_amount','cod_collected','rider_name','created_at','updated_at'].forEach(function(field){safe[field]=order[field];});
   safe.order_number=auroraFormatOrderNumber_(order.order_number);
-  safe.items=(order.items||[]).map(function(item){var result={};['id','order_id','product_id','product_name','variant_name','flavor_id','flavor_name','writing_message','unit_price','quantity','subtotal'].forEach(function(field){result[field]=item[field];});
+  safe.items=(order.items||[]).map(function(item){var result={};['id','order_id','product_id','product_name','variant_name','flavor_id','flavor_name','writing_message','unit_price','quantity','subtotal','free_gift_items'].forEach(function(field){result[field]=item[field];});
     result.addons=(item.addons||[]).map(function(addon){var value={};['addon_id','addon_name','unit_price','quantity','subtotal'].forEach(function(field){value[field]=addon[field];});return value;});return result;});
   safe.history=(order.history||[]).map(function(h){return {id:h.id,status:h.status,created_at:h.created_at,notes:''};});
   var settings=auroraPairs_(auroraRows_(book,'settings'),PUBLIC_SETTINGS_KEYS),shop={};
@@ -70,9 +70,8 @@ function auroraCustomerSharedOrder_(input){
 }
 /** Public HtmlService RPC; the private bearer key is still checked before any order read. */
 function customerSharedOrder(input){
-  try{if(typeof auroraSupabaseBegin_==='function')auroraSupabaseBegin_();return auroraCustomerSharedOrder_(input||{});}
+  try{return auroraCustomerSharedOrder_(input||{});}
   catch(_){return {ok:false,error:'এই private order link পাওয়া যায়নি। দোকান থেকে নতুন link নিন।'};}
-  finally{if(typeof auroraSupabaseDiscard_==='function')auroraSupabaseDiscard_();}
 }
 function auroraReceiptHtml_(params){
   var proof={order_id:String(params.ref||''),share_token:String(params.access||'')};

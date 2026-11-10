@@ -1,6 +1,7 @@
 import QRCode from 'qrcode';
+import { ORDER_TRACKING_ORIGIN } from './orderTrackingLink';
 
-export const PUBLIC_WEBSITE = 'https://aurora-s-cake.sagarmia583.workers.dev/';
+export const PUBLIC_WEBSITE = ORDER_TRACKING_ORIGIN + '/';
 export const PUBLIC_FACEBOOK = 'https://www.facebook.com/aurorascake26';
 
 function publicUrl(value?: string): URL | undefined {
@@ -21,7 +22,7 @@ function publicUrl(value?: string): URL | undefined {
 export function resolvePublicWebUrl(value?: string): string {
   const url = publicUrl(value);
   // Older POS settings used this unregistered hostname as their default.
-  return url && !/^(www\.)?aurorascake\.com$/i.test(url.hostname) ? url.href : PUBLIC_WEBSITE;
+  return url && !/^(?:(www\.)?aurorascake\.com|aurora-s-cake\.sagarmia583\.workers\.dev|aurora-s-cake\.(?:pages\.dev|vercel\.app))$/i.test(url.hostname) ? url.href : PUBLIC_WEBSITE;
 }
 
 export function resolveFacebookUrl(value?: string): string {

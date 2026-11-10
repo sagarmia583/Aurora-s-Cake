@@ -81,6 +81,7 @@ export type RichItem = {
   quantity: number;
   subtotal: number;
   writing_message?: string;
+  free_gift_items?: string[];
   addons?: { addon_name: string; quantity: number }[];
 };
 export const emptyCatalog: Catalog = {
@@ -219,6 +220,7 @@ export function unitPrice(p: Product, v: Variant) {
     v.sale_price ??
     (p.sale_price !== undefined &&
     p.sale_price < p.base_price &&
+    p.sale_price < v.price &&
     (v.id.includes("-half") || v.price <= p.base_price)
       ? p.sale_price
       : v.price)

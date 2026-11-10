@@ -126,7 +126,6 @@ export function CmsScreen({
   catalog,
   onClose,
   onChanged,
-  preview = false,
 }: {
   table: string;
   title: string;
@@ -134,7 +133,6 @@ export function CmsScreen({
   catalog: Catalog;
   onClose: () => void;
   onChanged: () => void;
-  preview?: boolean;
 }) {
   const [snapshot, setSnapshot] = useState<{ columns: string[]; rows: Row[] }>({
       columns: [],
@@ -154,10 +152,6 @@ export function CmsScreen({
     setLoading(true);
     setError("");
     try {
-      if (preview) {
-        setSnapshot({ columns: [], rows: [] });
-        return;
-      }
       const d = await cmsList(token, table);
       if (alive.current) setSnapshot(d);
     } catch (e) {
@@ -169,7 +163,7 @@ export function CmsScreen({
   useEffect(() => {
     alive.current = true;
     void load();
-    if (table === "products" && !preview)
+    if (table === "products")
       void cmsList(token, "categories")
         .then((d) => {
           if (alive.current) setCategories(d.rows);
@@ -200,17 +194,13 @@ export function CmsScreen({
   };
   const save = async (archive = false) => {
     if (saving.current || !editing) return;
-    if (preview) {
-      setError("Design preview — live পরিবর্তন বন্ধ।");
-      return;
-    }
     saving.current = true;
     setBusy(true);
     setError("");
     try {
       const submitted: Row = {};
       for (const [field, value] of Object.entries(values)) {
-        if (protectedField(table, field)) continue;
+        if (protectedField(table, field) || (table === "product_variants" && editing.id && field === "product_id")) continue;
         if (numberFields.has(field)) {
           if (value === "" && optionalNumbers.has(field)) submitted[field] = "";
           else {
@@ -249,7 +239,7 @@ export function CmsScreen({
     }
   };
   const upload = async (field: string) => {
-    if (saving.current || preview) return;
+    if (saving.current) return;
     saving.current = true;
     setBusy(true);
     setError("");
@@ -303,7 +293,7 @@ export function CmsScreen({
         !editing && !["settings", "content"].includes(table) ? (
           <Button
             label="+ নতুন record"
-            disabled={loading || preview}
+            disabled={loading}
             onPress={() => choose({})}
           />
         ) : undefined
@@ -367,12 +357,8 @@ export function CmsScreen({
         ))}
       {!loading && !snapshot.rows.length && (
         <Empty
-          title={preview ? "Design preview" : "এখনও কোনো record নেই"}
-          detail={
-            preview
-              ? "এই preview থেকে real Sheet পরিবর্তন করা যায় না।"
-              : "Sheet-এ নতুন record যোগ করুন বা refresh করুন।"
-          }
+          title="এখনও কোনো record নেই"
+          detail="Sheet-এ নতুন record যোগ করুন বা refresh করুন।"
         />
       )}
       {editing && (
@@ -406,6 +392,10 @@ export function CmsScreen({
                   : labels[field] || field.replace(/_/g, " ");
             const set = (value: unknown) =>
               setValues((s) => ({ ...s, [field]: value }));
+            if (table === "product_variants" && editing.id && field === "product_id")
+              return <View key={field}><Text style={T.h3}>{label}</Text>
+                <Text style={T.sub}>{catalog.products.find(product => product.id === v)?.name || String(v ?? "")}</Text>
+              </View>;
             if (
               boolFields.has(field) ||
               (field === "value" &&
@@ -542,7 +532,6 @@ export function CmsScreen({
                     <Button
                       label="ফোন থেকে ছবি বাছুন"
                       busy={busy}
-                      disabled={preview}
                       kind="ghost"
                       onPress={() => void upload(field)}
                     />

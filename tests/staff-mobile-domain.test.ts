@@ -20,7 +20,7 @@ test('mobile COD stage transitions require correct staff role and assigned rider
   assert.equal(nextOperation(sample('out_for_delivery'),rider),'deliver');
   assert.equal(nextOperation(sample('out_for_delivery'),otherRider),null);
   assert.equal(nextOperation(sample('delivered'),rider),null);
-  assert.equal(nextOperation(sample('ready'),owner),'start_delivery'); // admin can self-deliver
+  assert.equal(nextOperation(sample('ready'),owner),'assign'); // explicit self-dispatch is a separate action
 });
 test('mobile list isolates rider assignments and displays their actionable steps',()=>{
   const orders=[sample('assigned'),sample('out_for_delivery','rider02'),sample('picked_up')];
@@ -38,9 +38,9 @@ test('mobile order validation rejects bearer secrets and malformed data',()=>{
   assert.equal(isOrder({...safe,status:'unknown'}),false);
 });
 
-test('native staff endpoint accepts the exact Cloudflare production origin and retained legacy shop only',()=>{
+test('native staff endpoint resolves the exact production and retired bakery URLs to Netlify',()=>{
   assert.equal(validateStaffOperationsUrl(STAFF_PRODUCTION_OPERATIONS_URL),STAFF_PRODUCTION_OPERATIONS_URL);
-  assert.equal(validateStaffOperationsUrl('https://aurora-s-cake.vercel.app/api/operations'),'https://aurora-s-cake.vercel.app/api/operations');
+  assert.equal(validateStaffOperationsUrl('https://aurora-s-cake.vercel.app/api/operations'),STAFF_PRODUCTION_OPERATIONS_URL);
   assert.equal(validateStaffOperationsUrl('https://AURORA-S-CAKE.SAGARMIA583.WORKERS.DEV:443/api/operations'),STAFF_PRODUCTION_OPERATIONS_URL);
 });
 test('native staff credentials cannot be sent to lookalike hosts, other tenants, or altered API targets',()=>{

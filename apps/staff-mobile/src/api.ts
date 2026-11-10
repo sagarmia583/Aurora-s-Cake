@@ -1,9 +1,9 @@
 import * as SecureStore from 'expo-secure-store';
-import {isOrder, roles, validateStaffOperationsUrl, type Role,type StaffSession,type StaffOrder,type Operation} from './domain';
+import {isOrder, roles, STAFF_PRODUCTION_OPERATIONS_URL, validateStaffOperationsUrl, type Role,type StaffSession,type StaffOrder,type Operation} from './domain';
 
 const KEY='aurora_staff_session_v1';
 const TOKEN=/^[a-f0-9-]{72}$/i;
-const rawEndpoint=process.env.EXPO_PUBLIC_OPERATIONS_URL||'';
+const rawEndpoint=process.env.EXPO_PUBLIC_OPERATIONS_URL||STAFF_PRODUCTION_OPERATIONS_URL;
 export function operationsUrl():string {
   return validateStaffOperationsUrl(rawEndpoint);
 }
@@ -26,7 +26,7 @@ export async function post(action:string,params:Record<string,unknown>={},timeou
     });
     // Never send cookies, Google OAuth secrets or passwords to a third-party URL.
     if(!response.ok)throw new ApiError(
-      response.status===404?'API route missing: check the current Cloudflare Worker deployment.':
+      response.status===404?'API route missing: check the Netlify deployment.':
       response.status===401||response.status===403?'API access blocked; check deployment protection.':
       'Server connection failed (HTTP '+response.status+').','network');
     const data:unknown=await response.json().catch(()=>null);

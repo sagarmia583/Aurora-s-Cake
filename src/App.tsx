@@ -4,33 +4,24 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
-import { Navbar, ViewMode } from './components/Navbar';
+import { Navbar } from './components/Navbar';
 import { ArrowRight } from 'lucide-react';
 import { CustomerStorefront } from './components/CustomerStorefront';
-const MobileAppExperience = lazy(() => import('./components/MobileAppExperience').then(m => ({default: m.MobileAppExperience})));
 const ProductDetailModal = lazy(() => import('./components/ProductDetailModal').then(m=>({default:m.ProductDetailModal})));
 const CartDrawer = lazy(() => import('./components/CartDrawer').then(m=>({default:m.CartDrawer})));
 const CheckoutModal = lazy(() => import('./components/CheckoutModal').then(m=>({default:m.CheckoutModal})));
 const OrderTrackingModal = lazy(() => import('./components/OrderTrackingModal').then(m=>({default:m.OrderTrackingModal})));
-const KitchenDisplay = lazy(() => import('./components/KitchenDisplay').then(m => ({default: m.KitchenDisplay})));
-const DeliveryRiderPortal = lazy(() => import('./components/DeliveryRiderPortal').then(m => ({default: m.DeliveryRiderPortal})));
-const AdminPanel = lazy(() => import('./components/AdminPanel').then(m => ({default: m.AdminPanel})));
 const StaffPortal = lazy(() => import('./components/StaffPortal').then(m => ({default: m.StaffPortal})));
 const CustomerAccountPortal = lazy(() => import('./components/CustomerAccountPortal').then(m => ({default: m.CustomerAccountPortal})));
-const CachePerformanceHub = lazy(() => import('./components/CachePerformanceHub').then(m=>({default:m.CachePerformanceHub})));
-const DatabaseSchemaViewer = lazy(() => import('./components/DatabaseSchemaViewer').then(m=>({default:m.DatabaseSchemaViewer})));
 const CustomCakeModal = lazy(() => import('./components/CustomCakeModal').then(m=>({default:m.CustomCakeModal})));
 const CustomerProfileModal = lazy(() => import('./components/CustomerProfileModal').then(m=>({default:m.CustomerProfileModal})));
-import { mockDb } from './services/mockDatabase';
 import { submitSheetReview } from './services/sheetReviews';
-import { loadBackendDatabaseStatus, unknownBackendDatabaseStatus } from './services/backendDatabaseStatus';
 import { useGoogleSheetContent } from './hooks/useGoogleSheetContent';
-const SheetContentPanel = lazy(() => import('./components/SheetContentPanel').then(m=>({default:m.SheetContentPanel})));
 import { loadConfirmedSheetOrders, rememberConfirmedSheetOrder, removeConfirmedSheetOrdersById } from './services/googleSheetOrders';
 import { fetchCustomerOrderStatus, redeemLegacyReceiptAccess } from './services/sheetStaffApi';
 import { isConfirmedDeletedSheetOrder, verifyStoredOrderHistory } from './services/sheetOrderHistorySync';
 import { syncPhoneCustomerConfirmedOrder } from './services/phoneCustomerApi';
-import { getBrowserWorkspaceStorage, isStaffWorkspaceOpen, saveStaffTab, setStaffWorkspaceOpen } from './services/staffWorkspaceSession';
+import { getBrowserWorkspaceStorage, isStaffWorkspaceOpen, setStaffWorkspaceOpen } from './services/staffWorkspaceSession';
 import { reconcilePublicCart, reorderFromPublicOrder } from './services/reconcilePublicCart';
 import { inspectPendingCheckout, loadCheckoutCart, saveCheckoutCart, settleCheckoutCart } from './services/checkoutRecovery';
 import type { CheckoutCompletion } from './services/checkoutRecovery';
@@ -47,13 +38,9 @@ import {
   Order, 
   Coupon, 
   Review, 
-  CustomCakeRequest, 
-  AuditLog, 
-  StaffRole, 
   CartItem 
 } from './types';
 import { Home, ShoppingBag, Clock, Sparkles, Cake, User } from 'lucide-react';
-import { isGitHubPagesReadOnly } from './services/dualHosting';
 
 export default function App() {
   const runtimeEnv=(import.meta as ImportMeta & {env?:{BASE_URL?:string,VITE_GITHUB_PAGES_READ_ONLY?:string}}).env;
@@ -63,35 +50,17 @@ export default function App() {
     const raw=window.location.pathname||'/';
     return sitePrefix && raw.startsWith(sitePrefix+'/')?raw.slice(sitePrefix.length):raw;
   };
-  const pagesReadOnly=isGitHubPagesReadOnly();
   const sheetContent = useGoogleSheetContent();
   const publicData = sheetContent.data;
-  const [isSheetContentOpen, setIsSheetContentOpen] = useState(false);
   const staffPage = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('staff') === '1';
   const [isStaffPortalOpen, setIsStaffPortalOpen] = useState(() => staffPage || isStaffWorkspaceOpen(getBrowserWorkspaceStorage()));
   const openStaffPortal = () => { setStaffWorkspaceOpen(getBrowserWorkspaceStorage(),true); setIsStaffPortalOpen(true); };
-  const openLiveDeliveryFromAdmin = () => {
-    // Use the authenticated Staff Orders queue rather than a mock rider
-    // identity. The existing staff session is validated by Apps Script.
-    saveStaffTab(getBrowserWorkspaceStorage(),'orders');
-    setStaffWorkspaceOpen(getBrowserWorkspaceStorage(),true);
-    setIsStaffPortalOpen(true);
-  };
   const closeStaffPortal = () => { setStaffWorkspaceOpen(getBrowserWorkspaceStorage(),false); setIsStaffPortalOpen(false); };
   const [isCustomerAccountOpen, setIsCustomerAccountOpen] = useState(false);
   const [customerGoogleToken, setCustomerGoogleToken] = useState('');
   const [restoredSessionOrderIds, setRestoredSessionOrderIds] = useState<string[]>([]);
   const [historySyncVersion, setHistorySyncVersion] = useState(0);
   const [historySyncing, setHistorySyncing] = useState(false);
-  // Dual Experience: Responsive Website vs Mobile App
-  const [viewMode, setViewMode] = useState<ViewMode>('web');
-
-  // Active Role / Persona (Web View)
-  const [activeRole, setActiveRole] = useState<StaffRole | 'customer'>('customer');
-
-  // Database mode is reported by the production backend, not browser credentials.
-  const [databaseStatus, setDatabaseStatus] = useState(unknownBackendDatabaseStatus);
-
   // Public website content comes from the validated Sheet snapshot.
   const [settings, setSettings] = useState<ShopSettings>(publicData.settings);
 
@@ -105,8 +74,6 @@ export default function App() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [coupons, setCoupons] = useState<Coupon[]>(publicData.coupons);
   const [reviews, setReviews] = useState<Review[]>(publicData.reviews);
-  const [customCakes, setCustomCakes] = useState<CustomCakeRequest[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
   // Cart State
   const [cartItems, setCartItems] = useState<CartItem[]>(() => loadCheckoutCart());
@@ -143,8 +110,6 @@ export default function App() {
   const [isTrackOrderOpen, setIsTrackOrderOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isCustomCakeOpen, setIsCustomCakeOpen] = useState(false);
-  const [isCacheHubOpen, setIsCacheHubOpen] = useState(false);
-  const [isDbViewerOpen, setIsDbViewerOpen] = useState(false);
   // Stable storefront handlers let React skip an unchanged 15-card catalogue
   // when cart, checkout, tracking and customer workspace state is updated.
   const showStorefrontTrackOrder = useCallback(() => setIsTrackOrderOpen(true), []);
@@ -177,18 +142,9 @@ export default function App() {
     return () => window.removeEventListener('storage', syncBag);
   }, []);
 
-  // Public reads never include orders. Confirmed private Sheet receipts are cached on this device.
-  const refreshData = async () => {
-    const sheetOrders = loadConfirmedSheetOrders();
-    const orderMap = new Map<string, Order>();
-    sheetOrders.forEach(o => orderMap.set(o.id, o));
-    setOrders(Array.from(orderMap.values()));
-    setCustomCakes(mockDb.getCustomCakes());
-    setAuditLogs(mockDb.getAuditLogs());
-  };
+  useEffect(() => { setOrders(loadConfirmedSheetOrders()); }, []);
 
   useEffect(() => {
-    mockDb.applyPublicSnapshot(publicData, { authoritative: true });
     const previousCart=cartRef.current;
     const reconciled = reconcilePublicCart(previousCart, publicData);
     // Reconciliation constructs new objects. Reuse existing CartItem references
@@ -237,32 +193,6 @@ export default function App() {
       ['meta[property="og:description"]', effectiveSettings.website_description],
     ]) document.querySelector(selector)?.setAttribute('content', value || '');
   }, [publicData]);
-
-  useEffect(() => {
-    refreshData();
-
-    // Listen to local mockDb changes
-    const unsubDb = mockDb.subscribe(() => {
-      refreshData();
-    });
-
-    return () => {
-      unsubDb();
-    };
-  }, []);
-
-  // StaffPortal owns its authenticated live queue. Never copy all staff orders
-  // into the customer's receipt history or run a second competing poller.
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void loadBackendDatabaseStatus({ signal: controller.signal }).then(status => {
-      if (!controller.signal.aborted) {
-        setDatabaseStatus(status);
-      }
-    });
-    return () => controller.abort();
-  }, []);
 
   // Cart operations
   const handleAddToCart = useCallback((item: CartItem) => {
@@ -344,16 +274,6 @@ export default function App() {
     }finally{if(attempt===profileSyncVersion.current)setProfileSyncBusy(false);}
   };
   const openCheckout = () => {
-    if (pagesReadOnly) {
-      setCartNotice('GitHub Pages requires the Netlify production API before checkout is available. Your cart is safe.');
-      setIsCartOpen(true);
-      return;
-    }
-    if (checkoutSession) {
-      setIsCartOpen(false);
-      setIsCheckoutOpen(true);
-      return;
-    }
     const recovery = inspectPendingCheckout(sheetContent.endpoint);
     if (recovery.status === 'blocked') {
       setCartNotice(recovery.message);
@@ -529,7 +449,6 @@ export default function App() {
     setIsCartOpen(true);
   };
 
-  const demoOrders = orders.filter(order => order.persistence !== 'google_sheets');
   const cartTotalCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
@@ -541,28 +460,16 @@ export default function App() {
         onOpenCustomerAccount={() => setIsCustomerAccountOpen(true)}
         settings={settings}
         publicData={publicData}
-        isSheetConnected={sheetContent.status.state === 'connected'}
-        onOpenSheetSettings={() => setIsSheetContentOpen(true)}
-        activeRole={activeRole}
-        onRoleChange={setActiveRole}
-        viewMode={viewMode}
-        onViewModeChange={setViewMode}
         cartCount={cartTotalCount}
         onOpenCart={() => setIsCartOpen(true)}
         onOrderNow={openCheckout}
         onOpenProfile={() => setIsProfileOpen(true)}
-        onOpenCacheHub={() => setIsCacheHubOpen(true)}
-        onOpenDbViewer={() => setIsDbViewerOpen(true)}
-        databaseBackend={databaseStatus.backend}
         onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
         onOpenCustomCake={() => setIsCustomCakeOpen(true)}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
       />
 
-      {pagesReadOnly && <aside role="note" className="mx-4 my-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950">
-        GitHub Pages — কেক ও মেনু দেখতে পারবেন। Netlify production API যাচাই না হওয়া পর্যন্ত Order ও Staff/Admin Save বন্ধ থাকবে।
-      </aside>}
       {cartNotice && <div role="status" className="mx-4 my-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 text-xs flex justify-between items-start gap-4"><span>{cartNotice}</span><button onClick={() => setCartNotice('')} className="font-semibold underline">Dismiss</button></div>}
       {profileSyncFailure&&<div role="status" className="mx-4 my-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
         <p className="font-semibold">Your order is saved. {profileSyncFailure.mode==='profile'?'Delivery details still need syncing to your account.':'Linking it to your account needs attention.'}</p>
@@ -574,94 +481,29 @@ export default function App() {
           <button type="button" disabled={profileSyncBusy} onClick={()=>setProfileSyncFailure(null)} className="text-xs underline disabled:opacity-50">Dismiss</button>
         </div>
       </div>}
-      {/* Main Content Area: Responsive Website vs Mobile App */}
-      <main id="main-content" className={'w-full min-w-0 max-w-full ' + (viewMode === 'web' && activeRole === 'customer' ? 'ac-main' : 'ac-main ac-main--portal')}>
-        <Suspense fallback={<div className="py-20 text-center text-rose-700" role="status">Loading cakes…</div>}>
-        {viewMode === 'mobile_app' ? (
-          /* DEDICATED MOBILE APP VIEW */
-          <MobileAppExperience
-            settings={settings}
-            publicData={publicData}
-            products={products}
-            categories={categories}
-            flavors={flavors}
-            addons={addons}
-            banners={banners}
-            zones={zones}
-            slots={slots}
-            orders={demoOrders}
-            currency={settings.currency}
-            cartItems={cartItems}
-            onAddToCart={handleAddToCart}
-            onUpdateCartQuantity={handleUpdateCartQuantity}
-            onRemoveCartItem={handleRemoveCartItem}
-            onOpenCheckout={openCheckout}
-            onSelectProductForDetail={selectCake}
-            onOpenCustomCake={() => setIsCustomCakeOpen(true)}
-            onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
-            databaseBackend={databaseStatus.backend}
-          />
-        ) : (
-          /* RESPONSIVE WEBSITE VIEW */
-          <>
-            {activeRole === 'customer' && (
-              <CustomerStorefront
-                settings={settings}
-                publicData={publicData}
-                products={products}
-                catalogState={sheetContent.status.lastSyncedAt || sheetContent.status.state === 'connected' ? 'ready' : sheetContent.status.state}
-                categories={categories}
-                flavors={flavors}
-                banners={banners}
-                reviews={reviews}
-                coupons={coupons}
-                currency={settings.currency}
-                onSelectProduct={selectCake}
-                onOpenTrackOrder={showStorefrontTrackOrder}
-                onOpenCustomCake={showStorefrontCustomCake}
-                onOpenProfile={showStorefrontProfile}
-                searchQuery={searchQuery}
-                onAddToCart={handleAddToCart}
-                onOpenCart={showStorefrontCart}
-              />
-            )}
-
-            {activeRole === 'kitchen_manager' && (
-              <KitchenDisplay orders={orders} currency={settings.currency} />
-            )}
-
-            {activeRole === 'delivery_man' && (
-              <DeliveryRiderPortal orders={orders} currency={settings.currency} endpoint={sheetContent.endpoint} />
-            )}
-
-            {(activeRole === 'super_admin' ||
-              activeRole === 'admin' ||
-              activeRole === 'order_manager' ||
-              activeRole === 'delivery_manager' ||
-              activeRole === 'accountant') && (
-              <AdminPanel
-                settings={settings}
-                products={products}
-                categories={categories}
-                orders={orders}
-                coupons={coupons}
-                customCakes={customCakes}
-                auditLogs={auditLogs}
-                currency={settings.currency}
-                role={activeRole}
-                endpoint={sheetContent.endpoint}
-                addons={addons}
-                flavors={flavors}
-                onOpenLiveDelivery={openLiveDeliveryFromAdmin}
-              />
-            )}
-          </>
-        )}
-      </Suspense>
+      <main id="main-content" className="w-full min-w-0 max-w-full ac-main">
+        <CustomerStorefront
+          settings={settings}
+          publicData={publicData}
+          products={products}
+          catalogState={sheetContent.status.lastSyncedAt || sheetContent.status.state === 'connected' ? 'ready' : sheetContent.status.state}
+          categories={categories}
+          flavors={flavors}
+          banners={banners}
+          reviews={reviews}
+          coupons={coupons}
+          currency={settings.currency}
+          onSelectProduct={selectCake}
+          onOpenTrackOrder={showStorefrontTrackOrder}
+          onOpenCustomCake={showStorefrontCustomCake}
+          onOpenProfile={showStorefrontProfile}
+          searchQuery={searchQuery}
+          onAddToCart={handleAddToCart}
+          onOpenCart={showStorefrontCart}
+        />
       </main>
 
-      {/* Customer Mobile Sticky Bottom Navigation (in Web Mode on small screens) */}
-      {viewMode === 'web' && activeRole === 'customer' && (
+      {/* Customer mobile navigation */}
         <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-rose-100 px-4 py-2 flex items-center justify-around shadow-lg">
           <button
             onClick={() => {
@@ -717,11 +559,9 @@ export default function App() {
             <span className="text-[10px] font-bold">Order Now</span>
           </button>
         </nav>
-      )}
 
-      {isStaffPortalOpen && <Suspense fallback={null}><StaffPortal isOpen={isStaffPortalOpen} onClose={closeStaffPortal} endpoint={sheetContent.endpoint} onCatalogUpdated={() => { void sheetContent.refresh(); }} /></Suspense>}
+      {isStaffPortalOpen && <Suspense fallback={null}><StaffPortal isOpen={isStaffPortalOpen} onClose={closeStaffPortal} endpoint={sheetContent.endpoint} catalog={publicData} onCatalogUpdated={() => { void sheetContent.refresh(); }} /></Suspense>}
       {isCustomerAccountOpen && <Suspense fallback={null}><CustomerAccountPortal open={isCustomerAccountOpen} onTrackOrder={id => { setLatestOrderId(id); setIsCustomerAccountOpen(false); setIsTrackOrderOpen(true); }} onClose={() => setIsCustomerAccountOpen(false)} endpoint={sheetContent.endpoint} localReceipts={orders.filter(o => o.persistence === 'google_sheets')} onIdentityToken={setCustomerGoogleToken} onSignOut={() => { removeConfirmedSheetOrdersById(restoredSessionOrderIds); setOrders(previous => previous.filter(order => !restoredSessionOrderIds.includes(order.id))); setRestoredSessionOrderIds([]); }} onRecover={handleRecoveredCustomerOrders} /></Suspense>}
-      {isSheetContentOpen && <Suspense fallback={null}><SheetContentPanel isOpen={isSheetContentOpen} onClose={() => setIsSheetContentOpen(false)} endpoint={sheetContent.endpoint} status={sheetContent.status} orderSubmissionEnabled={publicData.order_submission_enabled} databaseBackend={databaseStatus.backend} onOpenStaffPortal={()=>{setIsSheetContentOpen(false);openStaffPortal();}} onRefresh={sheetContent.refresh} onSaveEndpoint={sheetContent.updateEndpoint}/></Suspense>}
       {/* Modals & Slide-outs */}
       <Suspense fallback={null}>
       {selectedProductForDetail && <ProductDetailModal
@@ -773,6 +613,7 @@ export default function App() {
         currency={settings.currency}
         zones={zones}
         slots={slots}
+        coupons={coupons}
         sheetOrderEndpoint={checkoutSession.endpoint}
         orderingPaused={!publicData.order_submission_enabled || !settings.accepting_orders}
         onOrderSuccess={handleOrderSuccess}
@@ -800,15 +641,6 @@ export default function App() {
         currency={settings.currency}
       />}
 
-      {isCacheHubOpen && <CachePerformanceHub
-        isOpen={isCacheHubOpen}
-        onClose={() => setIsCacheHubOpen(false)}
-      />}
-
-      {isDbViewerOpen && <DatabaseSchemaViewer
-        isOpen={isDbViewerOpen}
-        onClose={() => setIsDbViewerOpen(false)}
-      />}
       </Suspense>
     </div>
   );

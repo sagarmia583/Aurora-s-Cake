@@ -1,4 +1,4 @@
-import { withBakeryCors } from './shared-cors.mjs';
+import { PRODUCTION_NETLIFY_ORIGIN, withBakeryCors } from './shared-cors.mjs';
 /**
  * Optional same-origin Google Apps Script POST relay for Netlify Free.
  * Resolves browser CORS/ContentService redirect problems without a paid gateway.
@@ -7,6 +7,19 @@ import { withBakeryCors } from './shared-cors.mjs';
  * Netlify Functions consume Free plan credits; usage is NOT unlimited.
  */
 const SCRIPT_RE=/^\/macros\/s\/[A-Za-z0-9_-]+\/exec$/;
+function trackingLink(value,orderId,scriptUrl) {
+  if(typeof value!=='string')return value;
+  try {
+    const receipt=new URL(value);
+    const key=receipt.searchParams.get('access');
+    if(receipt.origin+receipt.pathname!==scriptUrl||receipt.username||receipt.password||receipt.hash||
+      receipt.searchParams.get('action')!=='receipt'||receipt.searchParams.get('ref')!==orderId||
+      !/^ord_[0-9a-f-]{36}$/i.test(orderId)||!key||!/^[a-f0-9-]{72}$/i.test(key))return value;
+    const link=new URL('/track-order',PRODUCTION_NETLIFY_ORIGIN);
+    link.hash=new URLSearchParams({ref:orderId,access:key}).toString();
+    return link.href;
+  }catch{return value;}
+}
 async function operations(request, { scriptUrl = process.env.AURORA_SCRIPT_POST_URL, fetcher = globalThis.fetch } = {}) {
   const response=(status,message)=>new Response(JSON.stringify({ok:false,success:false,code:'proxy_error',error:message}),{
     status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}
@@ -63,6 +76,16 @@ async function operations(request, { scriptUrl = process.env.AURORA_SCRIPT_POST_
     try {reply=JSON.parse(text);} catch {return response(502,'Bakery backend returned invalid JSON.');}
     if(!reply||typeof reply!=='object'||Array.isArray(reply))
       return response(502,'Unexpected bakery backend response.');
+    if(reply.ok===true&&new URL(request.url).origin===PRODUCTION_NETLIFY_ORIGIN){
+      if(payload.action==='staff_order_link'&&reply.order_id===payload.order_id&&typeof reply.share_url==='string')
+        reply.share_url=trackingLink(reply.share_url,reply.order_id,target.href);
+      const orders=payload.action==='staff_orders'&&Array.isArray(reply.orders)?reply.orders:
+        payload.action==='staff_mutate'?[reply.order]:[];
+      for(const order of orders){
+        if(typeof order?.id==='string'&&typeof order.customer_share_url==='string')
+          order.customer_share_url=trackingLink(order.customer_share_url,order.id,target.href);
+      }
+    }
     return new Response(JSON.stringify(reply),{status:200,
       headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',
         'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'}});

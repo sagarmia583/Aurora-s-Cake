@@ -40,7 +40,6 @@ export function OrderComposer({
   onClose,
   onSaved,
   onCatalogChanged,
-  preview = false,
 }: {
   catalog: Catalog;
   session: StaffSession;
@@ -48,7 +47,6 @@ export function OrderComposer({
   onClose: () => void;
   onSaved: (o: StaffOrder) => void;
   onCatalogChanged: () => void;
-  preview?: boolean;
 }) {
   const [zoneEditor, setZoneEditor] = useState(false);
   const [customEditor, setCustomEditor] = useState(false);
@@ -68,7 +66,7 @@ export function OrderComposer({
     [busy, setBusy] = useState(false),
     [lookupBusy, setLookupBusy] = useState(false);
   const [pending, setPending] = useState<PendingOrder | null>(null),
-    [restoring, setRestoring] = useState(!preview),
+    [restoring, setRestoring] = useState(true),
     [result, setResult] = useState<{
       order: StaffOrder;
       warning: string;
@@ -79,7 +77,6 @@ export function OrderComposer({
   const services = useMemo(() => orderServices(token), [token]);
   useEffect(() => {
     alive.current = true;
-    if (!preview)
       void loadPending(services, session.email)
         .then((p) => {
           if (!alive.current) return;
@@ -102,7 +99,7 @@ export function OrderComposer({
     return () => {
       alive.current = false;
     };
-  }, [services, session.email, preview]);
+  }, [services, session.email]);
   const totals = useMemo(() => {
     try {
       return { ...quote(c, lines, zone, code), selectionError: "" };
@@ -125,10 +122,6 @@ export function OrderComposer({
     if (!busy) onClose();
   };
   const submit = async (retry = false) => {
-    if (preview) {
-      setError("Design preview — live Sheet-এ কোনো order পাঠানো হবে না।");
-      return;
-    }
     if (inFlight.current || restoring) return;
     setError("");
     let draft: Draft | undefined;
@@ -196,7 +189,6 @@ export function OrderComposer({
     }
   };
   const lookup = async () => {
-    if (preview) return;
     const valid = validateBangladeshiPhone(phone);
     if (!valid.isValid) {
       setError(valid.error || "Phone number দিন।");
@@ -262,7 +254,7 @@ export function OrderComposer({
         </View>
         {!!result.warning && <Text style={T.error}>{result.warning}</Text>}
         {!!error && <Text style={T.error}>{error}</Text>}
-        <CustomerLink token={token} orderId={result.order.id} orderNumber={formatOrderNumber(result.order.order_number)} initialUrl={result.order.customer_share_url} preview={preview} autoCreate/>
+        <CustomerLink token={token} orderId={result.order.id} orderNumber={formatOrderNumber(result.order.order_number)} initialUrl={result.order.customer_share_url} autoCreate/>
         <Text style={T.sub}>
           একই order নতুন করে তৈরি হয়নি। Order queue থেকে পরের কাজটি করতে পারবেন।
         </Text>
@@ -447,7 +439,7 @@ export function OrderComposer({
               kind="ghost"
               label="আগের customer-এর তথ্য খুঁজুন"
               busy={lookupBusy}
-              disabled={locked || preview}
+              disabled={locked}
               onPress={() => void lookup()}
             />
             <Field
@@ -481,7 +473,7 @@ export function OrderComposer({
             <Button
               kind="ghost"
               label="+ Delivery area যোগ করুন"
-              disabled={locked || preview}
+              disabled={locked}
               onPress={() => setZoneEditor(true)}
             />
           )}
@@ -629,7 +621,7 @@ export function OrderComposer({
           catalog={c}
           onClose={() => setZoneEditor(false)}
           onChanged={onCatalogChanged}
-          preview={preview}
+
         />
       )}
     </Sheet>

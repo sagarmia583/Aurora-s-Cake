@@ -159,9 +159,9 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = React.memo(
   const occasions = highlights('occasion');
   const customSteps = highlights('custom_step');
   const socialPhotos = highlights('social_gallery').filter(row => safeImage(row.image_url));
-  const orderFaq = DEFAULT_PUBLIC_SITE_DATA.faqs.find(item => item.id === 'faq-4');
-  const faqs = ordered(data.faqs).map(faq => orderFaq && faq.id === orderFaq.id && faq.answer.includes('your order has reached our Google Sheet')
-    ? { ...faq, answer: orderFaq.answer }
+  const faqs = ordered(data.faqs).map(faq => faq.id === 'faq-4' &&
+    /your order has reached our Google Sheet|local demonstrations/i.test(faq.answer)
+    ? { ...faq, answer: 'Your receipt confirms we received your order. Pay cash when your order arrives.' }
     : faq);
   const facebookUrl = safeLink(settings.facebook_url);
   const instagramUrl = safeLink(settings.instagram_url);
@@ -486,7 +486,7 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = React.memo(
               <StorefrontPrice regular={pricing.regularPrice} current={pricing.currentPrice}
                 currency={currency} size={firstVariant && [text('catalog_from_label'), firstVariant.name.split(' (')[0]].filter(Boolean).join(' · ')}/>
             </div>
-            <div className="ac-card-actions">
+            {firstVariant ? <div className="ac-card-actions">
               <button
                 type="button"
                 className={`ac-card-btn ac-card-btn-cart ${justAddedId === product.id ? 'is-added' : ''}`}
@@ -514,7 +514,7 @@ export const CustomerStorefront: React.FC<CustomerStorefrontProps> = React.memo(
                 <Zap size={14} fill="currentColor" />
                 <span>অর্ডার করুন</span>
               </button>
-            </div>
+            </div> : <p className="text-xs font-semibold text-slate-600">এই কেকটি আপাতত অর্ডার করা যাচ্ছে না।</p>}
           </div>
         </article>;
       })}</div>

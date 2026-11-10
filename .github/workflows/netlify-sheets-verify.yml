@@ -24,8 +24,8 @@ jobs:
       - run: npm ci
       - name: Verify Netlify + Sheets static configuration
         run: node scripts/verify-netlify-sheets-config.mjs
-      - name: Verify GitHub Pages + Netlify shared API and production CORS
-        run: node --test tests/dual-host-shared-bakery-api.test.mjs
+      - name: Verify same-origin Netlify API
+        run: node --test tests/netlify-same-origin-api.test.mjs
       - name: Test read-only live-smoke checker with fixtures
         run: node --test tests/netlify-release-smoke.test.mjs
       - name: Confirm Apps Script single-file bundle matches modules

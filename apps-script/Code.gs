@@ -5,7 +5,7 @@
 // Leave blank when this script is bound to the intended Sheet through Extensions > Apps Script.
 var AURORA_SPREADSHEET_ID = '18B0chk742grOCG4Wdx3w8Cn_sZFBCxc3WHbCtZBshY4';
 var AURORA_SCHEMA_VERSION = 1;
-var AURORA_BACKEND_RELEASE = 'aurora-2026-11-03-staff-order-alerts-r5';
+var AURORA_BACKEND_RELEASE = 'aurora-2026-11-09-sheets-only-r7';
 var PUBLIC_TABLE_SCHEMAS = {
   settings: ['key','value'],
   content: ['key','value'],
@@ -31,19 +31,17 @@ function auroraConfiguredId_() {
   return PropertiesService.getScriptProperties().getProperty('AURORA_SPREADSHEET_ID') || AURORA_SPREADSHEET_ID || '';
 }
 function auroraSpreadsheet_() {
-  if (typeof auroraSupabaseEnabled_ === 'function' && auroraSupabaseEnabled_()) return auroraSupabaseBook_();
   var id = auroraConfiguredId_();
   var book = id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
   if (!book) throw new Error('Bind the script to the intended Sheet or set AURORA_SPREADSHEET_ID in Script Properties.');
   return book;
 }
 function auroraCacheKey_() {
-  return 'aurora_public_profiles_email_v1_' + (typeof auroraSupabaseEnabled_ === 'function' && auroraSupabaseEnabled_() ? 'supabase_' : 'sheets_') + (auroraConfiguredId_() || 'bound');
+  return 'aurora_public_profiles_email_v1_' + 'sheets_' + (auroraConfiguredId_() || 'bound');
 }
 
 function doGet(e) {
   try {
-    if (typeof auroraSupabaseBegin_ === 'function') auroraSupabaseBegin_();
     return auroraDoGet_(e);
   } catch (_) {
     var unavailable={ok:false,error:'The bakery database is temporarily unavailable.'};
@@ -53,7 +51,6 @@ function doGet(e) {
     }
     return auroraResponse_(unavailable);
   }
-  finally { if (typeof auroraSupabaseDiscard_ === 'function') auroraSupabaseDiscard_(); }
 }
 function auroraDoGet_(e) {
   var params = e && e.parameter ? e.parameter : {};
@@ -75,7 +72,7 @@ function auroraDoGet_(e) {
     if (action === 'health') {
       var freeze=typeof auroraMigrationStatus_==='function'?auroraMigrationStatus_():{writes_frozen:false,frozen_at:null};
       return auroraResponse_({ok:true,schema_version:AURORA_SCHEMA_VERSION,service:'aurora_public_content',release:AURORA_BACKEND_RELEASE,
-        database_backend:typeof auroraSupabaseEnabled_ === 'function' && auroraSupabaseEnabled_()?'supabase':'google_sheets',
+        database_backend:'google_sheets',
         writes_frozen:freeze.writes_frozen,frozen_at:freeze.frozen_at}, callback);
     }
     var cache = CacheService.getScriptCache();
@@ -114,10 +111,8 @@ var PRIVATE_ORDER_SCHEMAS = {
 function doPost(e) {
   try {
     if(typeof auroraMigrationFrozen_==='function'&&auroraMigrationFrozen_())return auroraResponse_({ok:false,success:false,code:'migration_frozen',retryable:true,error:'Bakery updates are paused for database migration. Retry later with the same request ID; do not create a new request.'});
-    if (typeof auroraSupabaseBegin_ === 'function') auroraSupabaseBegin_();
     return auroraDoPost_(e);
   } catch (_) { return auroraResponse_({ok:false,success:false,code:'submission_uncertain',error:'Order confirmation is unavailable. Retry with the same request ID; do not create a new request.'}); }
-  finally { if (typeof auroraSupabaseDiscard_ === 'function') auroraSupabaseDiscard_(); }
 }
 function auroraDoPost_(e) {
   var lock;
@@ -196,6 +191,8 @@ function auroraDoPost_(e) {
       return auroraResponse_({success:true,persisted:true,order:auroraCheckoutReceiptSafe_(receipt)});
     }
     if (!request.checkout_proof) auroraReject_('upgrade_required','Refresh the website before placing a new order.');
+    // Validate new orders without changing the fingerprint of historical retries.
+    auroraAccountPhone_(request.customer_phone);
     var order = auroraBuildOrder_(book,request,orders.rows);
     order.order_number=auroraNextOrderNumber_(orders.rows);
     auroraCheckoutRateLimit_(request);
@@ -406,6 +403,7 @@ function auroraCheckSlotCapacity_(slot,request,orders) {
 }
 function auroraBuildOrder_(book,request,orders) {
   var settings = auroraPairs_(auroraRows_(book,'settings'),PUBLIC_SETTINGS_KEYS);
+  var freeGifts = auroraGiftAssignments_(settings.complimentary_kit_items);
   if (!auroraActive_(settings.accepting_orders)) auroraReject_('shop_closed','The shop is not accepting orders right now.');
   if (!auroraActive_(settings.delivery_enabled)) auroraReject_('delivery_unavailable','Delivery is currently unavailable.');
   var now = new Date();
@@ -454,15 +452,8 @@ function auroraBuildOrder_(book,request,orders) {
     } else if (allowedFlavors.some(function(id) { return flavors[id] && auroraActive_(flavors[id].is_active); })) {
       auroraReject_('unavailable_selection','Choose an available flavour for this cake.');
     }
-    var effectiveSalePrice = variant.sale_price;
-    if ((effectiveSalePrice === '' || effectiveSalePrice === undefined || effectiveSalePrice === null) &&
-        product.sale_price !== '' && product.sale_price !== undefined && product.sale_price !== null &&
-        Number(product.sale_price) < Number(product.base_price)) {
-      if (String(variant.id).indexOf('-half') !== -1 || Number(variant.price) <= Number(product.base_price)) {
-        effectiveSalePrice = product.sale_price;
-      }
-    }
-    var basePrice = auroraMoney_(effectiveSalePrice === '' || effectiveSalePrice === undefined || effectiveSalePrice === null ? variant.price : effectiveSalePrice,'variant price');
+    var salePrice = auroraVariantSalePrice_(product,variant);
+    var basePrice = auroraMoney_(salePrice === '' ? variant.price : salePrice,'variant price');
     var selectedAddons = line.addon_ids.map(function(id) {
       if (!allowAllAddons && allowedAddons.indexOf(id) === -1) auroraReject_('unavailable_selection','The selected add-on is not allowed for this cake.');
       var addon = auroraCurrent_(addons,id,'Add-on');
@@ -474,6 +465,7 @@ function auroraBuildOrder_(book,request,orders) {
       id:'item_' + request.request_id + '_' + index,order_id:orderId,product_id:line.product_id,product_name:String(product.name || ''),
       variant_id:line.variant_id,variant_name:String(variant.name || ''),flavor_id:line.flavor_id,flavor_name:flavor ? String(flavor.name || '') : '',
       writing_message:line.writing_message,unit_price:basePrice,quantity:line.quantity,addons:selectedAddons,
+      free_gift_items:freeGifts[line.product_id]||[],
       subtotal:auroraMoneyRound_((basePrice + addonUnit) * line.quantity)
     };
   });
@@ -560,7 +552,6 @@ function auroraResponse_(payload, callback) {
   // A successful API acknowledgement MUST follow the atomic persistence commit.
   // Validation errors discard uncommitted work at the outer request boundary;
   // security counters and external-send claims use explicit checkpoints.
-  if (payload && (payload.ok === true || payload.success === true) && typeof auroraSupabaseFlush_ === 'function') auroraSupabaseFlush_();
   var json = JSON.stringify(payload,function(key,value){return key==='order_number'?auroraFormatOrderNumber_(value):value;}).replace(/</g,'\\u003c').replace(/>/g,'\\u003e').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');
   if (callback) return ContentService.createTextOutput(callback + '(' + json + ');').setMimeType(ContentService.MimeType.JAVASCRIPT);
   return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
@@ -624,6 +615,33 @@ function auroraList_(value, isUrlList) {
   return input.split(isUrlList ? /\n/ : /[,\n]/).map(function(item) { return item.trim(); }).filter(Boolean);
 }
 
+function auroraGiftAssignments_(value) {
+  var result=Object.create(null), data;
+  try{data=JSON.parse(String(value||''));}catch(_){return result;}
+  if(!data||data.version!==2||!Array.isArray(data.items)||!data.products||typeof data.products!=='object'||Array.isArray(data.products))return result;
+  function names(values){
+    if(!Array.isArray(values))return [];
+    return Array.from(new Set(values.filter(function(item){return typeof item==='string';}).map(function(item){return item.trim();})
+      .filter(function(item){return item&&item.length<=80&&!/[\x00-\x1f\x7f]/.test(item);}))).slice(0,20);
+  }
+  var catalog=names(data.items);
+  Object.keys(data.products).slice(0,500).forEach(function(id){
+    if(/^[A-Za-z0-9_-]{1,100}$/.test(id)&&['__proto__','constructor','prototype'].indexOf(id)<0)
+      result[id]=names(data.products[id]).filter(function(item){return catalog.indexOf(item)>=0;});
+  });
+  return result;
+}
+
+function auroraVariantSalePrice_(product,variant) {
+  var sale=variant.sale_price;
+  if(sale!==''&&sale!==undefined&&sale!==null)return sale;
+  var productSale=product.sale_price;
+  if(productSale!==''&&productSale!==undefined&&productSale!==null&&
+      Number(productSale)<Number(product.base_price)&&Number(productSale)<Number(variant.price)&&
+      (String(variant.id).indexOf('-half')!==-1||Number(variant.price)<=Number(product.base_price)))return productSale;
+  return '';
+}
+
 function auroraPublicData_() {
   var book = auroraSpreadsheet_();
   var settings = auroraPairs_(auroraRows_(book,'settings'),PUBLIC_SETTINGS_KEYS);
@@ -635,28 +653,8 @@ function auroraPublicData_() {
   var allProducts = auroraRows_(book, 'products');
   var products = (allProducts.length ? allProducts : active('products')).map(function(product) {
     product.is_active = auroraActive_(product.is_active);
-    var prodBase = Number(product.base_price);
-    var prodSale = (product.sale_price !== '' && product.sale_price !== undefined && product.sale_price !== null) ? Number(product.sale_price) : undefined;
-    var prodVariants = variants.filter(function(variant) { return String(variant.product_id) === String(product.id); });
-    if (prodSale !== undefined && prodSale < prodBase) {
-      var diff = prodBase - prodSale;
-      prodVariants = prodVariants.map(function(variant, index) {
-        var copy = {};
-        for (var k in variant) copy[k] = variant[k];
-        if (copy.sale_price === '' || copy.sale_price === undefined || copy.sale_price === null) {
-          if (index === 0 || Number(copy.price) <= prodBase || prodVariants.length === 1) {
-            copy.price = Math.max(Number(copy.price) || 0, prodBase);
-            copy.sale_price = prodSale;
-          } else {
-            var orig = Number(copy.price) || 0;
-            copy.price = orig + diff;
-            copy.sale_price = orig;
-          }
-        }
-        return copy;
-      });
-    }
-    product.variants = prodVariants;
+    product.variants = variants.filter(function(variant) { return String(variant.product_id) === String(product.id); })
+      .map(function(variant) { return Object.assign({},variant,{sale_price:auroraVariantSalePrice_(product,variant)}); });
     product.gallery_images = auroraList_(product.gallery_images,true);
     product.allowed_flavor_ids = auroraList_(product.allowed_flavor_ids,false);
     product.allowed_addon_ids = auroraList_(product.allowed_addon_ids,false);
@@ -714,7 +712,7 @@ function switchToGoogleSheetsBackend() {
   props.deleteProperty('AURORA_MIGRATION_SOURCE_BACKEND');
   var cache = CacheService.getScriptCache();
   var id = props.getProperty('AURORA_SPREADSHEET_ID') || AURORA_SPREADSHEET_ID || '';
-  ['aurora_public_profiles_email_v1_sheets_', 'aurora_public_profiles_email_v1_supabase_', 'aurora_public_profiles_email_v1_'].forEach(function(prefix) {
+  ['aurora_public_profiles_email_v1_sheets_', 'aurora_public_profiles_email_v1_'].forEach(function(prefix) {
     cache.remove(prefix + (id || 'bound'));
   });
   console.log('ACTIVE DATABASE IS NOW GOOGLE SHEETS! Changes in your sheet will now appear on the website, and orders will be saved directly to your sheet.');
@@ -787,7 +785,7 @@ function syncNewCakeMenu() {
   // Clear cache
   var cache = CacheService.getScriptCache();
   var id = PropertiesService.getScriptProperties().getProperty('AURORA_SPREADSHEET_ID') || AURORA_SPREADSHEET_ID || '';
-  ['aurora_public_profiles_email_v1_sheets_', 'aurora_public_profiles_email_v1_supabase_', 'aurora_public_profiles_email_v1_'].forEach(function(prefix) {
+  ['aurora_public_profiles_email_v1_sheets_', 'aurora_public_profiles_email_v1_'].forEach(function(prefix) {
     cache.remove(prefix + (id || 'bound'));
   });
   
@@ -796,7 +794,6 @@ function syncNewCakeMenu() {
 }
 
 function setupSheetDatabase() {
-  if(typeof auroraSupabaseEnabled_==='function'&&auroraSupabaseEnabled_())throw new Error('Supabase runtime schemas are owner-managed in SQL. Do not seed or rebuild the migrated database from Sheet setup.');
   auroraRequireInteractiveSetup_();
   if(typeof auroraMigrationAssertWritable_==='function')auroraMigrationAssertWritable_();
   var book = auroraSpreadsheet_();

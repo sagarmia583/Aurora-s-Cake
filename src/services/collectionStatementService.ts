@@ -46,87 +46,42 @@ export interface CollectionStatementSummary {
   endDate: string;
 }
 
-/**
- * Returns today's date formatted as YYYY-MM-DD in local time
- */
+const dhakaCalendar = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Dhaka', year: 'numeric', month: '2-digit', day: '2-digit' });
+
 export function getLocalTodayDateString(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return dhakaCalendar.format(new Date());
 }
 
-/**
- * Normalizes any date string (ISO timestamp, YYYY-MM-DD, etc.) to YYYY-MM-DD
- */
 export function normalizeDateToYMD(dateStr?: string): string {
-  if (!dateStr) return '';
-  const trimmed = dateStr.trim();
-  // Only real calendar dates belong in a dated financial statement.
+  const trimmed = dateStr?.trim();
+  if (!trimmed) return '';
   const match = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?=$|[T\s])/);
   if (match) {
-    const year = Number(match[1]);
-    const month = Number(match[2]);
-    const day = Number(match[3]);
-    const date = new Date(0);
-    date.setUTCFullYear(year, month - 1, day);
-    if (date.getUTCFullYear() !== year || date.getUTCMonth() + 1 !== month || date.getUTCDate() !== day) return '';
-    return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const [, y, m, d] = match;
+    const day = y + '-' + m.padStart(2, '0') + '-' + d.padStart(2, '0');
+    const calendar = new Date(day + 'T00:00:00Z');
+    if (!Number.isFinite(calendar.getTime()) || calendar.toISOString().slice(0, 10) !== day) return '';
+    if (trimmed === match[0]) return day;
+    // Legacy timestamps without an offset were entered in shop time.
+    if (/^[T ](?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?$/.test(trimmed.slice(match[0].length))) return day;
   }
   const parsed = new Date(trimmed);
-  if (Number.isFinite(parsed.getTime())) {
-    const y = parsed.getFullYear();
-    const m = String(parsed.getMonth() + 1).padStart(2, '0');
-    const d = String(parsed.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
-  return '';
+  return Number.isFinite(parsed.getTime()) ? dhakaCalendar.format(parsed) : '';
 }
 
-/**
- * Computes start and end dates for a preset
- */
 export function getDateRangeForPreset(preset: CollectionDatePreset, customStart?: string, customEnd?: string): { startDate: string; endDate: string } {
-  const todayStr = getLocalTodayDateString();
-  const now = new Date();
-
+  const today = getLocalTodayDateString();
+  const shiftDay = (days: number) => new Date(Date.parse(today + 'T00:00:00Z') + days * 86400000).toISOString().slice(0, 10);
   switch (preset) {
-    case 'today':
-      return { startDate: todayStr, endDate: todayStr };
-
+    case 'today': return { startDate: today, endDate: today };
     case 'yesterday': {
-      const yDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      const yYear = yDate.getFullYear();
-      const yMonth = String(yDate.getMonth() + 1).padStart(2, '0');
-      const yDay = String(yDate.getDate()).padStart(2, '0');
-      const yStr = `${yYear}-${yMonth}-${yDay}`;
-      return { startDate: yStr, endDate: yStr };
+      const yesterday = shiftDay(-1);
+      return { startDate: yesterday, endDate: yesterday };
     }
-
-    case 'last_7_days': {
-      const past7 = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000);
-      const pYear = past7.getFullYear();
-      const pMonth = String(past7.getMonth() + 1).padStart(2, '0');
-      const pDay = String(past7.getDate()).padStart(2, '0');
-      return { startDate: `${pYear}-${pMonth}-${pDay}`, endDate: todayStr };
-    }
-
-    case 'this_month': {
-      const mYear = now.getFullYear();
-      const mMonth = String(now.getMonth() + 1).padStart(2, '0');
-      return { startDate: `${mYear}-${mMonth}-01`, endDate: todayStr };
-    }
-
-    case 'all_time':
-      return { startDate: '2020-01-01', endDate: '2099-12-31' };
-
-    case 'custom':
-    default:
-      return {
-        startDate: customStart || todayStr,
-        endDate: customEnd || todayStr,
-      };
+    case 'last_7_days': return { startDate: shiftDay(-6), endDate: today };
+    case 'this_month': return { startDate: today.slice(0, 7) + '-01', endDate: today };
+    case 'all_time': return { startDate: '2020-01-01', endDate: '2099-12-31' };
+    default: return { startDate: customStart || today, endDate: customEnd || today };
   }
 }
 

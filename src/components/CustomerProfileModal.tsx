@@ -16,7 +16,6 @@ import {
   ShoppingBag, 
   Sparkles, 
   Key, 
-  Camera, 
   Star, 
   ChevronRight, 
   ExternalLink, 
@@ -29,12 +28,11 @@ import {
   Truck
 } from 'lucide-react';
 import { Order, OrderStatus, Product, CartItem, Review } from '../types';
-import { mockDb } from '../services/mockDatabase';
 import { getPhoneCustomerProfile, updatePhoneCustomerProfile, loginPhoneCustomer, phoneCustomerOrders, linkPhoneCustomerReceipt } from '../services/phoneCustomerApi';
 import { normalizeCheckoutPhone } from '../services/customerPhoneLookup';
-import { limitBangladeshiPhoneInput, validateBangladeshiPhone } from '../utils/phoneValidation';
+import { normalizeBangladeshiPhoneInput, validateBangladeshiPhone } from '../utils/phoneValidation';
 import { loadConfirmedSheetOrders } from '../services/googleSheetOrders';
-import { getSavedCustomer, getSavedCustomerDirectory, saveCustomerInfo, findCustomerOrders, fetchCustomerOrdersFromEndpoint } from '../services/customerDirectory';
+import { getSavedCustomer, getSavedCustomerDirectory, saveCustomerInfo, findCustomerOrders } from '../services/customerDirectory';
 import { privatePost } from '../services/sheetStaffApi';
 
 const readProfile = (): {name?: string; phone?: string; email?: string; address?: string} => {
@@ -161,8 +159,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
 
       try {
         const localConfirmed = loadConfirmedSheetOrders();
-        const mockOrders = mockDb.getOrders();
-        const pool = [...orders, ...localConfirmed, ...mockOrders];
+        const pool = [...orders, ...localConfirmed];
         if (activePhone.trim()) {
           const matched = findCustomerOrders(activePhone, pool);
           setUserOrders(matched);
@@ -175,20 +172,8 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
         setIsFetchingOrders(false);
       }
 
-      if (validateBangladeshiPhone(activePhone).isValid && accountEndpoint) {
-        fetchCustomerOrdersFromEndpoint(accountEndpoint, activePhone).then((remote) => {
-          if (remote.orders && remote.orders.length > 0) {
-            setUserOrders(remote.orders);
-            onRecoverRef.current(remote.orders);
-          }
-          if (remote.profile) {
-            if (remote.profile.name) setCustomerName(prev => prev || remote.profile!.name);
-            if (remote.profile.address) setSavedAddress(prev => prev || remote.profile!.address);
-          }
-        }).catch(() => {});
-      }
     }
-  }, [isOpen, orders, customerPhone, accountPhone, accountEndpoint]);
+  }, [isOpen, orders, customerPhone, accountPhone]);
 
   useEffect(()=>{
     if(!isOpen)return;
@@ -239,7 +224,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
 
     try {
       // 1. If password is provided and >= 4 chars, try server password account login
-      if (accountPassword.trim().length >= 4) {
+      if (accountPassword) {
         try {
           const info = await loginPhoneCustomer(accountEndpoint, accountPhone, accountPassword);
           let history = await phoneCustomerOrders(accountEndpoint, info.token);
@@ -279,28 +264,8 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
         }
       }
 
-      // 2. Passwordless phone lookup (no password needed)
-      const localConfirmed = loadConfirmedSheetOrders();
-      const mockOrders = mockDb.getOrders();
-      let combinedPool = [...orders, ...localConfirmed, ...mockOrders];
-
-      // Try fetching remote orders from endpoint if connected
-      if (accountEndpoint) {
-        try {
-          const remote = await fetchCustomerOrdersFromEndpoint(accountEndpoint, accountPhone);
-          if (remote.orders && remote.orders.length > 0) {
-            combinedPool = [...remote.orders, ...combinedPool];
-            onRecoverRef.current(remote.orders);
-          }
-          if (remote.profile) {
-            if (!customerName && remote.profile.name) setCustomerName(remote.profile.name);
-            if (!savedAddress && remote.profile.address) setSavedAddress(remote.profile.address);
-          }
-        } catch {
-          // ignore endpoint network errors
-        }
-      }
-
+      // A phone number can filter receipts already present on this device.
+      const combinedPool = [...orders, ...loadConfirmedSheetOrders()];
       const matching = findCustomerOrders(accountPhone, combinedPool);
       setUserOrders(matching);
       setCustomerPhone(accountPhone);
@@ -312,11 +277,9 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
         if (saved.address) setSavedAddress(saved.address);
       }
 
-      if (matching.length > 0) {
-        setProfileSuccessMsg(`মোবাইল নম্বর ${accountPhone} এর বিপরীতে ${matching.length}টি অর্ডার পাওয়া গেছে!`);
-      } else {
-        setProfileSuccessMsg(`মোবাইল নম্বর ${accountPhone} এ পূর্বের কোনো অর্ডার নেই। এখনই কেক মেনু থেকে অর্ডার করতে পারেন!`);
-      }
+      setProfileSuccessMsg(matching.length
+        ? 'এই ডিভাইসে ' + matching.length + 'টি অর্ডারের রসিদ পাওয়া গেছে।'
+        : 'এই ডিভাইসে এই নম্বরের রসিদ পাওয়া যায়নি। অন্য ডিভাইসের অর্ডার দেখতে সাইন ইন করুন বা মূল রসিদ পুনরুদ্ধার করুন।');
     } catch (error) {
       setAccountError(shopErrorMessage(error, 'অর্ডার লোড করতে সমস্যা হয়েছে।'));
     } finally {
@@ -336,16 +299,6 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewError, setReviewError] = useState('');
 
-  const handleReviewImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (uploadEvent) => {
-      const dataUrl = uploadEvent.target?.result as string;
-      if (dataUrl) setReviewImage(dataUrl);
-    };
-    reader.readAsDataURL(file);
-  };
   const dialogRef = useCakeDialog(reviewOrder ? () => setReviewOrder(null) : onClose, reviewOrder?.id);
 
   // Reorder notification toast
@@ -357,8 +310,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
     const activePhone = customerPhone || accountPhone;
     if (activePhone && activePhone.trim()) {
       const localConfirmed = loadConfirmedSheetOrders();
-      const mockOrders = mockDb.getOrders();
-      const pool = [...userOrders, ...orders, ...localConfirmed, ...mockOrders];
+      const pool = [...userOrders, ...orders, ...localConfirmed];
       const matched = findCustomerOrders(activePhone, pool);
       if (matched.length > 0) return matched;
     }
@@ -579,13 +531,13 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
              </span>
            </div>
            <p className="text-xs text-slate-700">
-             আপনার ফোন নম্বর (Mobile number) দিয়ে পূর্বের সকল অর্ডার দেখুন ও সরাসরি রি-অর্ডার করুন। (A phone number alone cannot unlock private addresses on other devices without local receipt or verified session. You can optionally use Mobile account password for full account sync).
+             এই ডিভাইসে রাখা রসিদ ফোন নম্বর দিয়ে খুঁজুন। অ্যাকাউন্টে সেভ করা অর্ডার দেখতে পাসওয়ার্ড দিন।
            </p>
            {!serverProfile&&<form onSubmit={handleAccountSignIn} className="space-y-2">
              <div className="grid sm:grid-cols-[1fr_1fr_auto] gap-2 items-center">
                <input aria-label="Mobile number" required type="tel" autoComplete="tel" inputMode="tel"
-                 maxLength={13} pattern="01[3-9][0-9]{8}"
-                 value={accountPhone} onChange={e=>setAccountPhone(limitBangladeshiPhoneInput(e.target.value))}
+                 pattern="01[3-9][0-9]{8}"
+                 value={accountPhone} onChange={e=>setAccountPhone(normalizeBangladeshiPhoneInput(e.target.value))}
                  placeholder="01XXXXXXXXX (কাস্টমারের ফোন নম্বর)" className="rounded-xl border bg-white p-3 text-sm focus:outline-rose-500 font-medium text-slate-900"/>
                <input aria-label="Mobile account password" type="password" autoComplete="current-password"
                  value={accountPassword} onChange={e=>setAccountPassword(e.target.value)}
@@ -596,7 +548,7 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
                </button>
              </div>
              <p className="text-[11px] font-semibold text-emerald-800">
-               ✨ কোনো পাসওয়ার্ড এর দরকার নেই; শুধু ফোন নম্বর দিয়ে &ldquo;Load my orders&rdquo; এ চাপলেই আগের সব অর্ডার দেখা যাবে ও ১-ক্লিকে রি-অর্ডার করা যাবে।
+               অন্য ডিভাইসের অর্ডার দেখতে সাইন ইন করুন অথবা মূল রসিদ দিয়ে অর্ডার পুনরুদ্ধার করুন।
              </p>
            </form>}
            {serverProfile&&<p className="text-xs font-semibold text-emerald-800">Signed in · Your order history refreshes every 20 seconds while your profile is open.</p>}
@@ -940,8 +892,8 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
                     type="tel"
                     disabled={!isEditingProfile}
                     aria-label="Mobile phone" value={customerPhone}
-                    maxLength={13} inputMode="numeric" pattern="01[3-9][0-9]{8}"
-                    onChange={(e) => setCustomerPhone(limitBangladeshiPhoneInput(e.target.value))}
+                    inputMode="numeric" pattern="01[3-9][0-9]{8}"
+                    onChange={(e) => setCustomerPhone(normalizeBangladeshiPhoneInput(e.target.value))}
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 disabled:bg-slate-50 disabled:text-slate-600 font-semibold text-slate-900"
                   />
                 </div>
@@ -1075,31 +1027,18 @@ const CustomerProfileModalDialog: React.FC<CustomerProfileModalProps> = ({
 
                 <div className="space-y-1.5">
                   <label className="font-bold text-slate-700 block">
-                    Upload Cake Photo (ডেলিভারিকৃত কেকের ছবি যোগ করুন)
+                    কেকের ছবির HTTPS লিংক (ঐচ্ছিক)
                   </label>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <label className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl cursor-pointer font-bold flex items-center gap-1.5 transition-colors">
-                      <Camera className="w-3.5 h-3.5 text-rose-600" />
-                      <span>Choose Photo</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleReviewImageUpload}
-                        className="hidden"
-                      />
-                    </label>
-                    <span className="text-[11px] text-slate-400">or enter image link below</span>
-                  </div>
 
                   <input
-                    type="text"
+                    type="url" aria-label="Cake photo URL"
                     placeholder="https://example.com/cake-photo.jpg"
                     value={reviewImage}
                     onChange={(e) => setReviewImage(e.target.value)}
                     className="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-xs"
                   />
 
-                  {reviewImage && (
+                  {/^https:\/\//i.test(reviewImage.trim()) && (
                     <div className="relative inline-block mt-1">
                       <img
                         src={reviewImage}

@@ -122,12 +122,10 @@ export function Customers({
   orders,
   token,
   onClose,
-  preview = false,
 }: {
   orders: StaffOrder[];
   token: string;
   onClose: () => void;
-  preview?: boolean;
 }) {
   const [phone, setPhone] = useState(""),
     [found, setFound] = useState<Row | null>(null),
@@ -139,10 +137,6 @@ export function Customers({
     ).values(),
   ];
   const find = async () => {
-    if (preview) {
-      setError("Preview-তে customer directory search বন্ধ।");
-      return;
-    }
     const v = validateBangladeshiPhone(phone);
     if (!v.isValid) {
       setError(v.error || "সঠিক phone দিন।");
@@ -213,13 +207,11 @@ export function Team({
   token,
   onClose,
   onSession,
-  preview = false,
 }: {
   session: StaffSession;
   token: string;
   onClose: () => void;
   onSession: (s: StaffSession) => void;
-  preview?: boolean;
 }) {
   const [newUser, setNewUser] = useState(false),
     [target, setTarget] = useState(""),
@@ -230,10 +222,6 @@ export function Team({
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const perform = async (action: string, values: Row) => {
-    if (preview) {
-      setError("Design preview — staff account পরিবর্তন হবে না।");
-      return;
-    }
     setBusy(true);
     setError("");
     try {
@@ -387,11 +375,9 @@ export function Team({
 export function CustomRequests({
   token,
   onClose,
-  preview = false,
 }: {
   token: string;
   onClose: () => void;
-  preview?: boolean;
 }) {
   const [rows, setRows] = useState<Row[]>([]),
     [selected, setSelected] = useState<Row | null>(null),
@@ -401,10 +387,6 @@ export function CustomRequests({
     [error, setError] = useState("");
   const alive = useRef(true);
   const load = async () => {
-    if (preview) {
-      setLoading(false);
-      return;
-    }
     try {
       const d = await request("staff_custom_cakes", {}, token);
       if (!Array.isArray(d.requests))
@@ -424,7 +406,7 @@ export function CustomRequests({
     };
   }, [token]);
   const save = async (status: string) => {
-    if (!selected || preview || busy) return;
+    if (!selected || busy) return;
     setBusy(true);
     setError("");
     try {
@@ -565,12 +547,10 @@ export function Costings({
   token,
   catalog: c,
   onClose,
-  preview = false,
 }: {
   token: string;
   catalog: Catalog;
   onClose: () => void;
-  preview?: boolean;
 }) {
   const [rows, setRows] = useState<Row[]>([]),
     [selected, setSelected] = useState(""),
@@ -586,10 +566,6 @@ export function Costings({
     ["cost_other", "অন্যান্য খরচ"],
   ];
   const load = async () => {
-    if (preview) {
-      setLoading(false);
-      return;
-    }
     try {
       const d = await request(
         "staff_item_costings",
@@ -621,7 +597,7 @@ export function Costings({
     ),
     total = Object.values(values).reduce((s, v) => s + (Number(v) || 0), 0);
   const save = async () => {
-    if (busy || preview || !product) return;
+    if (busy || !product) return;
     setBusy(true);
     setError("");
     try {

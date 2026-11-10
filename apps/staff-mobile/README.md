@@ -1,16 +1,14 @@
 # Aurora’s Cake — native staff workspace
 
-`App.tsx` loads bundled fonts through `src/native/FontBootstrap.tsx`, then `src/native/NativeApp.tsx`. It renders React Native screens. The prior wrapper and sample-data prototype remain reference files and are not imported by this entry.
+`App.tsx` loads bundled fonts through `src/native/FontBootstrap.tsx`, then `src/native/NativeApp.tsx`. It renders React Native screens.
 
 The native workspace includes Today/next action, searchable orders, three-step COD checkout, date-specific kitchen batches, OTP-free COD handover, private customer view links, customer lookup, custom quotes, staff access, native website CMS/photo upload, reports/collection printing, item costings and a bundled three-note chime. Admin can prepare and self-deliver an order. Business data comes from the same live Google Sheets backend as the website. No sample inventory, simulated balances or local-only successful sales are used in live mode.
 
 Staff sign-in is verified by the backend and stored in Expo SecureStore. Existing native sessions can be revalidated. Fresh installs use a staff username/password created in web Staff & access; this redesign does not configure a new native Google OAuth client. Password-session logout waits for the server’s revocation acknowledgment. Uncertain orders retain an encrypted original request reference and require an explicit retry.
 
-Orders/catalogue refresh every 8–12 seconds while active and on foreground/pull-to-refresh. Public caching can add about 20 seconds. Foreground keep-awake defaults on after login. BackgroundTask requests a minimum 15-minute sync interval, subject to the OS, network and battery. The app can also register for new-order push using its linked EAS project. Delivery requires Android FCM or iOS APNs credentials and the backend push access token. A device build is needed to verify background scheduling, push and custom sound. Reports describe their loaded-order snapshot. Migration/Firebase diagnostic controls remain in web administration.
+Orders/catalogue refresh every 8–12 seconds while active and on foreground/pull-to-refresh. Public caching can add about 20 seconds. Foreground keep-awake defaults on after login. BackgroundTask requests a minimum 15-minute sync interval, subject to the OS, network and battery. The app can also register for new-order push using its linked EAS project. Delivery requires Android FCM or iOS APNs credentials and the backend push access token. A device build is needed to verify background scheduling, push and custom sound. Reports describe their loaded-order snapshot.
 
-Start Vite with `npm run dev` at the repository root. In this directory run `npm install`, then `npx expo start --lan --port 8081`. On the same Wi-Fi, use an Expo Go version compatible with SDK 58. The current app development URL is `exp://192.168.1.11:8081`; the API uses the explicitly configured private-LAN website on port 3000 in development. Release builds ignore the local override and use the approved production API.
-
-The development-only visual preview is `http://localhost:8081/?preview=1`. It uses explicitly labeled sample fixtures, blocks live changes, and is ignored in release builds and on Android/iOS. It is a design preview, not production browser sign-in.
+Start Vite with `npm run dev` at the repository root. In this directory run `npm install`, then `npx expo start --lan --port 8081`. On the same Wi-Fi, use an Expo Go version compatible with SDK 58. Use the Expo terminal to find your local device connection. Release builds use the approved Netlify API.
 
 ## Android and iOS builds
 
@@ -36,7 +34,7 @@ Android 0.1.2 uses a compact login card and a scrollable form with Android keybo
 
 Instant locked-screen alerts require the prepared `staff-order-alerts-r5` Apps Script release, Expo push access token, and Android FCM or iOS APNs. Password staff accounts receive alerts relevant to their role. If remote registration is unavailable, the app can notify from the latest order sync while open and from OS-scheduled background refresh when permitted.
 
-For the website, run `npm run build` from the repository root for the `dist` assets. The Worker entry is `cloudflare/worker.js` and the deployment settings are in `wrangler.toml`. Verify the package with `npx wrangler@4 deploy --dry-run --outdir dist-worker-release`. The production backend source is `apps-script/Code.AllInOne.gs`. Deploy it as a new version of the existing web app to retain the live Google Sheet and current endpoint.
+For the website, run `npm run build` from the repository root for the `dist` assets. Hosting and API rewrites are defined in `netlify.toml`. The production backend source is `apps-script/Code.AllInOne.gs`. Deploy it as a new version of the existing web app to retain the live Google Sheet and current endpoint.
 
 Research, feature coverage, screenshots and verification: [native redesign report](../../docs/NATIVE_APP_REDESIGN_2026-11-01.md).
 

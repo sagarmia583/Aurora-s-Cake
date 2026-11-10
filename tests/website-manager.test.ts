@@ -65,6 +65,21 @@ test('new editor variants leave optional numeric values blank, while explicit ze
   assert.equal(writes[1][4].sale_price,0);
 });
 
+test('Website Manager shortcuts open the right section and keep the edit when switching tools',async()=>{
+  const settings=snapshot('settings',['key','value'],[{key:'logo_url',value:'https://fixture.invalid/logo.jpg'}]);
+  const h=editorHarness({fetchCmsTable:async(_endpoint:string,_token:string,table:string)=>table==='settings'?settings:products});
+  h.render();await tick();h.render();
+  h.button('ওয়েবসাইট সেটিংস').props.onClick();h.render();
+  h.button('দোকানের তথ্য ও লোগো').props.onClick();h.render();await tick();h.render();
+  assert.equal(h.state.table,'settings');
+  h.button('দোকানের লোগো').props.onClick();h.render();
+  h.state.setDraft({value:'https://fixture.invalid/updated.jpg'});h.render();
+  h.button('ফ্রি উপহার').props.onClick();h.render();
+  h.button('ওয়েবসাইট সেটিংস').props.onClick();h.render();
+  assert.equal(h.state.selected,'logo_url');
+  assert.equal(h.state.draft.value,'https://fixture.invalid/updated.jpg');
+});
+
 test('late section responses cannot replace current rows or save a shared key into the wrong section',async()=>{
   const old=deferred(),latest=deferred(),writes:any[]=[];let contentCalls=0;
   const h=editorHarness({fetchCmsTable:async(_e:string,_t:string,table:string)=>table==='settings'?old.promise:table==='content'&&++contentCalls===1?latest.promise:snapshot(table,['key','value'],[{key:'hero_title',value:'CURRENT_CONTENT'}]),mutateCmsTable:async(...args:any[])=>writes.push(args)});
@@ -139,6 +154,32 @@ test('server CMS creates omitted optional numeric fields blank and checkout char
   const order=h.ctx.auroraBuildOrder_(h.book,{request_id:'fixture-request',delivery_date:new Date(Date.now()+86400000).toISOString().slice(0,10),delivery_zone_id:'zone',delivery_slot:'Morning',customer_name:'Offline fixture',customer_phone:'01700000000',delivery_address:'Fixture street',coupon_code:'',order_note:'',cart_items:[{product_id:'cake',variant_id:variant.id,flavor_id:'',addon_ids:[],quantity:1,writing_message:''}]});
   assert.equal(order.items[0].unit_price,1000);assert.equal(order.total_amount,1000);
   h.create('product_variants',{product_id:'cake',name:'Gift size',price:1000,sale_price:0,is_active:true});assert.equal(h.last('product_variants').sale_price,0);
+});
+
+test('CMS retries the same size ID without creating a duplicate or overwriting changed values',()=>{
+  const h=backendHarness();
+  const first={action:'staff_cms_create',table:'product_variants',create_id:'cms_11111111-1111-4111-8111-111111111111',
+    values:{product_id:'cake',name:'2 lb',price:820,is_active:true}};
+  const attempt=()=>h.ctx.auroraCmsPost_(first);
+  assert.equal(attempt().record_id,first.create_id);
+  assert.equal(attempt().record_id,first.create_id);
+  assert.equal(h.book.getSheetByName('product_variants').values.length,2);
+  assert.throws(()=>h.ctx.auroraCmsPost_({...first,values:{...first.values,price:900}}),/different values/);
+  assert.throws(()=>h.ctx.auroraCmsPost_({...first,create_id:'cms_22222222-2222-4222-8222-222222222222'}),/already has a size/);
+  assert.equal(h.last('product_variants').price,820);
+});
+
+test('saving an existing size cannot move it to another cake',()=>{
+  const h=backendHarness();
+  h.append('products',{id:'other-cake',category_id:'category',name:'Other cake',base_price:1000,is_active:true});
+  h.create('product_variants',{product_id:'cake',name:'Mini',price:200,is_active:true});
+  const id=h.last('product_variants').id;
+  const update={action:'staff_cms_update',table:'product_variants',record_id:id};
+  assert.throws(()=>h.ctx.auroraCmsPost_({...update,values:{product_id:'other-cake',price:220}}),/belongs to its original cake/);
+  assert.equal(h.last('product_variants').product_id,'cake');
+  assert.equal(h.last('product_variants').price,200);
+  assert.equal(h.ctx.auroraCmsPost_({...update,values:{price:220}}).ok,true);
+  assert.equal(h.last('product_variants').price,220);
 });
 
 test('CMS product edits preserve computed Sheet formulas and reject manual counter changes',()=>{

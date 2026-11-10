@@ -1,7 +1,7 @@
 import { withBakeryCors } from './shared-cors.mjs';
 /** Netlify-only read-only health metadata from authoritative Google Apps Script. */
 const SCRIPT_RE=/^\/macros\/s\/[A-Za-z0-9_-]+\/exec$/;
-const EXPECTED_RELEASE='aurora-2026-11-03-staff-order-alerts-r5';
+const EXPECTED_RELEASE='aurora-2026-11-09-sheets-only-r7';
 const headers={'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
 const json=(status,body)=>new Response(JSON.stringify(body),{status,headers});
 async function health(request,{scriptUrl=process.env.AURORA_SCRIPT_POST_URL,fetcher=globalThis.fetch}={}){
@@ -21,7 +21,8 @@ async function health(request,{scriptUrl=process.env.AURORA_SCRIPT_POST_URL,fetc
    const version=typeof state.release==='string'?state.release:'unknown';
    if(state.database_backend!=='google_sheets')return json(503,{ok:false,code:'unexpected_database_backend'});
    if(version!==EXPECTED_RELEASE)return json(503,{ok:false,code:'outdated_apps_script',
-     expected_release:EXPECTED_RELEASE,installed_release:version,database_backend:'google_sheets'});
+     expected_release:EXPECTED_RELEASE,installed_release:version,database_backend:'google_sheets',
+     ...(typeof state.writes_frozen==='boolean'?{writes_frozen:state.writes_frozen}:{})});
    if(typeof state.writes_frozen!=='boolean')return json(503,{ok:false,code:'unknown_write_state'});
    return json(200,{ok:true,provider:'google_sheets',expected_release:EXPECTED_RELEASE,
      installed_release:version,up_to_date:true,

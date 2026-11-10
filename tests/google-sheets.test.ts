@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { DEFAULT_PUBLIC_SITE_DATA } from '../src/content/defaultSiteData';
+import { DEFAULT_PUBLIC_SITE_DATA } from './catalog-fixture';
 import { GoogleSheetsError, normalizePublicSiteData, normalizePublicUrl, validateGoogleSheetsEndpoint, sheetsPostCredentials } from '../src/services/googleSheets';
 
 const clone = () => structuredClone(DEFAULT_PUBLIC_SITE_DATA);
@@ -25,6 +25,17 @@ test('flat variant rows join products and keep zero sale price and active flags'
   assert.equal(result.products[0].variants.length,1);
   assert.equal(result.products[0].variants[0].sale_price,0);
   assert.deepEqual(result.products[0].allowed_flavor_ids,product.allowed_flavor_ids);
+});
+
+test('an inferred display base price does not activate a legacy product offer',()=>{
+  const fixture=clone();
+  const product=fixture.products[0];
+  const result=normalizePublicSiteData({...fixture,products:[{
+    ...product,base_price:'',sale_price:380,
+    variants:[{...product.variants[0],price:450,sale_price:''}],
+  }]});
+  assert.equal(result.products[0].base_price,450);
+  assert.equal(result.products[0].variants[0].sale_price,undefined);
 });
 
 test('unsafe URL schemes are rejected and public Drive images are normalized',()=>{

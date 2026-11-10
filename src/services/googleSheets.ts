@@ -2,7 +2,6 @@ import type { PublicSiteData } from '../types/siteContent';
 import type { ShopSettings, ProductVariant } from '../types';
 import { DEFAULT_PUBLIC_SITE_DATA } from '../content/defaultSiteData';
 import { parseFreeGiftSettings, getProductFreeGifts } from '../utils/freeGifts';
-import { getSharedBakeryApiUrl, isGitHubPagesReadOnly } from './dualHosting';
 
 const configuredEndpoint = (import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_GOOGLE_SHEETS_URL;
 export const DEFAULT_SHEETS_ENDPOINT = configuredEndpoint || 'https://script.google.com/macros/s/AKfycbw38J4AzlYkAhNtyDAp_CP34fUk9Epae6xz46AQFbF9ye1VsZjxTXmzbJgs52WEoWETMw/exec';
@@ -68,8 +67,6 @@ export function normalizePublicUrl(value: unknown, path = 'URL', image = false):
   if (!raw) return '';
   if (/[\u0000-\u001f\u007f]/.test(raw)) throw invalid(path, 'contains an invalid character');
   if (/^\/api\/image\?id=[A-Za-z0-9_-]{12,150}$/.test(raw)) {
-    const remoteImage=getSharedBakeryApiUrl('/api/image');
-    if(remoteImage)return remoteImage+raw.slice('/api/image'.length);
   }
   if (/^\/(?!\/)/.test(raw)) {
     // Project Pages is hosted below /Aurora-s-Cake/. Preserve the original
@@ -207,16 +204,17 @@ export function normalizePublicSiteData(input: unknown, defaults: PublicSiteData
     const id=text(row.id).trim();
     const variantRows = flatVariants ? flatVariants.filter(v=>text(v.product_id).trim()===id) : unique(records(row.variants,'products.variants'),'products.variants');
     const rawVariants = variantRows.filter(v=>bool(v.is_active)).map(v=>variant(v,id));
-    const base = row.base_price === '' || row.base_price === undefined || row.base_price === null ? (rawVariants.length?Math.min(...rawVariants.map(v=>v.sale_price??v.price)):undefined) : row.base_price;
+    const configuredBase = optionalNumber(row.base_price,'products.base_price');
+    const base = configuredBase ?? (rawVariants.length ? Math.min(...rawVariants.map(v=>v.sale_price??v.price)) : undefined);
     const categoryId=text(row.category_id).trim();
     const rating=number(row.rating,'products.rating',0);
     if(rating>5)throw invalid('products.rating','must be at most 5');
     const basePrice = number(base,'products.base_price');
     const salePrice = optionalNumber(row.sale_price,'products.sale_price');
-    const hasProdDiscount = salePrice !== undefined && salePrice < basePrice;
+    const hasProdDiscount = salePrice !== undefined && configuredBase !== undefined && salePrice < configuredBase;
     // Match authoritative Apps Script pricing. Never invent variant IDs,
     // regular prices or discounts for sizes the server prices independently.
-    const variants = rawVariants.map(v => hasProdDiscount && v.sale_price === undefined &&
+    const variants = rawVariants.map(v => hasProdDiscount && salePrice < v.price && v.sale_price === undefined &&
       (v.id.includes('-half') || v.price <= basePrice) ? {...v,sale_price:salePrice} : v);
     return {
       id,category_id:categoryId,category_name:categories.find(c=>c.id===categoryId)?.name||text(row.category_name),name:text(row.name),slug:text(row.slug),
@@ -303,13 +301,8 @@ export function isPinnedProductionSheetEndpoint(): boolean {
 }
 
 export function resolveSheetsPostEndpoint(endpoint: string): string {
-  // Pages has no POST relay. Do not send an ambiguous cross-origin order
-  // that Google Apps Script might accept but the browser cannot confirm.
-  const shared=getSharedBakeryApiUrl('/api/operations');
-  if(isGitHubPagesReadOnly())
-    throw new GoogleSheetsError('network','GitHub Pages requires a verified Netlify bakery API for order and staff writes.');
   const direct=validateGoogleSheetsEndpoint(endpoint).href;
-  return shared??(usesSameOriginBakeryApi()?'/api/operations':direct);
+  return usesSameOriginBakeryApi()?'/api/operations':direct;
 }
 export function validateGoogleSheetsEndpoint(endpoint: string): URL {
   let url: URL;
@@ -352,8 +345,7 @@ export async function loadGoogleSheetData(endpoint=DEFAULT_SHEETS_ENDPOINT, sign
   // Netlify same-origin proxy avoids browser CORS redirects.
   // Local Vite development continues to use the public Apps Script endpoint.
   const viaNetlify=usesSameOriginBakeryApi() && typeof window!=='undefined';
-  const sharedPublic=getSharedBakeryApiUrl('/api/public');
-  const readUrl=sharedPublic??(viaNetlify?'/api/public':url.href);
+  const readUrl=viaNetlify?'/api/public':url.href;
   const controller=new AbortController();
   const onAbort=()=>controller.abort();
   signal?.addEventListener('abort',onAbort,{once:true});
@@ -361,7 +353,7 @@ export async function loadGoogleSheetData(endpoint=DEFAULT_SHEETS_ENDPOINT, sign
   let timedOut=false;
   const timer=setTimeout(()=>{timedOut=true;controller.abort();},12000);
   try{
-    const response=await fetch(readUrl,{credentials:viaNetlify&&!sharedPublic?'same-origin':'omit',redirect:'follow',cache:'no-store',signal:controller.signal});
+    const response=await fetch(readUrl,{credentials:viaNetlify?'same-origin':'omit',redirect:'follow',cache:'no-store',signal:controller.signal});
     if(/accounts\.google\.com/.test(response.url))throw new GoogleSheetsError('permission_required','The Apps Script link requires Google sign-in. Deploy the read-only public-content web app for site visitors.');
     if(!response.ok)throw new GoogleSheetsError('network',`Google Sheets returned HTTP ${response.status}. Try again after checking its deployment.`);
     return normalizePublicSiteData(await response.text());
@@ -372,7 +364,7 @@ export async function loadGoogleSheetData(endpoint=DEFAULT_SHEETS_ENDPOINT, sign
     // Never silently bypass a configured first-party Netlify API: if that
     // service is down the user must see the connection problem, not a stale
     // public catalogue paired with an unavailable checkout gateway.
-    if(sharedPublic)throw new GoogleSheetsError('network','The shared bakery API is unavailable. Check Netlify production Functions.');
+    if(viaNetlify)throw new GoogleSheetsError('network','The bakery is temporarily unavailable. Try again shortly.');
     // ContentService redirects sometimes fail CORS. Public-only JSONP is a compatibility fallback.
     return normalizePublicSiteData(await loadJsonp(new URL(url.href),signal));
   }finally{

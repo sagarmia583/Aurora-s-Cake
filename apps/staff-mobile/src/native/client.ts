@@ -4,6 +4,7 @@ import {
   roles,
   isOrder,
   validateStaffOperationsUrl,
+  STAFF_PRODUCTION_OPERATIONS_URL,
   type StaffSession,
   type StaffOrder,
   type Operation,
@@ -14,7 +15,7 @@ declare const __DEV__: boolean;
 const SESSION = "aurora_native_session_v2";
 export function endpoint() {
   const production = validateStaffOperationsUrl(
-    process.env.EXPO_PUBLIC_OPERATIONS_URL || "",
+    process.env.EXPO_PUBLIC_OPERATIONS_URL || STAFF_PRODUCTION_OPERATIONS_URL,
   );
   const dev =
     typeof __DEV__ !== "undefined" &&
@@ -84,22 +85,8 @@ export async function request(
       }),
       signal: controller.signal,
     };
-    let r = await fetch(endpoint(), options);
-    let d = await r.json().catch(() => null);
-    // Older shop gateways do not know this newly authenticated action yet.
-    // The only compatibility destination is this same shop's pinned Apps Script.
-    if (
-      ['staff_item_costings','staff_order_link'].includes(action) &&
-      r.status === 400 &&
-      d?.code === "proxy_error" &&
-      d?.error === "Unknown action."
-    ) {
-      r = await fetch(
-        "https://script.google.com/macros/s/AKfycbw38J4AzlYkAhNtyDAp_CP34fUk9Epae6xz46AQFbF9ye1VsZjxTXmzbJgs52WEoWETMw/exec",
-        options,
-      );
-      d = await r.json().catch(() => null);
-    }
+    const r = await fetch(endpoint(), options);
+    const d = await r.json().catch(() => null);
     if (!r.ok)
       throw new ClientError(
         "সংযোগ পাওয়া যায়নি (HTTP " + r.status + ")।",

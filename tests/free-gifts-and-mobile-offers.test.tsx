@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {normalizePublicSiteData} from '../src/services/googleSheets';
-import {DEFAULT_PUBLIC_SITE_DATA} from '../src/content/defaultSiteData';
+import {DEFAULT_PUBLIC_SITE_DATA} from './catalog-fixture';
 import {CustomerStorefront} from '../src/components/CustomerStorefront';
 import {
   cleanFreeGiftItems,formatFreeGiftBadge,formatFreeGiftList,
