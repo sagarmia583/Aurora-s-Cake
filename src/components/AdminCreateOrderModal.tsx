@@ -220,7 +220,7 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
   }, [selectedProduct, addons]);
   const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>([]);
   const [customAddons, setCustomAddons] = useState<ProductAddon[]>([]);
-  const [customAddonName, setCustomAddonName] = useState('');
+  const [customAddonName, setCustomAddonName] = useState('Customization Charge');
   const [customAddonPrice, setCustomAddonPrice] = useState('');
 
   const [writingMessage, setWritingMessage] = useState('');
@@ -234,6 +234,8 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
   const [couponInput, setCouponInput] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
   const [couponError, setCouponError] = useState('');
+  const [customDiscountType, setCustomDiscountType] = useState<'fixed' | 'percentage'>('fixed');
+  const [customDiscountInput, setCustomDiscountInput] = useState('');
   const [orderNote, setOrderNote] = useState('');
 
   // Surprise / Gift Delivery
@@ -314,7 +316,7 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
         is_active: true,
       },
     ]);
-    setCustomAddonName('');
+    setCustomAddonName('Customization Charge');
     setCustomAddonPrice('');
   };
 
@@ -433,14 +435,29 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
       setAppliedCoupon(null);
       return;
     }
+    setCustomDiscountInput('');
     setAppliedCoupon(match);
   };
 
+  const activeCustomDiscount = useMemo(() => {
+    const parsed = Number(customDiscountInput);
+    if (!customDiscountInput.trim() || !Number.isFinite(parsed) || parsed <= 0) return null;
+    if (customDiscountType === 'percentage' && parsed > 100) return null;
+    if (parsed > 10000000) return null;
+    return { type: customDiscountType, value: round2(parsed) };
+  }, [customDiscountInput, customDiscountType]);
+
   const couponDiscount = useMemo(() => {
+    if (activeCustomDiscount) {
+      const raw = activeCustomDiscount.type === 'percentage'
+        ? (itemsSubtotal * activeCustomDiscount.value) / 100
+        : activeCustomDiscount.value;
+      return round2(Math.min(itemsSubtotal, Math.max(0, raw)));
+    }
     if (!appliedCoupon) return 0;
     const val = validateCoupon(appliedCoupon, itemsSubtotal);
     return val.isValid ? val.discount : 0;
-  }, [appliedCoupon, itemsSubtotal]);
+  }, [activeCustomDiscount, appliedCoupon, itemsSubtotal]);
 
   const grandTotal = round2(Math.max(0, itemsSubtotal - couponDiscount + deliveryFee));
   const remainingDue = grandTotal;
@@ -462,6 +479,8 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
     setCouponInput('');
     setAppliedCoupon(null);
     setCouponError('');
+    setCustomDiscountType('fixed');
+    setCustomDiscountInput('');
     setOrderNote('');
     setIsGift(false);
     setRecipientName('');
@@ -507,7 +526,9 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
       const result=await createLiveStaffOrder(endpoint,loadStaffCredential(getBrowserWorkspaceStorage()),staffIdentity,{
         customer_name:customerName.trim(),customer_phone:customerPhone.trim(),delivery_address:deliveryAddress.trim(),
         delivery_zone_id:selectedZoneId,delivery_slot:selectedSlot,delivery_date:deliveryDate,payment_method:'cod',
-        coupon_code:appliedCoupon?.code, order_note:orderNote.trim() || undefined, expected_total:grandTotal,
+        coupon_code:activeCustomDiscount ? undefined : appliedCoupon?.code,
+        ...(activeCustomDiscount ? { custom_discount: activeCustomDiscount } : {}),
+        order_note:orderNote.trim() || undefined, expected_total:grandTotal,
         ...(isGift ? { is_gift:true, recipient_name:recipientName.trim(), recipient_phone:recipientPhone.trim(),
           sender_name:customerName.trim(), sender_phone:customerPhone.trim(),
           hide_price_on_box:hidePriceOnBox, gift_card_message:giftCardMessage.trim() } : {}),
@@ -1085,9 +1106,27 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
 
                     {/* Custom Add-on / Extra Charge (Staff Only) */}
                     <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/70 p-2.5 space-y-2">
-                      <label className="text-[11px] font-bold text-slate-700 block">
-                        কাস্টম অ্যাড-অন / এক্সট্রা চার্জ (ঐচ্ছিক)
-                      </label>
+                      <div className="flex flex-wrap items-center justify-between gap-1.5">
+                        <label className="text-[11px] font-bold text-slate-700 block">
+                          কাস্টম অ্যাড-অন / Customization Charge (কাস্টম টাকা দিন)
+                        </label>
+                        <div className="flex flex-wrap gap-1">
+                          {['Customization Charge', 'Custom Photo Print', 'Urgent Charge', 'Extra Box'].map((preset) => (
+                            <button
+                              key={preset}
+                              type="button"
+                              onClick={() => setCustomAddonName(preset)}
+                              className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold border cursor-pointer transition-colors ${
+                                customAddonName === preset
+                                  ? 'bg-emerald-100 border-emerald-400 text-emerald-900'
+                                  : 'bg-white border-slate-200 text-slate-600 hover:border-slate-400'
+                              }`}
+                            >
+                              {preset}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                       <div className="flex flex-col sm:flex-row gap-2">
                         <input
                           type="text"
@@ -1358,7 +1397,75 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <p className="text-sm font-semibold">Cash on delivery (COD)</p>
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold">Cash on delivery (COD)</p>
+                  {/* Custom Staff Discount (Fixed ৳ or Percentage %) */}
+                  <div className="rounded-xl border border-dashed border-amber-300 bg-amber-50/50 p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-[11px] font-bold text-slate-800">
+                        কাস্টম ডিসকাউন্ট (টাকা ৳ / %)
+                      </label>
+                      <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setCustomDiscountType('fixed')}
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold cursor-pointer transition-colors ${
+                            customDiscountType === 'fixed'
+                              ? 'bg-slate-800 text-white'
+                              : 'text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          টাকা (৳)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCustomDiscountType('percentage')}
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold cursor-pointer transition-colors ${
+                            customDiscountType === 'percentage'
+                              ? 'bg-slate-800 text-white'
+                              : 'text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          শতাংশ (%)
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        max={customDiscountType === 'percentage' ? 100 : undefined}
+                        step="1"
+                        value={customDiscountInput}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setCustomDiscountInput(next);
+                          if (next.trim()) {
+                            setAppliedCoupon(null);
+                            setCouponInput('');
+                            setCouponError('');
+                          }
+                        }}
+                        placeholder={customDiscountType === 'percentage' ? 'যেমন: 10 (%)' : 'যেমন: 100 (৳)'}
+                        className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-200 bg-white font-mono font-bold"
+                      />
+                      {customDiscountInput && (
+                        <button
+                          type="button"
+                          onClick={() => setCustomDiscountInput('')}
+                          className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-xl shrink-0 cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                    {activeCustomDiscount && (
+                      <p className="text-[10px] text-emerald-700 font-bold">
+                        ✓ কাস্টম ডিসকাউন্ট ({activeCustomDiscount.type === 'percentage' ? `${activeCustomDiscount.value}%` : `৳${activeCustomDiscount.value}`}) প্রযোজ্য (-৳{couponDiscount})
+                      </p>
+                    )}
+                  </div>
+                </div>
 
                 {/* Coupon Code */}
                 <div>
@@ -1382,7 +1489,7 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
                   {couponError && <p className="text-[10px] text-rose-600 mt-1">{couponError}</p>}
                   <div className="mt-2 flex flex-wrap gap-2" aria-label="Available offers">
                     {coupons.filter(c=>c.is_active).map(c=><button key={c.id} type="button" onClick={()=>{
-                      setCouponInput(c.code);const result=validateCoupon(c,itemsSubtotal);
+                      setCustomDiscountInput('');setCouponInput(c.code);const result=validateCoupon(c,itemsSubtotal);
                       if(result.isValid){setAppliedCoupon(c);setCouponError('');}else{setAppliedCoupon(null);setCouponError(result.reason||'এই অর্ডারের জন্য প্রযোজ্য নয়।');}
                     }} className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-left text-xs text-emerald-900">
                       <strong>{c.code}</strong> · {c.discount_type==='percentage'?c.discount_value+'%':currency+c.discount_value} ছাড় · ন্যূনতম {currency}{c.min_order_amount}

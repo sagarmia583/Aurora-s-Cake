@@ -6,6 +6,11 @@ export interface SheetOrderCustomAddon {
   price: number;
 }
 
+export interface SheetOrderCustomDiscount {
+  type: 'fixed' | 'percentage';
+  value: number;
+}
+
 export interface SheetOrderCartLine {
   product_id: string;
   variant_id: string;
@@ -25,6 +30,7 @@ export interface SheetOrderDraft {
   delivery_date: string;
   cart_items: SheetOrderCartLine[];
   coupon_code?: string;
+  custom_discount?: SheetOrderCustomDiscount;
   order_note?: string;
   is_gift?: boolean;
   recipient_name?: string;
@@ -173,6 +179,12 @@ function cleanDraft(input: SheetOrderDraft): SheetOrderDraft {
       };
     }),
     ...(input.coupon_code?.trim() ? { coupon_code: input.coupon_code.trim().toUpperCase() } : {}),
+    ...(input.custom_discount ? {
+      custom_discount: {
+        type: String(input.custom_discount.type || '').trim().toLowerCase() as 'fixed' | 'percentage',
+        value: Math.round(Number(input.custom_discount.value) * 100) / 100,
+      },
+    } : {}),
     ...(input.order_note?.trim() ? { order_note: input.order_note.trim() } : {}),
     payment_method: 'cod',
     ...(input.is_gift === true ? {
@@ -193,6 +205,14 @@ function cleanDraft(input: SheetOrderDraft): SheetOrderDraft {
         (sender && !/^01[3-9]\d{8}$/.test(sender)) ||
         (draft.sender_name || '').length > 100 || (draft.gift_card_message || '').length > 140)
       throw new SheetOrderSubmissionError('Add a valid gift recipient name and phone number.', false);
+  }
+  if (draft.custom_discount) {
+    const cdType = draft.custom_discount.type;
+    const cdVal = draft.custom_discount.value;
+    if ((cdType !== 'fixed' && cdType !== 'percentage') || !Number.isFinite(cdVal) || cdVal < 0.01 || cdVal > (cdType === 'percentage' ? 100 : 10000000)) {
+      throw new SheetOrderSubmissionError('Enter a valid custom discount amount or percentage.', false);
+    }
+    if (draft.coupon_code) throw new SheetOrderSubmissionError('Use either a coupon code or a custom discount, not both.', false);
   }
   if (draft.expected_total !== undefined && !isAmount(draft.expected_total)) throw new SheetOrderSubmissionError('The estimated order total is unavailable. Review your bag and try again.', false);
   if (![draft.customer_name, draft.customer_phone, draft.delivery_address, draft.delivery_zone_id, draft.delivery_slot].every(hasText) || !/^\d{4}-\d{2}-\d{2}$/.test(draft.delivery_date) || !draft.cart_items.length) throw new SheetOrderSubmissionError('Complete the contact, delivery and cake details before placing an order.', false);

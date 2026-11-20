@@ -178,10 +178,10 @@ function auroraDoPost_(e) {
     if (input && /^staff_/.test(String(input.action || ''))) return auroraResponse_(auroraOperationsPost_(input));
     if (input && /^customer_(session|orders|claim_order)$/.test(String(input.action || ''))) return auroraResponse_(auroraCustomerAccountsPost_(input));
     var request = auroraOrderRequest_(input);
-    if (request.cart_items.some(function(line) { return !!line.custom || (Array.isArray(line.custom_addons) && line.custom_addons.length > 0); })) {
+    if (request.cart_items.some(function(line) { return !!line.custom || (Array.isArray(line.custom_addons) && line.custom_addons.length > 0); }) || !!request.custom_discount) {
       var staff = auroraStaffAuthenticate_(input);
       if (['super_admin','admin','order_manager'].indexOf(staff.role) === -1) {
-        auroraReject_('forbidden','This staff role cannot create a custom order or extra charge.');
+        auroraReject_('forbidden','This staff role cannot create a custom order, extra charge, or custom discount.');
       }
     }
     var hash = auroraRequestHash_(request);
@@ -359,6 +359,17 @@ function auroraOrderRequest_(input) {
     coupon_code:auroraOptionalText_(input.coupon_code,'Coupon code',60).toUpperCase(),
     order_note:auroraOptionalText_(input.order_note,'Order note',1000),payment_method:'cod',expected_total:input.expected_total
   };
+  if (input.custom_discount !== undefined) {
+    var cd = input.custom_discount;
+    if (!cd || typeof cd !== 'object' || Array.isArray(cd)) auroraReject_('invalid_coupon','Invalid custom discount.');
+    var cdType = String(cd.type || '').trim().toLowerCase();
+    if (cdType !== 'fixed' && cdType !== 'percentage') auroraReject_('invalid_coupon','Custom discount type must be fixed or percentage.');
+    if (typeof cd.value !== 'number' || !isFinite(cd.value) || cd.value < 0.01 || cd.value > (cdType === 'percentage' ? 100 : 10000000)) {
+      auroraReject_('invalid_coupon','Enter a valid custom discount value.');
+    }
+    if (normalized.coupon_code) auroraReject_('invalid_coupon','Use either a coupon code or a custom discount, not both.');
+    normalized.custom_discount = { type: cdType, value: auroraMoneyRound_(cd.value) };
+  }
   if(input.is_gift!==undefined && typeof input.is_gift!=='boolean')
     auroraReject_('invalid_request','Invalid gift selection.');
   if(input.is_gift===true){
@@ -505,7 +516,17 @@ function auroraBuildOrder_(book,request,orders) {
   var subtotal = auroraMoneyRound_(items.reduce(function(sum,item) { return sum + item.subtotal; },0));
   var deliveryFee = auroraMoney_(zone.delivery_fee,'delivery fee');
   var discount = 0;
-  if (request.coupon_code) {
+  if (request.custom_discount) {
+    if (request.coupon_code) auroraReject_('invalid_coupon','Use either a coupon code or a custom discount, not both.');
+    var customDiscountValue = auroraMoney_(request.custom_discount.value,'custom discount');
+    if (request.custom_discount.type === 'percentage') {
+      if (customDiscountValue > 100) auroraReject_('invalid_coupon','Custom percentage discount cannot exceed 100%.');
+      discount = subtotal * customDiscountValue / 100;
+    } else {
+      discount = customDiscountValue;
+    }
+    discount = auroraMoneyRound_(Math.min(subtotal, discount));
+  } else if (request.coupon_code) {
     var coupons = auroraRows_(book,'coupons').filter(function(row) { return String(row.code).trim().toUpperCase() === request.coupon_code && auroraActive_(row.is_active); });
     if (coupons.length !== 1) auroraReject_('invalid_coupon','This coupon is not available.');
     var coupon = coupons[0];
