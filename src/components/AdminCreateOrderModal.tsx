@@ -197,9 +197,12 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
   // Allowed addons for selected product
   const productAddons = useMemo(() => {
     if (!selectedProduct) return [];
-    const allowAll = selectedProduct.allowed_addon_ids?.some((x) => x.toLowerCase() === 'all' || x === '*');
-    if (!allowAll && !selectedProduct.allowed_addon_ids?.length) return [];
-    return addons.filter((a) => a.is_active && (allowAll || selectedProduct.allowed_addon_ids?.includes(a.id)));
+    const allowedIds = selectedProduct.allowed_addon_ids || [];
+    const allowAll = allowedIds.some((x) => x.toLowerCase() === 'all' || x === '*');
+    // Empty selection means the cake can use every active add-on. A non-empty
+    // selection restricts this cake to the explicitly selected add-on IDs.
+    const restrictToSelected = allowedIds.length > 0 && !allowAll;
+    return addons.filter((a) => a.is_active && (!restrictToSelected || allowedIds.includes(a.id)));
   }, [selectedProduct, addons]);
   const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>([]);
 
