@@ -285,6 +285,16 @@ export const PosReceiptSlip: React.FC<PosReceiptSlipProps> = ({
                     <span>{currency}{it.subtotal}</span>
                   </div>
                 )}
+                {it.addons && it.addons.length > 0 && (
+                  <div className="text-[10px] text-slate-800 space-y-0.5">
+                    {it.addons.map((add: any, aIdx: number) => (
+                      <div key={aIdx} className="flex justify-between">
+                        <span>+ {add.quantity || 1}x {add.addon_name}</span>
+                        {(!order.is_gift || !order.hide_price_on_box) && <span>{currency}{add.subtotal ?? 0}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {!!it.free_gift_items.length && <div className="text-xs">Complimentary: {it.free_gift_items.join(", ")}</div>}
                 {it.writing_message && (
                   <div className="bg-amber-50 border border-amber-300 p-1.5 rounded text-amber-950 font-black text-xs">
@@ -366,6 +376,13 @@ export const PosReceiptSlip: React.FC<PosReceiptSlipProps> = ({
                 <div className="text-[10px] text-slate-700 font-mono">
                   Base: {currency}{it.base_price} | Sale: {currency}{it.sale_price ?? it.base_price}
                 </div>
+                {it.addons && it.addons.length > 0 && (
+                  <div className="text-[11px] font-bold text-black space-y-0.5">
+                    {it.addons.map((add: any, aIdx: number) => (
+                      <div key={aIdx}>+ {add.quantity || 1}x {add.addon_name}</div>
+                    ))}
+                  </div>
+                )}
                 {!!it.free_gift_items.length && <div className="text-xs">Complimentary: {it.free_gift_items.join(", ")}</div>}
                 {it.writing_message && (
                   <div className="bg-white p-1.5 border-2 border-black font-black text-sm">

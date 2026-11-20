@@ -1,11 +1,17 @@
 import type { Coupon, Order } from '../types';
 import { resolveSheetsPostEndpoint, sheetsPostCredentials } from './googleSheets';
 
+export interface SheetOrderCustomAddon {
+  name: string;
+  price: number;
+}
+
 export interface SheetOrderCartLine {
   product_id: string;
   variant_id: string;
   flavor_id?: string;
   addon_ids: string[];
+  custom_addons?: SheetOrderCustomAddon[];
   writing_message: string;
   quantity: number;
 }
@@ -151,11 +157,21 @@ function cleanDraft(input: SheetOrderDraft): SheetOrderDraft {
     customer_name: input.customer_name.trim(), customer_phone: input.customer_phone.trim(),
     delivery_address: input.delivery_address.trim(), delivery_zone_id: input.delivery_zone_id.trim(),
     delivery_slot: input.delivery_slot.trim(), delivery_date: input.delivery_date,
-    cart_items: input.cart_items.map(item => ({
-      product_id: item.product_id, variant_id: item.variant_id,
-      ...(item.flavor_id ? { flavor_id: item.flavor_id } : {}),
-      addon_ids: [...new Set(item.addon_ids)].sort(), writing_message: item.writing_message.trim(), quantity: item.quantity,
-    })),
+    cart_items: input.cart_items.map(item => {
+      const customAddons = Array.isArray(item.custom_addons) && item.custom_addons.length
+        ? item.custom_addons.map(addon => ({
+            name: typeof addon?.name === 'string' ? addon.name.trim() : '',
+            price: Math.round(Number(addon?.price) * 100) / 100,
+          }))
+        : undefined;
+      return {
+        product_id: item.product_id, variant_id: item.variant_id,
+        ...(item.flavor_id ? { flavor_id: item.flavor_id } : {}),
+        addon_ids: [...new Set(item.addon_ids)].sort(),
+        ...(customAddons ? { custom_addons: customAddons } : {}),
+        writing_message: item.writing_message.trim(), quantity: item.quantity,
+      };
+    }),
     ...(input.coupon_code?.trim() ? { coupon_code: input.coupon_code.trim().toUpperCase() } : {}),
     ...(input.order_note?.trim() ? { order_note: input.order_note.trim() } : {}),
     payment_method: 'cod',
@@ -180,7 +196,7 @@ function cleanDraft(input: SheetOrderDraft): SheetOrderDraft {
   }
   if (draft.expected_total !== undefined && !isAmount(draft.expected_total)) throw new SheetOrderSubmissionError('The estimated order total is unavailable. Review your bag and try again.', false);
   if (![draft.customer_name, draft.customer_phone, draft.delivery_address, draft.delivery_zone_id, draft.delivery_slot].every(hasText) || !/^\d{4}-\d{2}-\d{2}$/.test(draft.delivery_date) || !draft.cart_items.length) throw new SheetOrderSubmissionError('Complete the contact, delivery and cake details before placing an order.', false);
-  if (draft.cart_items.some(item => !hasText(item.product_id) || !hasText(item.variant_id) || !Number.isInteger(item.quantity) || item.quantity < 1 || !item.addon_ids.every(hasText))) throw new SheetOrderSubmissionError('One of the selected cakes or quantities is unavailable. Review your bag and try again.', false);
+  if (draft.cart_items.some(item => !hasText(item.product_id) || !hasText(item.variant_id) || !Number.isInteger(item.quantity) || item.quantity < 1 || !item.addon_ids.every(hasText) || (item.custom_addons && (item.custom_addons.length > 15 || item.custom_addons.some(a => !hasText(a.name) || a.name.length > 100 || !isAmount(a.price)))))) throw new SheetOrderSubmissionError('One of the selected cakes, add-ons, or quantities is unavailable. Review your bag and try again.', false);
   return draft;
 }
 
@@ -226,20 +242,27 @@ function matchesOriginalReceipt(order: Order, attempt: SheetOrderAttempt): boole
         stored.variant_id === requested.variant_id && (stored.flavor_id || '') === (requested.flavor_id || '') &&
         item.quantity === requested.quantity && (item.writing_message || '') === requested.writing_message &&
         item.addons.every(addon => addon.quantity === requested.quantity) &&
-        JSON.stringify(item.addons.map(addon => addon.addon_id).sort()) === JSON.stringify(requested.addon_ids);
+        JSON.stringify(item.addons.map(addon => addon.addon_id).sort()) === JSON.stringify([...requested.addon_ids, ...(requested.custom_addons || []).map((_, idx) => `custom_addon_${idx}`)].sort()) &&
+        (requested.custom_addons || []).every((customAddon, idx) => {
+          const matched = item.addons.find(addon => addon.addon_id === `custom_addon_${idx}`);
+          return !!matched && matched.addon_name === customAddon.name && Math.abs(matched.unit_price - customAddon.price) <= 0.0100000001;
+        });
     });
   } catch { return false; }
 }
 
-export async function submitSheetOrder(attempt: SheetOrderAttempt, options: { timeoutMs?: number; fetcher?: typeof fetch; recoverOriginal?: boolean } = {}): Promise<Order> {
+export async function submitSheetOrder(attempt: SheetOrderAttempt, options: { timeoutMs?: number; fetcher?: typeof fetch; recoverOriginal?: boolean; authFields?: Record<string, string> } = {}): Promise<Order> {
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(() => controller.abort(), options.timeoutMs ?? 45000);
   const unconfirmed = () => new SheetOrderSubmissionError("We couldn't confirm whether the bakery saved this order. Retry the original order with the same reference.", true, attempt.request_id);
   try {
     const postUrl = resolveSheetsPostEndpoint(attempt.endpoint);
+    const requestBody = options.authFields && Object.keys(options.authFields).length
+      ? JSON.stringify({ ...JSON.parse(attempt.body), ...options.authFields })
+      : attempt.body;
     const response = await (options.fetcher ?? globalThis.fetch)(postUrl, {
       method: 'POST', mode: 'cors', headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-      credentials: sheetsPostCredentials(postUrl), redirect: 'follow', cache: 'no-store', body: attempt.body, signal: controller.signal,
+      credentials: sheetsPostCredentials(postUrl), redirect: 'follow', cache: 'no-store', body: requestBody, signal: controller.signal,
     });
     if (!response.ok) throw unconfirmed();
     let acknowledgement: unknown;

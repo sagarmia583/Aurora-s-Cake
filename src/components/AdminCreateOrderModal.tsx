@@ -197,14 +197,14 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
   // Allowed addons for selected product
   const productAddons = useMemo(() => {
     if (!selectedProduct) return [];
-    const allowedIds = selectedProduct.allowed_addon_ids || [];
-    const allowAll = allowedIds.some((x) => x.toLowerCase() === 'all' || x === '*');
-    // Empty selection means the cake can use every active add-on. A non-empty
-    // selection restricts this cake to the explicitly selected add-on IDs.
-    const restrictToSelected = allowedIds.length > 0 && !allowAll;
-    return addons.filter((a) => a.is_active && (!restrictToSelected || allowedIds.includes(a.id)));
+    const allowAll = selectedProduct.allowed_addon_ids?.some((x) => x.toLowerCase() === 'all' || x === '*');
+    if (!allowAll && !selectedProduct.allowed_addon_ids?.length) return [];
+    return addons.filter((a) => a.is_active && (allowAll || selectedProduct.allowed_addon_ids?.includes(a.id)));
   }, [selectedProduct, addons]);
   const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>([]);
+  const [customAddons, setCustomAddons] = useState<ProductAddon[]>([]);
+  const [customAddonName, setCustomAddonName] = useState('');
+  const [customAddonPrice, setCustomAddonPrice] = useState('');
 
   const [writingMessage, setWritingMessage] = useState('');
   const [itemQuantity, setItemQuantity] = useState(1);
@@ -263,7 +263,10 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
     setSelectedProductId(item.product.id);
     setSelectedVariantId(item.selected_variant.id);
     setSelectedFlavorId(item.selected_flavor?.id || '');
-    setSelectedAddonIds(item.selected_addons.map((a) => a.id));
+    setSelectedAddonIds(item.selected_addons.filter((a) => !a.id.startsWith('custom-local-')).map((a) => a.id));
+    setCustomAddons(item.selected_addons.filter((a) => a.id.startsWith('custom-local-')));
+    setCustomAddonName('');
+    setCustomAddonPrice('');
     setWritingMessage(item.writing_message || '');
     setItemQuantity(item.quantity);
   };
@@ -273,7 +276,29 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
     setWritingMessage('');
     setItemQuantity(1);
     setSelectedAddonIds([]);
+    setCustomAddons([]);
+    setCustomAddonName('');
+    setCustomAddonPrice('');
     setSelectedFlavorId('');
+  };
+
+  const handleAddCustomAddon = () => {
+    const trimmedName = customAddonName.trim();
+    const parsedPrice = Number(customAddonPrice === '' ? 0 : customAddonPrice);
+    if (!trimmedName || !Number.isFinite(parsedPrice) || parsedPrice < 0 || parsedPrice > 10000000) return;
+    if (customAddons.length >= 15) return;
+    const roundedPrice = Math.round(parsedPrice * 100) / 100;
+    setCustomAddons((prev) => [
+      ...prev,
+      {
+        id: `custom-local-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        name: trimmedName.slice(0, 100),
+        price: roundedPrice,
+        is_active: true,
+      },
+    ]);
+    setCustomAddonName('');
+    setCustomAddonPrice('');
   };
 
   // Add or Update Item in Order List
@@ -282,7 +307,7 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
     if (!selectedProduct || !selectedVariant) return;
 
     const chosenFlavor = productFlavors.find((f) => f.id === selectedFlavorId);
-    const chosenAddons = productAddons.filter((a) => selectedAddonIds.includes(a.id));
+    const chosenAddons = [...productAddons.filter((a) => selectedAddonIds.includes(a.id)), ...customAddons];
     const addonsTotal = chosenAddons.reduce((sum, a) => sum + a.price, 0);
     const unitPrice = selectedVariant.price + addonsTotal;
     const itemTotalPrice = unitPrice * Math.max(1, itemQuantity);
@@ -326,6 +351,9 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
     setWritingMessage('');
     setItemQuantity(1);
     setSelectedAddonIds([]);
+    setCustomAddons([]);
+    setCustomAddonName('');
+    setCustomAddonPrice('');
     setSelectedFlavorId('');
   };
 
@@ -338,8 +366,8 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
 
   // Active selected item calculations for real-time preview
   const currentChosenAddons = useMemo(() => {
-    return productAddons.filter((a) => selectedAddonIds.includes(a.id));
-  }, [productAddons, selectedAddonIds]);
+    return [...productAddons.filter((a) => selectedAddonIds.includes(a.id)), ...customAddons];
+  }, [productAddons, selectedAddonIds, customAddons]);
 
   const currentAddonsTotal = useMemo(() => {
     return currentChosenAddons.reduce((sum, a) => sum + a.price, 0);
@@ -409,6 +437,9 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
     setDeliveryDate(todayStr);
     setSelectedSlot(slots[0]?.slot_label || '');
     setEditingCartItemId(null);
+    setCustomAddons([]);
+    setCustomAddonName('');
+    setCustomAddonPrice('');
     setCartItems([]);
     setCouponInput('');
     setAppliedCoupon(null);
@@ -462,8 +493,14 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
         ...(isGift ? { is_gift:true, recipient_name:recipientName.trim(), recipient_phone:recipientPhone.trim(),
           sender_name:customerName.trim(), sender_phone:customerPhone.trim(),
           hide_price_on_box:hidePriceOnBox, gift_card_message:giftCardMessage.trim() } : {}),
-        cart_items:cartItems.map(item=>({product_id:item.product.id,variant_id:item.selected_variant.id,
-          flavor_id:item.selected_flavor?.id,addon_ids:item.selected_addons.map(a=>a.id),writing_message:item.writing_message,quantity:item.quantity})),
+        cart_items:cartItems.map(item=>{
+          const catalogAddonIds=item.selected_addons.filter(a=>!a.id.startsWith('custom-local-')).map(a=>a.id);
+          const itemCustomAddons=item.selected_addons.filter(a=>a.id.startsWith('custom-local-')).map(a=>({name:a.name,price:a.price}));
+          return {product_id:item.product.id,variant_id:item.selected_variant.id,
+            flavor_id:item.selected_flavor?.id,addon_ids:catalogAddonIds,
+            ...(itemCustomAddons.length?{custom_addons:itemCustomAddons}:{}),
+            writing_message:item.writing_message,quantity:item.quantity};
+        }),
       });
       setCreationWarning(result.warning);setPendingRecord(savedStaffOrder(endpoint,staffIdentity));
       // Save customer info locally for future auto-fill
@@ -1028,6 +1065,64 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
                       </div>
                     )}
 
+                    {/* Custom Add-on / Extra Charge (Staff Only) */}
+                    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/70 p-2.5 space-y-2">
+                      <label className="text-[11px] font-bold text-slate-700 block">
+                        কাস্টম অ্যাড-অন / এক্সট্রা চার্জ (ঐচ্ছিক)
+                      </label>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          type="text"
+                          value={customAddonName}
+                          onChange={(e) => setCustomAddonName(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddCustomAddon(); } }}
+                          placeholder="যেমন: Custom Photo Print / Extra Charge"
+                          maxLength={100}
+                          className="flex-1 min-w-0 px-3 py-1.5 text-xs rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-emerald-600"
+                        />
+                        <div className="flex gap-2">
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={customAddonPrice}
+                            onChange={(e) => setCustomAddonPrice(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddCustomAddon(); } }}
+                            placeholder="টাকা (৳)"
+                            className="w-28 px-3 py-1.5 text-xs rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-emerald-600"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleAddCustomAddon}
+                            disabled={!customAddonName.trim()}
+                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 text-white text-xs font-bold rounded-xl shrink-0 whitespace-nowrap transition-colors cursor-pointer"
+                          >
+                            + চার্জ যোগ করুন
+                          </button>
+                        </div>
+                      </div>
+                      {customAddons.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-0.5">
+                          {customAddons.map((addon) => (
+                            <span
+                              key={addon.id}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold border bg-amber-50 border-amber-300 text-amber-900"
+                            >
+                              <span>✓ {addon.name} (+৳{addon.price})</span>
+                              <button
+                                type="button"
+                                onClick={() => setCustomAddons((prev) => prev.filter((item) => item.id !== addon.id))}
+                                className="text-amber-700 hover:text-rose-600 font-black leading-none cursor-pointer"
+                                aria-label={`Remove ${addon.name}`}
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                     {/* Quantity & Add to Cart Button */}
                     <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
                       <div className="flex items-center gap-3">
@@ -1261,7 +1356,7 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
                     <button
                       type="button"
                       onClick={handleApplyCoupon}
-                      className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl cursor-pointer"
+                      className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl shrink-0 whitespace-nowrap cursor-pointer"
                     >
                       Apply
                     </button>

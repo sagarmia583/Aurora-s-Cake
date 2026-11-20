@@ -259,7 +259,7 @@ export function normalizePublicSiteData(input: unknown, defaults: PublicSiteData
   const zones = table(['zones','delivery_zones'],defaults.zones).filter(row=>bool(row.is_active)).map(row=>({id:text(row.id).trim(),name:text(row.name),delivery_fee:number(row.delivery_fee,'delivery_zones.delivery_fee'),estimated_time:text(row.estimated_time),is_active:true}));
   const slots = table(['slots','delivery_slots'],defaults.slots).filter(row=>bool(row.is_active)).map(row=>({id:text(row.id).trim(),slot_label:text(row.slot_label),is_active:true}));
   const coupons = rows('coupons',defaults.coupons).map(row=>{
-    const discount_type=text(row.discount_type) as 'percentage'|'fixed';
+    const discount_type=text(row.discount_type).trim().toLowerCase() as 'percentage'|'fixed';
     if(!['percentage','fixed'].includes(discount_type))throw invalid('coupons.discount_type','must be percentage or fixed');
     const discount_value=number(row.discount_value,'coupons.discount_value');
     if(discount_type==='percentage'&&discount_value>100)throw invalid('coupons.discount_value','must be at most 100 for percentage discounts');

@@ -178,10 +178,10 @@ function auroraDoPost_(e) {
     if (input && /^staff_/.test(String(input.action || ''))) return auroraResponse_(auroraOperationsPost_(input));
     if (input && /^customer_(session|orders|claim_order)$/.test(String(input.action || ''))) return auroraResponse_(auroraCustomerAccountsPost_(input));
     var request = auroraOrderRequest_(input);
-    if (request.cart_items.some(function(line) { return !!line.custom; })) {
+    if (request.cart_items.some(function(line) { return !!line.custom || (Array.isArray(line.custom_addons) && line.custom_addons.length > 0); })) {
       var staff = auroraStaffAuthenticate_(input);
       if (['super_admin','admin','order_manager'].indexOf(staff.role) === -1) {
-        auroraReject_('forbidden','This staff role cannot create a custom order.');
+        auroraReject_('forbidden','This staff role cannot create a custom order or extra charge.');
       }
     }
     var hash = auroraRequestHash_(request);
@@ -328,12 +328,28 @@ function auroraOrderRequest_(input) {
     if (line.product_id === '__custom_cake__') auroraReject_('invalid_cart','Custom cake details are required.');
     var addonIds = line.addon_ids.map(function(id) { return auroraOrderText_(id,'Add-on ID',1,100); }).sort();
     if (addonIds.some(function(id,index) { return index > 0 && id === addonIds[index-1]; })) auroraReject_('invalid_cart','Duplicate add-on selections are not allowed.');
-    return {
+    var customAddons = [];
+    if (line.custom_addons !== undefined) {
+      if (!Array.isArray(line.custom_addons) || line.custom_addons.length > 15) auroraReject_('invalid_cart','Custom add-ons must be a list of at most 15 items.');
+      customAddons = line.custom_addons.map(function(entry) {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry) ||
+            typeof entry.price !== 'number' || !isFinite(entry.price) || entry.price < 0 || entry.price > 10000000) {
+          auroraReject_('invalid_cart','Enter a valid custom add-on name and non-negative price.');
+        }
+        return {
+          name: auroraOrderText_(entry.name,'Custom add-on name',1,100),
+          price: auroraMoneyRound_(entry.price)
+        };
+      });
+    }
+    var normalizedLine = {
       product_id:auroraOrderText_(line.product_id,'Product ID',1,100),
       variant_id:auroraOrderText_(line.variant_id,'Variant ID',1,100),
       flavor_id:auroraOptionalText_(line.flavor_id,'Flavour ID',100),addon_ids:addonIds,
       writing_message:auroraOptionalText_(line.writing_message,'Cake message',200),quantity:line.quantity
     };
+    if (customAddons.length) normalizedLine.custom_addons = customAddons;
+    return normalizedLine;
   });
   var normalized = {
     action:'create_order',request_id:requestId,customer_name:auroraOrderText_(input.customer_name,'Customer name',2,100),
@@ -471,6 +487,12 @@ function auroraBuildOrder_(book,request,orders) {
       var price = auroraMoney_(addon.price,'add-on price');
       return {addon_id:id,addon_name:String(addon.name || ''),unit_price:price,quantity:line.quantity,subtotal:auroraMoneyRound_(price * line.quantity)};
     });
+    if (Array.isArray(line.custom_addons) && line.custom_addons.length) {
+      selectedAddons = selectedAddons.concat(line.custom_addons.map(function(entry,idx) {
+        var price = auroraMoney_(entry.price,'custom add-on price');
+        return {addon_id:'custom_addon_' + idx,addon_name:String(entry.name || ''),unit_price:price,quantity:line.quantity,subtotal:auroraMoneyRound_(price * line.quantity)};
+      }));
+    }
     var addonUnit = selectedAddons.reduce(function(sum,addon) { return sum + addon.unit_price; },0);
     return {
       id:'item_' + request.request_id + '_' + index,order_id:orderId,product_id:line.product_id,product_name:String(product.name || ''),
@@ -489,8 +511,9 @@ function auroraBuildOrder_(book,request,orders) {
     var coupon = coupons[0];
     if (subtotal < auroraMoney_(coupon.min_order_amount,'coupon minimum')) auroraReject_('invalid_coupon','The order does not meet this coupon minimum.');
     var couponValue = auroraMoney_(coupon.discount_value,'coupon discount');
-    if (coupon.discount_type === 'percentage' && couponValue <= 100) discount = subtotal * couponValue / 100;
-    else if (coupon.discount_type === 'fixed') discount = couponValue;
+    var couponType = String(coupon.discount_type || '').trim().toLowerCase();
+    if (couponType === 'percentage' && couponValue <= 100) discount = subtotal * couponValue / 100;
+    else if (couponType === 'fixed') discount = couponValue;
     else throw new Error('Invalid current Sheet coupon type/value.');
     if (coupon.max_discount_amount !== '' && coupon.max_discount_amount !== null && coupon.max_discount_amount !== undefined) discount = Math.min(discount,auroraMoney_(coupon.max_discount_amount,'coupon maximum'));
     discount = auroraMoneyRound_(Math.min(subtotal,discount));
@@ -690,7 +713,9 @@ function auroraPublicData_() {
     banners: active('banners'),
     zones: active('delivery_zones'),
     slots: active('delivery_slots'),
-    coupons: active('coupons'),
+    coupons: active('coupons').map(function(row) {
+      return Object.assign({}, row, { discount_type: String(row.discount_type || '').trim().toLowerCase() });
+    }),
     reviews: auroraRows_(book,'reviews').filter(function(review) { return review.status === 'approved'; })
   };
 }

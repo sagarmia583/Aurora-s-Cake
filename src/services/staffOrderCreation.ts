@@ -42,7 +42,9 @@ export async function createLiveStaffOrder(endpoint:string,token:string,actor:st
       throw new Error('আগের অর্ডারের ফলাফল অনিশ্চিত। Retry saved order দিয়ে সেটি আগে যাচাই করুন।');
     }
     if(!record.receipt) {
-      try {record.receipt=await (options.submit||submitSheetOrder)(record.attempt);save(record,store);}
+      const authFields=/^[a-f0-9-]{72}$/i.test(token)?{auth_token:token}:{id_token:token};
+      const submitOrder=options.submit||((attempt:SheetOrderAttempt)=>submitSheetOrder(attempt,{authFields}));
+      try {record.receipt=await submitOrder(record.attempt);save(record,store);}
       catch(error) {
         if(error instanceof SheetOrderSubmissionError&&!error.ambiguous)store.removeItem(key(actor));
         throw error;
