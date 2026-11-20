@@ -445,6 +445,9 @@ function auroraBuildOrder_(book,request,orders) {
       var s = String(item).toLowerCase().trim();
       return s === 'all' || s === '*';
     });
+    // An empty allowed_addon_ids list means all active add-ons are available.
+    // A non-empty list restricts the cake unless it contains the all/* wildcard.
+    var restrictAddons = allowedAddons.length > 0 && !allowAllAddons;
     var flavor;
     if (line.flavor_id) {
       if (!allowAllFlavors && allowedFlavors.indexOf(line.flavor_id) === -1) auroraReject_('unavailable_selection','The selected flavour is not allowed for this cake.');
@@ -455,7 +458,7 @@ function auroraBuildOrder_(book,request,orders) {
     var salePrice = auroraVariantSalePrice_(product,variant);
     var basePrice = auroraMoney_(salePrice === '' ? variant.price : salePrice,'variant price');
     var selectedAddons = line.addon_ids.map(function(id) {
-      if (!allowAllAddons && allowedAddons.indexOf(id) === -1) auroraReject_('unavailable_selection','The selected add-on is not allowed for this cake.');
+      if (restrictAddons && allowedAddons.indexOf(id) === -1) auroraReject_('unavailable_selection','The selected add-on is not allowed for this cake.');
       var addon = auroraCurrent_(addons,id,'Add-on');
       var price = auroraMoney_(addon.price,'add-on price');
       return {addon_id:id,addon_name:String(addon.name || ''),unit_price:price,quantity:line.quantity,subtotal:auroraMoneyRound_(price * line.quantity)};
