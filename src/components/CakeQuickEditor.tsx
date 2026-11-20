@@ -51,11 +51,13 @@ function readCake(product:Row,variants:Row[],flavors:Row[]):CakeFormDraft{
 export const CakeQuickEditor:React.FC<Props>=({endpoint,token,onUpdated})=>{
   const [expanded,setExpanded]=useState(false);
   const [snapshots,setSnapshots]=useState<{
-    categories:CmsSnapshot;products:CmsSnapshot;variants:CmsSnapshot;flavors:CmsSnapshot
+    categories:CmsSnapshot;products:CmsSnapshot;variants:CmsSnapshot;flavors:CmsSnapshot;addons:CmsSnapshot
   }|null>(null);
   const [selectedId,setSelectedId]=useState('new');
   const [draft,setDraft]=useState<CakeFormDraft>(blankCake);
   const [newFlavor,setNewFlavor]=useState('');
+  const [selectedAddonIds,setSelectedAddonIds]=useState<string[]>([]);
+  const [allAddons,setAllAddons]=useState(true);
   const [loading,setLoading]=useState(false);
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState('');
@@ -69,22 +71,26 @@ export const CakeQuickEditor:React.FC<Props>=({endpoint,token,onUpdated})=>{
     try{
       const [categories,products,variants,flavors]=await Promise.all([
         fetchCmsTable(endpoint,token,'categories'),fetchCmsTable(endpoint,token,'products'),
-        fetchCmsTable(endpoint,token,'product_variants'),fetchCmsTable(endpoint,token,'flavors')
+        fetchCmsTable(endpoint,token,'product_variants'),fetchCmsTable(endpoint,token,'flavors'),
+        fetchCmsTable(endpoint,token,'product_addons')
       ]);
-      if([categories,products,variants,flavors].some(table=>table.truncated))
+      if([categories,products,variants,flavors,addons].some(table=>table.truncated))
         throw new Error('Too many records to edit safely. Use the advanced CMS manager.');
-      const data={categories,products,variants,flavors};
+      const data={categories,products,variants,flavors,addons};
       setSnapshots(data);
       const target=preferred??selectedId;
       const product=products.rows.find(p=>str(p.id)===target);
       if(product){
         setSelectedId(target);
         setDraft(readCake(product,variants.rows,flavors.rows));
+        const addonIds=list(product.allowed_addon_ids);
+        const allowAll=addonIds.length===0||addonIds.some(id=>id.toLowerCase()==='all'||id==='*');
+        setAllAddons(allowAll);setSelectedAddonIds(allowAll?[]:addonIds);
       }else{
         const fresh=blankCake();
         fresh.categoryId=categories.rows.find(r=>active(r.is_active)&&/cake|কেক/i.test(str(r.name)))?.id as string
           ||str(categories.rows.find(r=>active(r.is_active))?.id);
-        setSelectedId('new');setDraft(fresh);
+        setSelectedId('new');setDraft(fresh);setAllAddons(true);setSelectedAddonIds([]);
       }
     }catch(caught){setError(shopErrorMessage(caught,'Could not load cake, size and flavour lists.'));}
     finally{setLoading(false);}
@@ -98,11 +104,15 @@ export const CakeQuickEditor:React.FC<Props>=({endpoint,token,onUpdated})=>{
     if(!snapshots||saving)return;
     setError('');setNotice('');setSelectedId(value);
     const product=snapshots.products.rows.find(row=>str(row.id)===value);
-    if(product)setDraft(readCake(product,snapshots.variants.rows,snapshots.flavors.rows));
-    else{
+    if(product){
+      setDraft(readCake(product,snapshots.variants.rows,snapshots.flavors.rows));
+      const addonIds=list(product.allowed_addon_ids);
+      const allowAll=addonIds.length===0||addonIds.some(id=>id.toLowerCase()==='all'||id==='*');
+      setAllAddons(allowAll);setSelectedAddonIds(allowAll?[]:addonIds);
+    }else{
       const fresh=blankCake();
       fresh.categoryId=str(categories.find(r=>/cake|কেক/i.test(str(r.name)))?.id||categories[0]?.id);
-      setDraft(fresh);
+      setDraft(fresh);setAllAddons(true);setSelectedAddonIds([]);
     }
   };
   const setSize=(key:string,patch:Partial<CakeSizeDraft>)=>change({sizes:draft.sizes.map(s=>
@@ -168,7 +178,7 @@ export const CakeQuickEditor:React.FC<Props>=({endpoint,token,onUpdated})=>{
         saved++;
       }
       await mutateCmsTable(endpoint,token,'products','update',
-        {...plan.productValues,is_active:draft.active},productId);
+        {...plan.productValues,allowed_addon_ids:JSON.stringify(allAddons?[]:selectedAddonIds),is_active:draft.active},productId);
       setSelectedId(productId);
       setNotice('সেভ হয়েছে। কেক, Flavour এবং প্রতিটি Size-এর Regular/Discount Price আপডেট হয়েছে।');
       onUpdated();
@@ -261,6 +271,29 @@ export const CakeQuickEditor:React.FC<Props>=({endpoint,token,onUpdated})=>{
               + Flavour যোগ করুন
             </button>
           </div>
+        </div>
+        <div className="space-y-2 rounded-xl border border-amber-200 bg-white p-3">
+          <div>
+            <h5 className="font-bold text-sm text-emerald-950">Add-ons নির্বাচন</h5>
+            <p className="text-xs text-slate-600">All Add-ons চালু থাকলে সব Active Add-ons দেখাবে। নির্দিষ্ট Cake-এর জন্য চাইলে আলাদা করে বেছে নিন।</p>
+          </div>
+          <label className="inline-flex items-center gap-2 text-xs font-semibold">
+            <input type="checkbox" checked={allAddons} disabled={saving}
+              onChange={e=>{setAllAddons(e.target.checked);if(e.target.checked)setSelectedAddonIds([]);}}/>
+            সব Active Add-ons দেখাবে
+          </label>
+          {!allAddons&&<div className="grid gap-2 sm:grid-cols-2">
+            {(snapshots?.addons.rows||[]).filter(row=>active(row.is_active)).map(row=>{
+              const id=str(row.id),checked=selectedAddonIds.includes(id);
+              return <label key={id} className="flex items-center justify-between gap-2 rounded-lg border p-2 text-xs">
+                <span className="flex items-center gap-2"><input type="checkbox" checked={checked} disabled={saving}
+                  onChange={e=>setSelectedAddonIds(previous=>e.target.checked?[...new Set([...previous,id])]:previous.filter(value=>value!==id))}/>{str(row.name)}</span>
+                <span className="font-semibold text-emerald-800">৳{str(row.price)}</span>
+              </label>;
+            })}
+            {!(snapshots?.addons.rows||[]).some(row=>active(row.is_active))&&<p className="text-xs text-slate-500">কোনো Active Add-on নেই।</p>}
+          </div>}
+          {!allAddons&&<p className="text-[11px] text-slate-500">কোনো Add-on নির্বাচন না করলে এই Cake-এ কোনো Add-on দেখাবে না।</p>}
         </div>
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
