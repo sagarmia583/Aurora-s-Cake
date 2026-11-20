@@ -43,15 +43,18 @@ export function validateCoupon(
     };
   }
 
+  const round2 = (value: number) => Math.round(value * 100) / 100;
+  const discountType = String(coupon.discount_type || '').trim().toLowerCase();
   let discount = 0;
-  if (coupon.discount_type === 'percentage') {
-    discount = Math.round((subtotal * coupon.discount_value) / 100);
-    if (coupon.max_discount_amount && discount > coupon.max_discount_amount) {
-      discount = coupon.max_discount_amount;
-    }
+  if (discountType === 'percentage') {
+    discount = (subtotal * coupon.discount_value) / 100;
   } else {
-    discount = Math.min(coupon.discount_value, subtotal);
+    discount = coupon.discount_value;
   }
+  if (coupon.max_discount_amount !== undefined && coupon.max_discount_amount !== null) {
+    discount = Math.min(discount, coupon.max_discount_amount);
+  }
+  discount = round2(Math.min(subtotal, Math.max(0, discount)));
 
   return {
     isValid: true,

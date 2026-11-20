@@ -110,8 +110,25 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
   initialCartItems,
   onOrderCreated,
 }) => {
-  // Today's date string YYYY-MM-DD
-  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+  // Today's date string YYYY-MM-DD in Bangladesh time (Asia/Dhaka, UTC+6)
+  const todayStr = useMemo(() => {
+    try {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Dhaka',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).formatToParts(new Date());
+      const y = parts.find((p) => p.type === 'year')?.value;
+      const m = parts.find((p) => p.type === 'month')?.value;
+      const d = parts.find((p) => p.type === 'day')?.value;
+      if (y && m && d) return `${y}-${m}-${d}`;
+    } catch {}
+    return new Date(Date.now() + 6 * 3600 * 1000).toISOString().slice(0, 10);
+  }, []);
+  const round2 = (value: number) => Math.round(value * 100) / 100;
+  const effectiveVariantPrice = (variant?: { price: number; sale_price?: number }) =>
+    variant ? (typeof variant.sale_price === 'number' && Number.isFinite(variant.sale_price) ? variant.sale_price : variant.price) : 0;
   const [zones,setZones]=useState(suppliedZones);
   useEffect(()=>setZones(suppliedZones),[suppliedZones]);
   const submitBusy=useRef(false);
@@ -309,8 +326,8 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
     const chosenFlavor = productFlavors.find((f) => f.id === selectedFlavorId);
     const chosenAddons = [...productAddons.filter((a) => selectedAddonIds.includes(a.id)), ...customAddons];
     const addonsTotal = chosenAddons.reduce((sum, a) => sum + a.price, 0);
-    const unitPrice = selectedVariant.price + addonsTotal;
-    const itemTotalPrice = unitPrice * Math.max(1, itemQuantity);
+    const unitPrice = round2(effectiveVariantPrice(selectedVariant) + addonsTotal);
+    const itemTotalPrice = round2(unitPrice * Math.max(1, itemQuantity));
 
     if (editingCartItemId) {
       setCartItems((prev) =>
@@ -374,16 +391,17 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
   }, [currentChosenAddons]);
 
   const currentUnitPrice = useMemo(() => {
-    return (selectedVariant?.price || selectedProduct?.base_price || 0) + currentAddonsTotal;
+    const base = selectedVariant ? effectiveVariantPrice(selectedVariant) : (selectedProduct?.sale_price ?? selectedProduct?.base_price ?? 0);
+    return round2(base + currentAddonsTotal);
   }, [selectedVariant, selectedProduct, currentAddonsTotal]);
 
   const currentItemTotal = useMemo(() => {
-    return currentUnitPrice * Math.max(1, itemQuantity);
+    return round2(currentUnitPrice * Math.max(1, itemQuantity));
   }, [currentUnitPrice, itemQuantity]);
 
   // Current calculations
   const itemsSubtotal = useMemo(
-    () => cartItems.reduce((sum, item) => sum + item.total_price, 0),
+    () => round2(cartItems.reduce((sum, item) => sum + item.total_price, 0)),
     [cartItems]
   );
 
@@ -424,7 +442,7 @@ export const AdminCreateOrderModal: React.FC<AdminCreateOrderModalProps> = ({
     return val.isValid ? val.discount : 0;
   }, [appliedCoupon, itemsSubtotal]);
 
-  const grandTotal = Math.max(0, itemsSubtotal - couponDiscount + deliveryFee);
+  const grandTotal = round2(Math.max(0, itemsSubtotal - couponDiscount + deliveryFee));
   const remainingDue = grandTotal;
 
   const handleResetForm = () => {
